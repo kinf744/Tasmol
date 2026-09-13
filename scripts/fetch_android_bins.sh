@@ -1,7 +1,9 @@
 #!/bin/bash
 # Stage official tunnel binaries as Android native libraries (armeabi-v7a).
 # The APK executes them from applicationInfo.nativeLibraryDir.
-# Source: repository bundle bin/armv7/ (xray v25.12.8, zivpn 1.4.9, slowdns).
+# Source: repository bundle bin/armv7/ (zivpn 1.4.9, slowdns).
+# NOTE: Xray runs in-process (xray-core library + XRAY_TUN_FD), so no
+# lib_xray.so is staged anymore.
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +26,6 @@ stage() {
 }
 
 fail=0
-stage xray lib_xray.so || fail=1
 stage zivpn lib_zivpn.so || fail=1
 stage slowdns lib_slowdns.so || fail=1
 

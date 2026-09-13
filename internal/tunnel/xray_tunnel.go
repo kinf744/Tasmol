@@ -88,47 +88,54 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 }
 
 func (t *XrayTunnel) buildOutbound() map[string]interface{} {
+	return BuildVlessOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
+}
+
+// BuildVlessOutbound builds a VLESS outbound object from a tunnel config,
+// dialing addr:port. The mobile front-end reuses it with 127.0.0.1 and the
+// dnstt forward port for xray_slowdns tunnels.
+func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	streamSettings := map[string]interface{}{
-		"network":  t.config.Transport.Network,
-		"security": t.config.Transport.Security,
+		"network":  cfg.Transport.Network,
+		"security": cfg.Transport.Security,
 	}
 
-	if t.config.Transport.Network == "ws" {
+	if cfg.Transport.Network == "ws" {
 		streamSettings["wsSettings"] = map[string]interface{}{
-			"path": t.config.Transport.Path,
+			"path": cfg.Transport.Path,
 			"headers": map[string]string{
-				"Host": t.config.Transport.Host,
+				"Host": cfg.Transport.Host,
 			},
 		}
 	}
 
-	if t.config.Transport.Security == "tls" {
+	if cfg.Transport.Security == "tls" {
 		streamSettings["tlsSettings"] = map[string]interface{}{
-			"serverName":    t.config.Server.SNI,
+			"serverName":    cfg.Server.SNI,
 			"allowInsecure": false,
-			"fingerprint":   t.config.Transport.Fingerprint,
-			"alpn":          t.config.Transport.ALPN,
+			"fingerprint":   cfg.Transport.Fingerprint,
+			"alpn":          cfg.Transport.ALPN,
 		}
 	}
 
-	if t.config.Transport.Security == "reality" {
+	if cfg.Transport.Security == "reality" {
 		streamSettings["realitySettings"] = map[string]interface{}{
-			"serverName":  t.config.Server.SNI,
-			"publicKey":   t.config.Server.PublicKey,
-			"shortId":     t.config.Server.ShortID,
-			"fingerprint": t.config.Transport.Fingerprint,
+			"serverName":  cfg.Server.SNI,
+			"publicKey":   cfg.Server.PublicKey,
+			"shortId":     cfg.Server.ShortID,
+			"fingerprint": cfg.Transport.Fingerprint,
 		}
 	}
 
 	settings := map[string]interface{}{
 		"vnext": []map[string]interface{}{
 			{
-				"address": t.config.Server.Host,
-				"port":    t.config.Server.Port,
+				"address": addr,
+				"port":    port,
 				"users": []map[string]interface{}{
 					{
-						"id":         t.config.Auth.UUID,
-						"flow":       t.config.Auth.Flow,
+						"id":         cfg.Auth.UUID,
+						"flow":       cfg.Auth.Flow,
 						"encryption": "none",
 					},
 				},

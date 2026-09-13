@@ -73,7 +73,7 @@ pkg install -y git curl wget unzip tar gzip iproute2 wireguard-tools dnsutils ne
 # 2. Install official tunnel binaries (armv7) - stored in the repo bundle bin/armv7/
 mkdir -p ~/bin ~/.vpn-app && cd ~/vpn-app 2>/dev/null || cd ~
 
-# Xray v25.12.8 (XTLS/Xray-core, Xray-linux-arm32-v7a.zip)
+# Xray v26.5.9 (XTLS/Xray-core, Xray-linux-arm32-v7a.zip)
 cp bin/armv7/xray ~/bin/xray
 cp bin/armv7/geoip.dat bin/armv7/geosite.dat ~/.vpn-app/
 
@@ -86,7 +86,7 @@ cp bin/armv7/slowdns ~/bin/slowdns
 chmod +x ~/bin/xray ~/bin/zivpn ~/bin/slowdns
 
 # (Fallback without the repo bundle: scripts/download_binaries.sh
-#  downloads Xray v25.12.8 + zivpn 1.4.9 from official releases and
+#  downloads Xray v26.5.9 + zivpn 1.4.9 from official releases and
 #  builds dnstt-client from OutlineFoundation/dnstt.)
 # NOTE: UDPGW uses the built-in pure-Go proxy - no external binary needed.
 
@@ -204,7 +204,7 @@ tunnels:
       security: "tls"
 ```
 
-#### Xray + SlowDNS (dnstt-client + xray v25.12.8)
+#### Xray + SlowDNS (dnstt-client + xray v26.5.9)
 ```yaml
 tunnels:
   - name: "Xray + SlowDNS"

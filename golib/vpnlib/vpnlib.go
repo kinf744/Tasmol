@@ -2,47 +2,44 @@
 // (Voie B, no-root operation).
 //
 // Architecture: the Android VpnService captures device packets into a TUN
-// file descriptor and hands it to Controller.Start. The data plane
-// (gVisor netstack via xjasonlyu/tun2socks) forwards TCP through the local
-// SOCKS5 proxy exposed by the active tunnel (SSH / dnstt+SSH / Xray /
-// dnstt+Xray / Zivpn). UDP DNS (port 53) is relayed over DNS-over-TCP
-// through the same SOCKS proxy so it works with every tunnel type,
-// including SSH which has no UDP support. Other UDP goes through SOCKS5
-// UDP ASSOCIATE (supported by Xray/Zivpn outbounds).
+// file descriptor and hands it to Controller.Start. The data plane IS
+// Xray (xray-core v26, in-process library): its TUN inbound reads the fd
+// via the official XRAY_TUN_FD environment variable, routes everything
+// through the active tunnel's outbound and resolves DNS over HTTPS.
+//
+// Per active tunnel, the front Xray dials:
+//   - ssh / ssh_slowdns : SOCKS5 outbound -> local native-SSH SOCKS
+//     (10801 / 10802), dnstt+SSH processes driven by the core manager.
+//   - xray              : native VLESS outbound straight to the server.
+//   - xray_slowdns      : native VLESS outbound to the local dnstt forward
+//     (127.0.0.1:2224), dnstt process driven by vpnlib.
+//   - zivpn             : SOCKS5 outbound -> local zivpn client SOCKS
+//     (10810), zivpn client process driven by the core manager.
 //
 // The app's own UID is excluded from the VPN via
-// VpnService.Builder.addDisallowedApplication, so upstream sockets
-// (tunnel processes, SOCKS dials) never loop back into the TUN.
+// VpnService.Builder.addDisallowedApplication, so upstream sockets never
+// loop back into the TUN.
 //
 // Only string/int/bool cross the gomobile boundary (JSON documents).
 package vpnlib
 
 import (
+	"bytes"
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
 
-	"gvisor.dev/gvisor/pkg/tcpip/stack"
-
-	t2core "github.com/xjasonlyu/tun2socks/v2/core"
-	t2device "github.com/xjasonlyu/tun2socks/v2/core/device"
-	"github.com/xjasonlyu/tun2socks/v2/core/device/fdbased"
-	t2meta "github.com/xjasonlyu/tun2socks/v2/metadata"
-	t2proxy "github.com/xjasonlyu/tun2socks/v2/proxy"
-	t2tunnel "github.com/xjasonlyu/tun2socks/v2/tunnel"
-	t2stat "github.com/xjasonlyu/tun2socks/v2/tunnel/statistic"
+	xcore "github.com/xtls/xray-core/v26/core"
+	xserial "github.com/xtls/xray-core/v26/infra/conf/serial"
+	_ "github.com/xtls/xray-core/v26/main/distro/all"
 
 	"vpn-app/internal/api"
 	"vpn-app/internal/config"
@@ -76,23 +73,33 @@ type Controller struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	dev    t2device.Device
-	stack  *stack.Stack
-	tun    *t2tunnel.Tunnel
-	dialer *swapDialer
-
+	front      *xcore.Instance
+	tunFd      int
+	dnsProcs   map[string]*dnsttProc
 	activeID   string
 	autoFollow bool
+	startTime  time.Time
+}
+
+type dnsttProc struct {
+	cmd     processKiller
+	fwdPort int
+}
+
+// processKiller abstracts *exec.Cmd for the dnstt helpers.
+type processKiller interface {
+	Kill() error
+	Wait() error
 }
 
 // NewController creates a Controller. It must be called once.
 func NewController() *Controller {
-	return &Controller{}
+	return &Controller{dnsProcs: make(map[string]*dnsttProc)}
 }
 
 // MobileVersion returns the data-plane version.
 func MobileVersion() string {
-	return Version
+	return "2.0.0-xray"
 }
 
 func errJSON(err error) string {
@@ -100,9 +107,9 @@ func errJSON(err error) string {
 	return string(b)
 }
 
-// Start boots the management core, the active tunnel and the TUN data
-// plane. paramsJSON follows startParams. Returns "" on success or a JSON
-// {"error": "..."} document.
+// Start boots the management core, the helpers of the active tunnel and the
+// in-process Xray front reading the Android TUN fd. Returns "" on success
+// or a JSON {"error": "..."} document.
 func (c *Controller) Start(paramsJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -128,8 +135,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(err)
 	}
 
-	// Wire tunnel engines: bundled official binaries + native SSH, exactly
-	// like the server build but without external openssh.
+	// Wire tunnel engines: bundled official binaries + native SSH.
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
@@ -148,10 +154,10 @@ func (c *Controller) Start(paramsJSON string) string {
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.cfgMgr = cfgMgr
 	c.vpn = vpn
-	c.activeID = p.ActiveTunnel
+	c.tunFd = p.TunFd
 	c.autoFollow = p.AutoFollow
+	c.activeID = p.ActiveTunnel
 
-	// Start the requested tunnel (or the first enabled one).
 	if c.activeID == "" {
 		for _, tc := range cfgMgr.Get().Tunnels {
 			if tc.Enabled {
@@ -164,14 +170,13 @@ func (c *Controller) Start(paramsJSON string) string {
 		c.cleanupLocked()
 		return errJSON(fmt.Errorf("no tunnel configured: add one first"))
 	}
-	if err := c.startTunnelLocked(c.activeID); err != nil {
+
+	// Helpers (dnstt / ssh / zivpn processes) then the Xray front.
+	if err := c.ensureHelpersLocked(c.activeID); err != nil {
 		c.cleanupLocked()
 		return errJSON(err)
 	}
-
-	// Data plane: gVisor stack on the Android TUN fd, upstream = the
-	// active tunnel's local SOCKS5.
-	if err := c.startDataplaneLocked(p.TunFd, p.MTU); err != nil {
+	if err := c.startFrontLocked(p.MTU); err != nil {
 		c.cleanupLocked()
 		return errJSON(err)
 	}
@@ -185,6 +190,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		}()
 	}
 
+	c.startTime = time.Now()
 	c.running = true
 
 	if c.autoFollow {
@@ -211,17 +217,16 @@ func (c *Controller) cleanupLocked() {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	if c.stack != nil {
-		c.stack.Close()
-		c.stack.Wait()
-		c.stack = nil
+	if c.front != nil {
+		_ = c.front.Close()
+		c.front = nil
 	}
-	if c.dev != nil {
-		c.dev.Close()
-		c.dev = nil
+	for id, dp := range c.dnsProcs {
+		if dp.cmd != nil {
+			_ = dp.cmd.Kill()
+		}
+		delete(c.dnsProcs, id)
 	}
-	c.tun = nil
-	c.dialer = nil
 	if c.vpn != nil {
 		_ = c.vpn.Stop(context.Background())
 		c.vpn = nil
@@ -236,92 +241,172 @@ func (c *Controller) cleanupLocked() {
 	c.wg.Wait()
 }
 
-// startTunnelLocked starts a tunnel process by id (caller holds c.mu).
-func (c *Controller) startTunnelLocked(id string) error {
+// ensureHelpersLocked starts the helper processes the active tunnel needs.
+// The front Xray instance itself carries xray-native outbounds, so manager
+// processes for xray types are stopped to avoid duplicate binds.
+func (c *Controller) ensureHelpersLocked(id string) error {
 	t, ok := c.vpn.GetTunnelManager().Get(id)
 	if !ok {
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
-	if t.Status() != tunnel.StatusRunning {
-		if err := t.Start(c.ctx); err != nil {
-			return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
+	cfg := t.Config()
+
+	switch cfg.Type {
+	case config.TunnelXray:
+		// Front carries the VLESS outbound: make sure no duplicate
+		// manager process holds the local SOCKS port.
+		_ = t.Stop(context.Background())
+		return nil
+	case config.TunnelXraySlowDNS:
+		_ = t.Stop(context.Background())
+		return c.ensureDnsttLocked(id, cfg, tunnel.DnsttForwardPort(cfg, tunnel.DefaultXraySlowDNSFwdPort))
+	default:
+		// ssh / ssh_slowdns / zivpn expose a local SOCKS5 used as the
+		// front's upstream.
+		if t.Status() != tunnel.StatusRunning {
+			if err := t.Start(c.ctx); err != nil {
+				return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
+			}
 		}
+		return nil
 	}
-	return nil
 }
 
-// startDataplaneLocked builds the gVisor stack over tunFd (caller holds c.mu).
-func (c *Controller) startDataplaneLocked(tunFd, mtu int) error {
-	socksAddr, err := c.activeSocksLocked()
+// ensureDnsttLocked starts (once) the dnstt forward for tunnels whose
+// outbound the front dials directly (xray_slowdns).
+func (c *Controller) ensureDnsttLocked(id string, cfg *config.TunnelConfig, fwdPort int) error {
+	if dp, ok := c.dnsProcs[id]; ok && dp.cmd != nil {
+		return nil
+	}
+	cmd, err := tunnel.StartDnstt(c.ctx, cfg, fwdPort)
 	if err != nil {
 		return err
 	}
-
-	dev, err := fdbased.Open(strconv.Itoa(tunFd), uint32(mtu), 0)
-	if err != nil {
-		return fmt.Errorf("open tun fd: %w", err)
-	}
-
-	upstream, err := t2proxy.NewSocks5(socksAddr, "", "")
-	if err != nil {
-		dev.Close()
-		return fmt.Errorf("socks dialer: %w", err)
-	}
-
-	d := &swapDialer{}
-	d.set(upstream)
-
-	t := t2tunnel.New(d, t2stat.DefaultManager)
-	t.ProcessAsync()
-
-	st, err := t2core.CreateStack(&t2core.Config{
-		LinkEndpoint:     dev,
-		TransportHandler: t,
-	})
-	if err != nil {
-		dev.Close()
-		return fmt.Errorf("netstack: %w", err)
-	}
-
-	c.dev = dev
-	c.stack = st
-	c.tun = t
-	c.dialer = d
+	c.dnsProcs[id] = &dnsttProc{cmd: cmd, fwdPort: fwdPort}
 	return nil
 }
 
-// activeSocksLocked resolves the SOCKS endpoint of the active tunnel.
-func (c *Controller) activeSocksLocked() (string, error) {
+// frontOutbound builds the "proxy" outbound of the front Xray for tc.
+func frontOutbound(tc *config.TunnelConfig) (map[string]interface{}, error) {
+	switch tc.Type {
+	case config.TunnelSSH, config.TunnelSSHSlowDNS, config.TunnelZivpn:
+		return map[string]interface{}{
+			"protocol": "socks",
+			"tag":      "proxy",
+			"settings": map[string]interface{}{
+				"servers": []map[string]interface{}{
+					{"address": "127.0.0.1", "port": tunnel.SocksPort(tc)},
+				},
+			},
+		}, nil
+	case config.TunnelXray:
+		port := tc.Server.Port
+		if port == 0 {
+			port = 443
+		}
+		return tunnel.BuildVlessOutbound(tc, tc.Server.Host, port), nil
+	case config.TunnelXraySlowDNS:
+		fwd := tunnel.DnsttForwardPort(tc, tunnel.DefaultXraySlowDNSFwdPort)
+		return tunnel.BuildVlessOutbound(tc, "127.0.0.1", fwd), nil
+	default:
+		return nil, fmt.Errorf("unsupported tunnel type: %s", tc.Type)
+	}
+}
+
+// buildFrontConfig builds the front Xray JSON: TUN inbound fed by
+// XRAY_TUN_FD, active-tunnel outbound, DNS over HTTPS, sane routing.
+func buildFrontConfig(tc *config.TunnelConfig, mtu int) ([]byte, error) {
+	proxy, err := frontOutbound(tc)
+	if err != nil {
+		return nil, err
+	}
+
+	doc := map[string]interface{}{
+		"log": map[string]interface{}{"loglevel": "warning"},
+		"inbounds": []interface{}{
+			map[string]interface{}{
+				"tag":      "tun-in",
+				"protocol": "tun",
+				"settings": map[string]interface{}{
+					"name": "tasvpn",
+					"mtu":  mtu,
+				},
+				"sniffing": map[string]interface{}{
+					"enabled":      true,
+					"destOverride": []string{"http", "tls", "quic"},
+				},
+			},
+		},
+		"outbounds": []interface{}{
+			proxy,
+			map[string]interface{}{"protocol": "dns", "tag": "dns-out"},
+			map[string]interface{}{"protocol": "freedom", "tag": "direct"},
+			map[string]interface{}{"protocol": "blackhole", "tag": "block"},
+		},
+		"routing": map[string]interface{}{
+			"domainStrategy": "AsIs",
+			"rules": []interface{}{
+				map[string]interface{}{
+					"type": "field", "port": "53", "outboundTag": "dns-out",
+				},
+				map[string]interface{}{
+					"type": "field", "network": "tcp,udp", "outboundTag": "proxy",
+				},
+			},
+		},
+		"dns": map[string]interface{}{
+			"servers":       []string{"https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"},
+			"queryStrategy": "UseIP",
+		},
+	}
+
+	return json.Marshal(doc)
+}
+
+// startFrontLocked builds and starts the in-process Xray front
+// (caller holds c.mu).
+func (c *Controller) startFrontLocked(mtu int) error {
 	t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
 	if !ok {
-		return "", fmt.Errorf("active tunnel gone: %s", c.activeID)
+		return fmt.Errorf("active tunnel gone: %s", c.activeID)
 	}
-	return tunnel.SocksAddr(t.Config()), nil
-}
 
-// switchUpstreamLocked re-points the data plane at the active tunnel.
-func (c *Controller) switchUpstreamLocked() error {
-	if c.dialer == nil {
-		return fmt.Errorf("data plane not running")
-	}
-	socksAddr, err := c.activeSocksLocked()
+	raw, err := buildFrontConfig(t.Config(), mtu)
 	if err != nil {
 		return err
 	}
-	upstream, err := t2proxy.NewSocks5(socksAddr, "", "")
+
+	fd := strconv.Itoa(c.tunFd)
+	os.Setenv("XRAY_TUN_FD", fd)
+	os.Setenv("xray.tun.fd", fd)
+
+	pbCfg, err := xserial.LoadJSONConfig(bytes.NewReader(raw))
 	if err != nil {
-		return err
+		return fmt.Errorf("xray config: %w", err)
 	}
-	// Make sure the SOCKS endpoint answers before switching.
-	if err := waitTCP(socksAddr, 15*time.Second); err != nil {
-		return fmt.Errorf("tunnel socks not ready (%s): %w", socksAddr, err)
+	inst, err := xcore.New(pbCfg)
+	if err != nil {
+		return fmt.Errorf("xray init: %w", err)
 	}
-	c.dialer.set(upstream)
+	if err := inst.Start(); err != nil {
+		_ = inst.Close()
+		return fmt.Errorf("xray start: %w", err)
+	}
+	c.front = inst
 	return nil
 }
 
-// followLoop migrates the data plane to any running tunnel when the active
-// one dies (client asked with auto_follow).
+// rebuildFrontLocked restarts the front (tunnel switch).
+func (c *Controller) rebuildFrontLocked(mtu int) error {
+	if c.front != nil {
+		_ = c.front.Close()
+		c.front = nil
+	}
+	return c.startFrontLocked(mtu)
+}
+
+// followLoop migrates the front to any running tunnel when the active one
+// dies (client asked with auto_follow).
 func (c *Controller) followLoop() {
 	defer c.wg.Done()
 	ticker := time.NewTicker(5 * time.Second)
@@ -332,31 +417,45 @@ func (c *Controller) followLoop() {
 			return
 		case <-ticker.C:
 			c.mu.Lock()
-			if !c.running || c.dialer == nil {
+			if !c.running {
 				c.mu.Unlock()
 				continue
 			}
-			need := false
-			if t, ok := c.vpn.GetTunnelManager().Get(c.activeID); !ok || t.Status() != tunnel.StatusRunning {
-				need = true
-				for _, cand := range c.vpn.GetTunnelManager().GetRunning() {
-					c.activeID = cand.ID()
-					need = false
-					break
+			activeAlive := false
+			if t, ok := c.vpn.GetTunnelManager().Get(c.activeID); ok {
+				cfgType := t.Config().Type
+				if cfgType == config.TunnelXray || cfgType == config.TunnelXraySlowDNS {
+					activeAlive = c.front != nil
+				} else {
+					activeAlive = t.Status() == tunnel.StatusRunning
 				}
 			}
-			if need {
-				c.mu.Unlock()
-				continue
+			if !activeAlive {
+				migrated := false
+				for _, cand := range c.vpn.GetTunnelManager().List() {
+					ccfg := cand.Config()
+					usable := ccfg.Enabled && (cand.Status() == tunnel.StatusRunning ||
+						ccfg.Type == config.TunnelXray || ccfg.Type == config.TunnelXraySlowDNS)
+					if !usable {
+						continue
+					}
+					c.activeID = cand.ID()
+					if err := c.ensureHelpersLocked(c.activeID); err == nil {
+						if err := c.rebuildFrontLocked(1500); err == nil {
+							migrated = true
+						}
+					}
+					break
+				}
+				_ = migrated
 			}
-			_ = c.switchUpstreamLocked()
 			c.mu.Unlock()
 		}
 	}
 }
 
-// SetActiveTunnel starts the tunnel and switches the data plane to it.
-// Returns "" on success or a JSON error.
+// SetActiveTunnel switches the data plane to the tunnel: helpers are
+// ensured, then the front is rebuilt around its outbound.
 func (c *Controller) SetActiveTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -364,17 +463,20 @@ func (c *Controller) SetActiveTunnel(id string) string {
 	if !c.running {
 		return errJSON(fmt.Errorf("controller not running"))
 	}
-	if err := c.startTunnelLocked(id); err != nil {
+	if _, ok := c.vpn.GetTunnelManager().Get(id); !ok {
+		return errJSON(fmt.Errorf("tunnel not found: %s", id))
+	}
+	if err := c.ensureHelpersLocked(id); err != nil {
 		return errJSON(err)
 	}
 	c.activeID = id
-	if err := c.switchUpstreamLocked(); err != nil {
+	if err := c.rebuildFrontLocked(1500); err != nil {
 		return errJSON(err)
 	}
 	return ""
 }
 
-// StartTunnel starts a tunnel process without touching the data plane.
+// StartTunnel starts a tunnel helper process without touching the front.
 func (c *Controller) StartTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -382,13 +484,19 @@ func (c *Controller) StartTunnel(id string) string {
 	if !c.running {
 		return errJSON(fmt.Errorf("controller not running"))
 	}
-	if err := c.startTunnelLocked(id); err != nil {
-		return errJSON(err)
+	t, ok := c.vpn.GetTunnelManager().Get(id)
+	if !ok {
+		return errJSON(fmt.Errorf("tunnel not found: %s", id))
+	}
+	if t.Status() != tunnel.StatusRunning {
+		if err := t.Start(c.ctx); err != nil {
+			return errJSON(fmt.Errorf("start tunnel %s: %w", t.Name(), err))
+		}
 	}
 	return ""
 }
 
-// StopTunnel stops a tunnel process.
+// StopTunnel stops a tunnel helper process.
 func (c *Controller) StopTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -407,7 +515,6 @@ func (c *Controller) StopTunnel(id string) string {
 }
 
 // AddTunnel creates a tunnel from a TunnelConfig JSON document.
-// Returns {"id": "..."} or a JSON error.
 func (c *Controller) AddTunnel(tunnelJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -433,7 +540,7 @@ func (c *Controller) AddTunnel(tunnelJSON string) string {
 	return string(b)
 }
 
-// UpdateTunnel replaces a tunnel config (restarts it if running).
+// UpdateTunnel replaces a tunnel config (restarts helpers/front if active).
 func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -448,9 +555,7 @@ func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 	tc.ID = id
 
 	wasActive := c.activeID == id
-	wasRunning := false
 	if old, ok := c.vpn.GetTunnelManager().Get(id); ok {
-		wasRunning = old.Status() == tunnel.StatusRunning
 		_ = old.Stop(context.Background())
 		_ = c.vpn.GetTunnelManager().Remove(id)
 	}
@@ -464,20 +569,18 @@ func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 	if err := c.vpn.GetTunnelManager().Add(t); err != nil {
 		return errJSON(err)
 	}
-	if wasRunning || wasActive {
-		if err := c.startTunnelLocked(id); err != nil {
+	if wasActive {
+		if err := c.ensureHelpersLocked(id); err != nil {
 			return errJSON(err)
 		}
-		if wasActive {
-			if err := c.switchUpstreamLocked(); err != nil {
-				return errJSON(err)
-			}
+		if err := c.rebuildFrontLocked(1500); err != nil {
+			return errJSON(err)
 		}
 	}
 	return ""
 }
 
-// DeleteTunnel removes a tunnel (refused while it carries the data plane).
+// DeleteTunnel removes a tunnel (refused while it carries the front).
 func (c *Controller) DeleteTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -506,11 +609,11 @@ func (c *Controller) ImportConfig(content string) string {
 	if !c.running {
 		return errJSON(fmt.Errorf("controller not running"))
 	}
-	var err error
 	trimmed := content
 	for len(trimmed) > 0 && (trimmed[0] == ' ' || trimmed[0] == '\n' || trimmed[0] == '\t' || trimmed[0] == '\r') {
 		trimmed = trimmed[1:]
 	}
+	var err error
 	if len(trimmed) > 0 && trimmed[0] == '{' {
 		err = c.cfgMgr.ImportJSON([]byte(content))
 	} else {
@@ -578,11 +681,10 @@ func (c *Controller) GetStatus() string {
 			Socks:   tunnel.SocksAddr(t.Config()),
 		})
 	}
-	snap := t2stat.DefaultManager.Snapshot()
 	out["active_tunnel"] = c.activeID
+	out["front_running"] = c.front != nil
+	out["uptime"] = int64(time.Since(c.startTime).Seconds())
 	out["tunnels"] = list
-	out["bytes_up"] = snap.UploadTotal
-	out["bytes_down"] = snap.DownloadTotal
 
 	b, _ := json.Marshal(out)
 	return string(b)
@@ -602,137 +704,3 @@ func waitTCP(addr string, timeout time.Duration) error {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
-
-// ---------------------------------------------------------------------------
-// swapDialer: hot-swappable SOCKS5 upstream with DNS-over-TCP interception.
-// ---------------------------------------------------------------------------
-
-// swapDialer implements t2proxy.Dialer. UDP port 53 is relayed as
-// DNS-over-TCP through the SOCKS proxy so DNS works with every tunnel type
-// (SSH has no UDP support). All other traffic uses the upstream directly.
-type swapDialer struct {
-	v atomic.Value // stores t2proxy.Dialer
-}
-
-func (d *swapDialer) set(u t2proxy.Dialer) {
-	d.v.Store(u)
-}
-
-func (d *swapDialer) get() t2proxy.Dialer {
-	u := d.v.Load()
-	if u == nil {
-		return nil
-	}
-	return u.(t2proxy.Dialer)
-}
-
-func (d *swapDialer) DialContext(ctx context.Context, m *t2meta.Metadata) (net.Conn, error) {
-	u := d.get()
-	if u == nil {
-		return nil, fmt.Errorf("no upstream proxy selected")
-	}
-	return u.DialContext(ctx, m)
-}
-
-func (d *swapDialer) DialUDP(m *t2meta.Metadata) (net.PacketConn, error) {
-	u := d.get()
-	if u == nil {
-		return nil, fmt.Errorf("no upstream proxy selected")
-	}
-	if m.DstPort == 53 && m.DstIP.IsValid() {
-		return newDNSOverTCPConn(u, m.DstIP), nil
-	}
-	return u.DialUDP(m)
-}
-
-// dnsOverTCPConn is a net.PacketConn relaying DNS datagrams over a
-// DNS-over-TCP stream (RFC 7766 framing: uint16 length + message) opened
-// through the SOCKS upstream to the original destination IP.
-type dnsOverTCPConn struct {
-	dial    t2proxy.Dialer
-	dstIP   netip.Addr
-	raddr   net.Addr
-	respCh  chan []byte
-	closeCh chan struct{}
-	once    sync.Once
-}
-
-func newDNSOverTCPConn(u t2proxy.Dialer, dstIP netip.Addr) *dnsOverTCPConn {
-	udpAddr := net.UDPAddrFromAddrPort(netip.AddrPortFrom(dstIP, 53))
-	return &dnsOverTCPConn{
-		dial:    u,
-		dstIP:   dstIP,
-		raddr:   udpAddr,
-		respCh:  make(chan []byte, 32),
-		closeCh: make(chan struct{}),
-	}
-}
-
-func (c *dnsOverTCPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
-	select {
-	case <-c.closeCh:
-		return 0, fmt.Errorf("dns relay closed")
-	default:
-	}
-	payload := append([]byte(nil), b...)
-	go c.relay(payload)
-	return len(b), nil
-}
-
-func (c *dnsOverTCPConn) relay(query []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	conn, err := c.dial.DialContext(ctx, &t2meta.Metadata{
-		Network: t2meta.TCP,
-		DstIP:   c.dstIP,
-		DstPort: 53,
-	})
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
-
-	var hdr [2]byte
-	binary.BigEndian.PutUint16(hdr[:], uint16(len(query)))
-	if _, err := conn.Write(append(hdr[:], query...)); err != nil {
-		return
-	}
-	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
-		return
-	}
-	resp := make([]byte, int(binary.BigEndian.Uint16(hdr[:])))
-	if _, err := io.ReadFull(conn, resp); err != nil {
-		return
-	}
-	select {
-	case c.respCh <- resp:
-	case <-c.closeCh:
-	}
-}
-
-func (c *dnsOverTCPConn) ReadFrom(b []byte) (int, net.Addr, error) {
-	select {
-	case resp := <-c.respCh:
-		n := copy(b, resp)
-		return n, c.raddr, nil
-	case <-c.closeCh:
-		return 0, nil, fmt.Errorf("dns relay closed")
-	}
-}
-
-func (c *dnsOverTCPConn) Close() error {
-	c.once.Do(func() { close(c.closeCh) })
-	return nil
-}
-
-func (c *dnsOverTCPConn) LocalAddr() net.Addr {
-	return &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}
-}
-
-func (c *dnsOverTCPConn) RemoteAddr() net.Addr { return c.raddr }
-
-func (c *dnsOverTCPConn) SetDeadline(t time.Time) error      { return nil }
-func (c *dnsOverTCPConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *dnsOverTCPConn) SetWriteDeadline(t time.Time) error { return nil }

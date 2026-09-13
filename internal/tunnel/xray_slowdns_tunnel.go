@@ -14,7 +14,7 @@ import (
 )
 
 // XraySlowDNSTunnel chains the official dnstt SlowDNS client with Xray
-// v25.12.8:
+// v26.5.9 (Termux/server mode; the mobile front embeds xray-core):
 //
 //	slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
 //	xray run -config <generated>   (outbound -> 127.0.0.1:<fwdPort>)
@@ -86,17 +86,6 @@ func (t *XraySlowDNSTunnel) nsDomain() string {
 	return t.config.Server.Hostname
 }
 
-// buildSlowDNSArgs builds the official dnstt-client invocation:
-// slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
-func (t *XraySlowDNSTunnel) buildSlowDNSArgs() []string {
-	return []string{
-		"-udp", t.resolver() + ":53",
-		"-pubkey", t.config.Server.PublicKey,
-		t.nsDomain(),
-		fmt.Sprintf("127.0.0.1:%d", t.fwdPort()),
-	}
-}
-
 // generateXrayConfig builds an Xray config whose outbound dials the local
 // dnstt forward (127.0.0.1:fwdPort) instead of the remote server directly.
 func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
@@ -110,60 +99,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		},
 	}
 
-	streamSettings := map[string]interface{}{
-		"network":  t.config.Transport.Network,
-		"security": t.config.Transport.Security,
-	}
-
-	if t.config.Transport.Network == "ws" {
-		streamSettings["wsSettings"] = map[string]interface{}{
-			"path": t.config.Transport.Path,
-			"headers": map[string]string{
-				"Host": t.config.Transport.Host,
-			},
-		}
-	}
-
-	if t.config.Transport.Security == "tls" {
-		streamSettings["tlsSettings"] = map[string]interface{}{
-			"serverName":    t.config.Server.SNI,
-			"allowInsecure": false,
-			"fingerprint":   t.config.Transport.Fingerprint,
-			"alpn":          t.config.Transport.ALPN,
-		}
-	}
-
-	if t.config.Transport.Security == "reality" {
-		streamSettings["realitySettings"] = map[string]interface{}{
-			"serverName":  t.config.Server.SNI,
-			"publicKey":   t.config.Server.PublicKey,
-			"shortId":     t.config.Server.ShortID,
-			"fingerprint": t.config.Transport.Fingerprint,
-		}
-	}
-
-	settings := map[string]interface{}{
-		"vnext": []map[string]interface{}{
-			{
-				"address": "127.0.0.1",
-				"port":    t.fwdPort(),
-				"users": []map[string]interface{}{
-					{
-						"id":         t.config.Auth.UUID,
-						"flow":       t.config.Auth.Flow,
-						"encryption": "none",
-					},
-				},
-			},
-		},
-	}
-
-	outbound := map[string]interface{}{
-		"protocol":       "vless",
-		"tag":            "proxy",
-		"settings":       settings,
-		"streamSettings": streamSettings,
-	}
+	outbound := BuildVlessOutbound(t.config, "127.0.0.1", t.fwdPort())
 
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
@@ -209,25 +145,17 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	slowdnsArgs := t.buildSlowDNSArgs()
-	t.slowdnscmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSlowDNS), slowdnsArgs...)
-	if err := t.slowdnscmd.Start(); err != nil {
-		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS start failed: %v", err))
-		return fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
-	}
-
-	// Wait until dnstt exposes the forwarded port before starting Xray.
+	// dnstt first: Xray dials the local forward once it answers.
 	t.mu.Unlock()
-	fwdErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.fwdPort()), 20*time.Second)
+	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
 
-	if fwdErr != nil {
-		t.slowdnscmd.Process.Kill()
+	if err != nil {
 		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS forward not ready: %v", fwdErr))
-		return fmt.Errorf("slowdns forward not ready: %w", fwdErr)
+		t.setError(err.Error())
+		return err
 	}
+	t.slowdnscmd = dnsttCmd
 
 	configContent, err := t.generateXrayConfig()
 	if err != nil {

@@ -64,7 +64,7 @@ mkdir -p ~/bin
 mkdir -p ~/vpn-binaries
 
 # Install official tunnel binaries (verified sources, armv7)
-#   xray    : XTLS/Xray-core v25.12.8 (Xray-linux-arm32-v7a.zip)
+#   xray    : XTLS/Xray-core v26.5.9 (Xray-linux-arm32-v7a.zip)
 #   zivpn   : zahidbd2/udp-zivpn udp-zivpn_1.4.9 (udp-zivpn-linux-arm)
 #   slowdns : dnstt-client built from OutlineFoundation/dnstt
 # NOTE: the app ships these in its bin/armv7/ bundle - use it first.
@@ -83,10 +83,10 @@ fi
 
 cd ~/vpn-binaries
 
-# Xray v25.12.8 (fallback if bundle missing)
+# Xray v26.5.9 (fallback if bundle missing)
 if [ ! -f ~/bin/xray ]; then
-    echo "  Downloading Xray v25.12.8..."
-    wget -q "https://github.com/XTLS/Xray-core/releases/download/v25.12.8/Xray-linux-arm32-v7a.zip" -O xray.zip
+    echo "  Downloading Xray v26.5.9..."
+    wget -q "https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-arm32-v7a.zip" -O xray.zip
     unzip -o xray.zip xray geoip.dat geosite.dat
     chmod +x xray
     cp xray ~/bin/xray

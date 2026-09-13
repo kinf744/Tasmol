@@ -11,7 +11,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GOMOBILE_VERSION="${GOMOBILE_VERSION:-v0.0.0-20240520174638-fa72addaaa1b}"
+GOMOBILE_VERSION="${GOMOBILE_VERSION:-latest}"
 
 if [ -z "$ANDROID_HOME" ]; then
     echo "ERROR: ANDROID_HOME is not set"
@@ -26,10 +26,11 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 echo "=== gomobile init (NDK: ${ANDROID_NDK_HOME:-default}) ==="
 gomobile init
 
-echo "=== Binding golib/vpnlib for android/armv7 ==="
+echo "=== Binding golib/vpnlib for android/arm (armeabi-v7a) ==="
 mkdir -p android/app/libs
+export GOARM=7
 gomobile bind \
-    -target=android/armv7 \
+    -target=android/arm \
     -androidapi 24 \
     -ldflags='-s -w' \
     -o android/app/libs/vpnlib.aar \

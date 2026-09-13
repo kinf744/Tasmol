@@ -72,23 +72,28 @@ const (
 	DefaultZivpnPort       = 10810
 )
 
-// SocksAddr returns the local SOCKS5 endpoint a tunnel exposes, used by the
-// mobile data plane (tun2socks upstream) and by SOCKS-aware clients.
-func SocksAddr(cfg *config.TunnelConfig) string {
-	port := DefaultXrayPort
+// SocksPort returns the local SOCKS5 port a tunnel exposes.
+func SocksPort(cfg *config.TunnelConfig) int {
 	switch cfg.Type {
 	case config.TunnelSSH:
-		port = advInt(cfg.Advanced, "socks_port", DefaultSSHPort)
+		return advInt(cfg.Advanced, "socks_port", DefaultSSHPort)
 	case config.TunnelSSHSlowDNS:
-		port = advInt(cfg.Advanced, "socks_port", DefaultSSHSlowDNSPort)
+		return advInt(cfg.Advanced, "socks_port", DefaultSSHSlowDNSPort)
 	case config.TunnelXray:
-		port = advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
+		return advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
 	case config.TunnelXraySlowDNS:
-		port = advInt(cfg.Advanced, "socks_port", DefaultXraySlowDNSPort)
+		return advInt(cfg.Advanced, "socks_port", DefaultXraySlowDNSPort)
 	case config.TunnelZivpn:
-		port = advInt(cfg.Advanced, "socks_port", DefaultZivpnPort)
+		return advInt(cfg.Advanced, "socks_port", DefaultZivpnPort)
+	default:
+		return advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
 	}
-	return fmt.Sprintf("127.0.0.1:%d", port)
+}
+
+// SocksAddr returns the local SOCKS5 endpoint a tunnel exposes, used by the
+// mobile data plane (Xray front upstream) and by SOCKS-aware clients.
+func SocksAddr(cfg *config.TunnelConfig) string {
+	return fmt.Sprintf("127.0.0.1:%d", SocksPort(cfg))
 }
 
 // waitForTCP polls addr until a TCP connection succeeds or timeout elapses.

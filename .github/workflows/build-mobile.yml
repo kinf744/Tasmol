@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.23'
-  GOMOBILE_VERSION: v0.0.0-20240520174638-fa72addaaa1b
+  GO_VERSION: '1.26'
+  GOMOBILE_VERSION: latest
   GRADLE_VERSION: '8.7'
 
 jobs:
@@ -64,11 +64,12 @@ jobs:
           go mod verify
           git diff --stat || true
 
-      - name: Bind vpnlib AAR (android/armv7)
+      - name: Bind vpnlib AAR (android/arm, armeabi-v7a)
         run: |
           mkdir -p android/app/libs
+          export GOARM=7
           gomobile bind \
-            -target=android/armv7 \
+            -target=android/arm \
             -androidapi 24 \
             -javapkg com.vpnapp.go \
             -ldflags='-s -w' \
