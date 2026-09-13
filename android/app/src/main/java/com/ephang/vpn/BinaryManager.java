@@ -174,8 +174,18 @@ public class BinaryManager {
         ensureReady(ctx);
         JSONObject p = new JSONObject();
         p.put("config_path", configPath(ctx).getAbsolutePath());
-        p.put("bin_dir", binDir(ctx).getAbsolutePath());
-        p.put("bin_names", new JSONObject());
+
+        // Execute the shipped .so binaries straight from the native library
+        // dir (like the reference app) so the dynamic linker can resolve
+        // their dependencies. bin_names maps the logical name to the .so.
+        String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
+        p.put("bin_dir", nativeDir);
+        JSONObject names = new JSONObject();
+        names.put("zivpn", "lib_zivpn.so");
+        names.put("xray", "lib_xray.so");
+        names.put("slowdns", "lib_slowdns.so");
+        p.put("bin_names", names);
+
         p.put("native_ssh", true);
         p.put("tun_fd", tunFd);
         p.put("mtu", 1500);

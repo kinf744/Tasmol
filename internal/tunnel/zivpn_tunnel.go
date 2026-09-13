@@ -186,12 +186,9 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	ip := t.resolveServerIP()
 	password := t.authPassword()
 
+	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := os.TempDir()
 	homeDir := os.TempDir()
-	if BinDir != "" {
-		workDir = filepath.Dir(BinDir)
-		homeDir = filepath.Dir(BinDir)
-	}
 
 	procs := make([]*uzProc, 0, len(ranges))
 	for i, rng := range ranges {
