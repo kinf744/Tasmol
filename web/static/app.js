@@ -250,7 +250,8 @@ function openTunnelModal(tunnel = null) {
 
         if (tunnel.config?.server) {
             document.getElementById('tunnel-slowdns-pubkey').value = tunnel.config.server.public_key || '';
-            document.getElementById('tunnel-slowdns-ns').value = tunnel.config.server.hostname || '8.8.8.8';
+            document.getElementById('tunnel-slowdns-domain').value = tunnel.config.server.nameserver || tunnel.config.server.hostname || '';
+            document.getElementById('tunnel-slowdns-ns').value = tunnel.config.server.dns_resolver || '8.8.8.8';
             document.getElementById('tunnel-reality-pubkey').value = tunnel.config.server.public_key || '';
             document.getElementById('tunnel-reality-shortid').value = tunnel.config.server.short_id || '';
             document.getElementById('tunnel-reality-sni').value = tunnel.config.server.sni || '';
@@ -308,6 +309,8 @@ function saveTunnel(event) {
             host: document.getElementById('tunnel-host').value,
             port: parseInt(document.getElementById('tunnel-port').value),
             public_key: document.getElementById('tunnel-slowdns-pubkey').value || document.getElementById('tunnel-reality-pubkey').value,
+            nameserver: document.getElementById('tunnel-slowdns-domain').value,
+            dns_resolver: document.getElementById('tunnel-slowdns-ns').value,
             sni: document.getElementById('tunnel-reality-sni').value,
             short_id: document.getElementById('tunnel-reality-shortid').value
         },

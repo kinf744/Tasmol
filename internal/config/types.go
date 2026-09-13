@@ -57,6 +57,10 @@ type ServerConfig struct {
 	SNI       string `yaml:"sni,omitempty" json:"sni,omitempty"`
 	PublicKey string `yaml:"public_key,omitempty" json:"public_key,omitempty"`
 	ShortID   string `yaml:"short_id,omitempty" json:"short_id,omitempty"`
+	// Nameserver is the dnstt/SlowDNS zone domain (e.g. ns.example.com).
+	Nameserver string `yaml:"nameserver,omitempty" json:"nameserver,omitempty"`
+	// DNSResolver is the UDP DNS resolver used by dnstt-client (default 8.8.8.8).
+	DNSResolver string `yaml:"dns_resolver,omitempty" json:"dns_resolver,omitempty"`
 }
 
 type AuthConfig struct {

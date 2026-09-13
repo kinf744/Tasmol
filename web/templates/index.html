@@ -421,16 +421,20 @@
                     </div>
                 </div>
                 <div id="slowdns-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
-                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SlowDNS Configuration</h4>
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SlowDNS (dnstt-client) Configuration</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Public Key</label>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Server Public Key (hex)</label>
                             <input type="text" id="tunnel-slowdns-pubkey" class="input-field w-full">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nameserver</label>
-                            <input type="text" id="tunnel-slowdns-ns" value="8.8.8.8" class="input-field w-full">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nameserver Domain (NS zone)</label>
+                            <input type="text" id="tunnel-slowdns-domain" placeholder="ns.example.com" class="input-field w-full">
                         </div>
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">DNS Resolver</label>
+                        <input type="text" id="tunnel-slowdns-ns" value="8.8.8.8" class="input-field w-full">
                     </div>
                 </div>
                 <div id="transport-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4">

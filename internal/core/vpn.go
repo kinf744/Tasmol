@@ -26,6 +26,9 @@ type VPNCore struct {
 func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
 	cfg := configManager.Get()
 
+	// Point tunnel engines at the repository-bundled official binaries.
+	tunnel.BinDir = cfg.App.BinDir
+
 	tunnelManager := tunnel.NewManager(cfg.UDPGW)
 
 	for _, tunnelCfg := range cfg.Tunnels {

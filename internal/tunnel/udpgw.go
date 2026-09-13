@@ -52,7 +52,7 @@ func (u *udpgwImpl) Start(ctx context.Context) error {
 		"--loglevel", u.config.LogLevel,
 	}
 
-	u.cmd = exec.CommandContext(ctx, "udpgw", args...)
+	u.cmd = exec.CommandContext(ctx, LookupBin(BinDir, BinUDPGW), args...)
 
 	if err := u.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start UDPGW: %w", err)

@@ -2,22 +2,42 @@ package tunnel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"vpn-app/internal/config"
 )
 
+// ZivpnTunnel drives the official udp-zivpn binary (zahidbd2/udp-zivpn
+// release udp-zivpn_1.4.9, udp-zivpn-linux-arm) in client mode:
+//
+//	zivpn client --config <client.json>
+//
+// The client exposes a local SOCKS5 proxy (default 127.0.0.1:10810) used
+// as the device upstream. Server port defaults to 5667 (official server
+// listen port). TLS is insecure by default because official install
+// scripts generate self-signed certificates (override with
+// Advanced["tls_insecure"]=false).
+//
+// Obfuscation mapping (Hysteria2-derived protocol): Transport.Obfs sets the
+// obfs type (default "salamander" to match the official server
+// "obfs":"zivpn"), Transport.ObfsParam sets the obfs password (default
+// "zivpn"). Advanced["obfs_raw"] may hold a raw JSON value injected
+// verbatim as the "obfs" field for fork variants.
 type ZivpnTunnel struct {
-	mu        sync.RWMutex
-	config    *config.TunnelConfig
-	status    Status
-	stats     Stats
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	startTime time.Time
+	mu         sync.RWMutex
+	config     *config.TunnelConfig
+	status     Status
+	stats      Stats
+	cmd        *exec.Cmd
+	cancel     context.CancelFunc
+	startTime  time.Time
+	configPath string
 }
 
 func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
@@ -49,56 +69,91 @@ func (t *ZivpnTunnel) Stats() Stats {
 
 func (t *ZivpnTunnel) Config() *config.TunnelConfig { return t.config }
 
-func (t *ZivpnTunnel) buildArgs() []string {
-	args := []string{
-		"connect",
-		"--server", t.config.Server.Host,
-		"--port", fmt.Sprintf("%d", t.config.Server.Port),
+func (t *ZivpnTunnel) serverPort() int {
+	if t.config.Server.Port != 0 {
+		return t.config.Server.Port
 	}
+	return 5667
+}
 
-	if t.config.Auth.UUID != "" {
-		args = append(args, "--uuid", t.config.Auth.UUID)
-	}
+func (t *ZivpnTunnel) socksPort() int {
+	return advInt(t.config.Advanced, "socks_port", 10810)
+}
 
+func (t *ZivpnTunnel) authPassword() string {
 	if t.config.Auth.Password != "" {
-		args = append(args, "--password", t.config.Auth.Password)
+		return t.config.Auth.Password
 	}
+	return "zi"
+}
 
-	if t.config.Transport.Network != "" {
-		args = append(args, "--network", t.config.Transport.Network)
-	} else {
-		args = append(args, "--network", "udp")
-	}
-
-	if t.config.Transport.Security != "" {
-		args = append(args, "--security", t.config.Transport.Security)
-	}
-
+func (t *ZivpnTunnel) obfsType() string {
 	if t.config.Transport.Obfs != "" {
-		args = append(args, "--obfs", t.config.Transport.Obfs)
-	} else {
-		args = append(args, "--obfs", "plain")
+		return t.config.Transport.Obfs
 	}
+	return "salamander"
+}
 
+func (t *ZivpnTunnel) obfsPassword() string {
 	if t.config.Transport.ObfsParam != "" {
-		args = append(args, "--obfs-param", t.config.Transport.ObfsParam)
+		return t.config.Transport.ObfsParam
 	}
+	return "zivpn"
+}
 
+func (t *ZivpnTunnel) sni() string {
 	if t.config.Server.SNI != "" {
-		args = append(args, "--sni", t.config.Server.SNI)
+		return t.config.Server.SNI
+	}
+	return t.config.Server.Host
+}
+
+// generateClientConfig builds the client.json consumed by
+// `zivpn client --config`.
+func (t *ZivpnTunnel) generateClientConfig() (string, error) {
+	var obfs interface{}
+	if raw, ok := t.config.Advanced["obfs_raw"].(string); ok && raw != "" {
+		var v interface{}
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			return "", fmt.Errorf("invalid obfs_raw JSON: %w", err)
+		}
+		obfs = v
+	} else {
+		// Standard Hysteria2-style salamander block. The nested key must be
+		// the obfs type name (e.g. "salamander").
+		obfs = map[string]interface{}{
+			"type": t.obfsType(),
+			t.obfsType(): map[string]interface{}{
+				"password": t.obfsPassword(),
+			},
+		}
 	}
 
-	if t.config.Server.PublicKey != "" {
-		args = append(args, "--pubkey", t.config.Server.PublicKey)
+	clientCfg := map[string]interface{}{
+		"server": fmt.Sprintf("%s:%d", t.config.Server.Host, t.serverPort()),
+		"auth": map[string]interface{}{
+			"mode":     "password",
+			"password": t.authPassword(),
+		},
+		"tls": map[string]interface{}{
+			"sni":      t.sni(),
+			"insecure": advBool(t.config.Advanced, "tls_insecure", true),
+		},
+		"obfs": obfs,
+		"socks5": map[string]interface{}{
+			"listen": fmt.Sprintf("127.0.0.1:%d", t.socksPort()),
+		},
+		"bandwidth": map[string]interface{}{
+			"up":   advStr(t.config.Advanced, "up_mbps", "50 mbps"),
+			"down": advStr(t.config.Advanced, "down_mbps", "200 mbps"),
+		},
 	}
 
-	if t.config.Server.ShortID != "" {
-		args = append(args, "--short-id", t.config.Server.ShortID)
+	data, err := json.MarshalIndent(clientCfg, "", "  ")
+	if err != nil {
+		return "", err
 	}
-
-	args = append(args, "--log-level", "info")
-
-	return args
+	return string(data), nil
 }
 
 func (t *ZivpnTunnel) Start(ctx context.Context) error {
@@ -109,17 +164,53 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 
+	if t.config.Server.Host == "" {
+		return fmt.Errorf("zivpn server host is required (server.host)")
+	}
+
 	t.status = StatusStarting
 	t.setError("")
 
+	configContent, err := t.generateClientConfig()
+	if err != nil {
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "zivpn-*")
+	if err != nil {
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.configPath = filepath.Join(tmpDir, "client.json")
+	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+
 	ctx, t.cancel = context.WithCancel(ctx)
-	args := t.buildArgs()
-	t.cmd = exec.CommandContext(ctx, "zivpn", args...)
+	t.cmd = exec.CommandContext(ctx,
+		LookupBin(BinDir, BinZivpn), "client", "--config", t.configPath)
 
 	if err := t.cmd.Start(); err != nil {
 		t.status = StatusError
 		t.setError(err.Error())
-		return fmt.Errorf("failed to start Zivpn: %w", err)
+		return fmt.Errorf("failed to start Zivpn client: %w", err)
+	}
+
+	// Wait until the local SOCKS5 is exposed before reporting running.
+	t.mu.Unlock()
+	socksErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.socksPort()), 20*time.Second)
+	t.mu.Lock()
+
+	if socksErr != nil {
+		t.cmd.Process.Kill()
+		t.status = StatusError
+		t.setError(fmt.Sprintf("Zivpn SOCKS not ready: %v", socksErr))
+		return fmt.Errorf("zivpn socks not ready: %w", socksErr)
 	}
 
 	t.startTime = time.Now()
@@ -147,6 +238,11 @@ func (t *ZivpnTunnel) Stop(ctx context.Context) error {
 	if t.cmd != nil && t.cmd.Process != nil {
 		t.cmd.Process.Kill()
 		t.cmd.Wait()
+	}
+
+	if t.configPath != "" {
+		os.Remove(t.configPath)
+		os.Remove(filepath.Dir(t.configPath))
 	}
 
 	t.status = StatusStopped

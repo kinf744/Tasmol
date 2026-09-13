@@ -70,26 +70,25 @@ Or manually:
 pkg update && pkg upgrade -y
 pkg install -y git curl wget unzip tar gzip iproute2 wireguard-tools dnsutils net-tools openssh jq tsu procps util-linux coreutils binutils clang make cmake go rust cargo
 
-# 2. Download tunnel binaries (armv7)
-mkdir -p ~/vpn-binaries && cd ~/vpn-binaries
+# 2. Install official tunnel binaries (armv7) - stored in the repo bundle bin/armv7/
+mkdir -p ~/bin ~/.vpn-app && cd ~/vpn-app 2>/dev/null || cd ~
 
-# Xray
-wget -q https://github.com/XTLS/Xray-core/releases/download/v24.8.31/Xray-linux-armv7-v3.zip
-unzip -o Xray-linux-armv7-v3.zip xray
-chmod +x xray && cp xray ~/bin/xray
+# Xray v25.12.8 (XTLS/Xray-core, Xray-linux-arm32-v7a.zip)
+cp bin/armv7/xray ~/bin/xray
+cp bin/armv7/geoip.dat bin/armv7/geosite.dat ~/.vpn-app/
 
-# Zivpn
-wget -q https://github.com/zaidka/zivpn/releases/download/v0.1.2/zivpn_0.1.2_linux_armv7.tar.gz
-tar -xzf zivpn_0.1.2_linux_armv7.tar.gz zivpn
-chmod +x zivpn && cp zivpn ~/bin/zivpn
+# Zivpn udp-zivpn_1.4.9 (zahidbd2/udp-zivpn, udp-zivpn-linux-arm, client mode)
+cp bin/armv7/zivpn ~/bin/zivpn
 
-# UDPGW (badvpn)
-wget -q https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz
-tar -xzf 1.999.130.tar.gz
-cd badvpn-1.999.130
-cmake -DCMAKE_INSTALL_PREFIX=/data/data/com.termux/files/usr -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 .
-make -j$(nproc)
-cp udpgw/badvpn-udpgw ~/bin/udpgw
+# SlowDNS dnstt-client (built from OutlineFoundation/dnstt, stored in bundle)
+cp bin/armv7/slowdns ~/bin/slowdns
+
+chmod +x ~/bin/xray ~/bin/zivpn ~/bin/slowdns
+
+# (Fallback without the repo bundle: scripts/download_binaries.sh
+#  downloads Xray v25.12.8 + zivpn 1.4.9 from official releases and
+#  builds dnstt-client from OutlineFoundation/dnstt.)
+# NOTE: UDPGW uses the built-in pure-Go proxy - no external binary needed.
 
 # 3. Build VPN App
 cd ~
@@ -169,19 +168,22 @@ tunnels:
       # OR private_key: "/path/to/key"
 ```
 
-#### SSH + SlowDNS
+#### SSH + SlowDNS (dnstt-client + ssh)
 ```yaml
 tunnels:
   - name: "SSH + SlowDNS"
     type: "ssh_slowdns"
     enabled: true
     server:
-      host: "ssh.example.com"
-      port: 22
-      public_key: "slowdns-public-key"
+      host: "ssh.example.com"      # informational (SSH goes through the DNS tunnel)
+      nameserver: "ns.example.com" # dnstt zone domain (required)
+      public_key: "<64-hex-dnstt-pubkey>"  # (required)
+      dns_resolver: "8.8.8.8"      # UDP resolver for dnstt (default 8.8.8.8)
     auth:
       username: "user"
-      private_key: "/path/to/key"
+      password: "pass"
+      # private_key: "/path/to/key"  # alternative to password
+    # advanced overrides: fwd_port (default 2222), socks_port (default 10802)
 ```
 
 #### Xray (VLESS)
@@ -202,16 +204,17 @@ tunnels:
       security: "tls"
 ```
 
-#### Xray + SlowDNS
+#### Xray + SlowDNS (dnstt-client + xray v25.12.8)
 ```yaml
 tunnels:
   - name: "Xray + SlowDNS"
     type: "xray_slowdns"
     enabled: true
     server:
-      host: "xray.example.com"
-      port: 443
-      public_key: "slowdns-public-key"
+      host: "xray.example.com"     # informational (Xray dials 127.0.0.1 via dnstt)
+      nameserver: "ns.example.com" # dnstt zone domain (required)
+      public_key: "<64-hex-dnstt-pubkey>"  # (required)
+      dns_resolver: "8.8.8.8"
       sni: "xray.example.com"
     auth:
       uuid: "your-uuid"
@@ -219,9 +222,10 @@ tunnels:
       network: "ws"
       security: "tls"
       path: "/path"
+    # advanced overrides: fwd_port (default 2224), socks_port (default 10809)
 ```
 
-#### Zivpn (with obfs)
+#### Zivpn (official udp-zivpn 1.4.9, client mode)
 ```yaml
 tunnels:
   - name: "Zivpn"
@@ -229,14 +233,18 @@ tunnels:
     enabled: true
     server:
       host: "zivpn.example.com"
-      port: 8080
+      port: 5667        # official server listen port (default)
+      sni: "zivpn.example.com"
     auth:
-      uuid: "your-uuid"
-      password: "optional-password"
+      password: "zi"   # server password (default "zi")
     transport:
       network: "udp"
-      obfs: "plain"  # or "obfs4"
-      obfs_param: "optional-param"
+      obfs: "salamander"  # matches official server "obfs":"zivpn"
+      obfs_param: "zivpn" # obfs password (default "zivpn")
+    # advanced overrides: socks_port (default 10810),
+    #   tls_insecure (default true, self-signed server certs),
+    #   up_mbps/down_mbps (defaults "50 mbps"/"200 mbps"),
+    #   obfs_raw (raw JSON injected as "obfs" for fork variants)
 ```
 
 ### Network Features

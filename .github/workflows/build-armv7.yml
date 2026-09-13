@@ -26,6 +26,48 @@ env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
+  build-slowdns:
+    name: Build SlowDNS (dnstt-client) ARMv7
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+
+      - name: Build dnstt-client for armv7
+        run: |
+          rm -rf /tmp/dnstt && git clone --depth 1 https://github.com/OutlineFoundation/dnstt.git /tmp/dnstt
+          cd /tmp/dnstt
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags="-s -w" -o slowdns-armv7 ./dnstt-client
+          file slowdns-armv7
+          ls -lh slowdns-armv7
+
+      - name: Store binary in repository bundle
+        if: github.event_name == 'push'
+        run: |
+          cp /tmp/dnstt/slowdns-armv7 bin/armv7/slowdns
+          chmod +x bin/armv7/slowdns
+          file bin/armv7/slowdns
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add bin/armv7/slowdns
+          git diff --cached --quiet || git commit -m "chore: update bin/armv7/slowdns (dnstt-client armv7) [skip ci]"
+          git push || echo "nothing to push or push skipped"
+
+      - name: Upload SlowDNS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: slowdns-armv7
+          path: /tmp/dnstt/slowdns-armv7
+          retention-days: 30
+
   build-armv7:
     name: Build Linux ARMv7 (armeabi-v7a)
     runs-on: ubuntu-latest
@@ -48,6 +90,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
 
+      - name: Verify bundled tunnel binaries
+        run: |
+          echo "Repository bundle bin/armv7/:"
+          ls -lh bin/armv7/ || echo "WARNING: bin/armv7/ missing"
+          file bin/armv7/* 2>/dev/null || true
+
       - name: Download Go dependencies
         run: |
           go mod download
@@ -63,13 +111,13 @@ jobs:
           export CC=arm-linux-gnueabihf-gcc
           export CGO_CFLAGS="-march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16"
           export CGO_LDFLAGS="-march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16"
-          
+
           VERSION="${{ env.VERSION }}"
           COMMIT=$(git rev-parse --short HEAD)
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          
+
           LDFLAGS="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE"
-          
+
           mkdir -p build/armv7
           go build -ldflags="$LDFLAGS" -o build/armv7/vpn-app ./cmd/vpn-app
 
@@ -84,13 +132,23 @@ jobs:
           arm-linux-gnueabihf-strip build/armv7/vpn-app 2>/dev/null || strip build/armv7/vpn-app
           ls -lh build/armv7/vpn-app
 
-      - name: Create release archive
+      - name: Create Termux bundle archive (app + official binaries)
         run: |
-          cd build/armv7
-          tar -czf vpn-app-armv7-linux.tar.gz vpn-app
-          sha256sum vpn-app-armv7-linux.tar.gz > vpn-app-armv7-linux.tar.gz.sha256
-          cat vpn-app-armv7-linux.tar.gz.sha256
-          cd ../..
+          mkdir -p bundle/vpn-app-termux
+          cp build/armv7/vpn-app bundle/vpn-app-termux/
+          cp bin/armv7/xray bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: xray missing from bundle"
+          cp bin/armv7/zivpn bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: zivpn missing from bundle"
+          cp bin/armv7/slowdns bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: slowdns missing from bundle (build-slowdns job)"
+          cp bin/armv7/geoip.dat bundle/vpn-app-termux/ 2>/dev/null || true
+          cp bin/armv7/geosite.dat bundle/vpn-app-termux/ 2>/dev/null || true
+          cp scripts/download_binaries.sh scripts/install_termux.sh bundle/vpn-app-termux/ 2>/dev/null || true
+          chmod +x bundle/vpn-app-termux/* 2>/dev/null || true
+          cd bundle
+          tar -czf vpn-app-termux-armv7.tar.gz vpn-app-termux
+          sha256sum vpn-app-termux-armv7.tar.gz > vpn-app-termux-armv7.tar.gz.sha256
+          cat vpn-app-termux-armv7.tar.gz.sha256
+          ls -lh
+          cd ..
 
       - name: Upload ARMv7 artifact
         uses: actions/upload-artifact@v4
@@ -98,8 +156,8 @@ jobs:
           name: vpn-app-armv7
           path: |
             build/armv7/vpn-app
-            build/armv7/vpn-app-armv7-linux.tar.gz
-            build/armv7/vpn-app-armv7-linux.tar.gz.sha256
+            bundle/vpn-app-termux-armv7.tar.gz
+            bundle/vpn-app-termux-armv7.tar.gz.sha256
           retention-days: 30
 
       - name: Create Release
@@ -108,8 +166,8 @@ jobs:
         with:
           files: |
             build/armv7/vpn-app
-            build/armv7/vpn-app-armv7-linux.tar.gz
-            build/armv7/vpn-app-armv7-linux.tar.gz.sha256
+            bundle/vpn-app-termux-armv7.tar.gz
+            bundle/vpn-app-termux-armv7.tar.gz.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -58,6 +58,7 @@ func (t *SSHTunnel) buildArgs() []string {
 		"-o", "ConnectTimeout=10",
 		"-N",
 		"-T",
+		"-D", fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", 10801)),
 	}
 
 	if t.config.Auth.PrivateKey != "" {
@@ -87,10 +88,9 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	binPath := "ssh"
 	args := t.buildArgs()
 
-	t.cmd = exec.CommandContext(ctx, binPath, args...)
+	t.cmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), args...)
 
 	if err := t.cmd.Start(); err != nil {
 		t.status = StatusError

@@ -63,53 +63,63 @@ mkdir -p ~/.vpn-app
 mkdir -p ~/bin
 mkdir -p ~/vpn-binaries
 
-# Download tunnel binaries
+# Install official tunnel binaries (verified sources, armv7)
+#   xray    : XTLS/Xray-core v25.12.8 (Xray-linux-arm32-v7a.zip)
+#   zivpn   : zahidbd2/udp-zivpn udp-zivpn_1.4.9 (udp-zivpn-linux-arm)
+#   slowdns : dnstt-client built from OutlineFoundation/dnstt
+# NOTE: the app ships these in its bin/armv7/ bundle - use it first.
 echo ""
-echo "[4/7] Downloading tunnel binaries for armv7..."
+echo "[4/7] Installing tunnel binaries for armv7..."
+
+REPO_BUNDLE="$HOME/vpn-app/bin/armv7"
+if [ -d "$REPO_BUNDLE" ]; then
+    echo "  Using repository bundle: $REPO_BUNDLE"
+    cp "$REPO_BUNDLE/xray" ~/bin/xray
+    cp "$REPO_BUNDLE/zivpn" ~/bin/zivpn
+    cp "$REPO_BUNDLE/slowdns" ~/bin/slowdns 2>/dev/null || SLOWDNS_MISSING=1
+    cp "$REPO_BUNDLE/geoip.dat" "$REPO_BUNDLE/geosite.dat" ~/.vpn-app/ 2>/dev/null || true
+    chmod +x ~/bin/xray ~/bin/zivpn ~/bin/slowdns 2>/dev/null || true
+fi
 
 cd ~/vpn-binaries
 
-# Xray (supports VMess, VLESS, Trojan, Shadowsocks, etc.)
-echo "  Downloading Xray..."
-XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/v24.8.31/Xray-linux-armv7-v3.zip"
-wget -q "$XRAY_URL" -O xray.zip
-unzip -o xray.zip xray
-chmod +x xray
-cp xray ~/bin/xray
+# Xray v25.12.8 (fallback if bundle missing)
+if [ ! -f ~/bin/xray ]; then
+    echo "  Downloading Xray v25.12.8..."
+    wget -q "https://github.com/XTLS/Xray-core/releases/download/v25.12.8/Xray-linux-arm32-v7a.zip" -O xray.zip
+    unzip -o xray.zip xray geoip.dat geosite.dat
+    chmod +x xray
+    cp xray ~/bin/xray
+    cp geoip.dat geosite.dat ~/.vpn-app/ 2>/dev/null || true
+fi
 
-# SlowDNS
-echo "  Downloading SlowDNS..."
-SLOWDNS_URL="https://github.com/xtls/xray-core/releases/download/v24.8.31/xray-linux-armv7-v3.zip"
-# SlowDNS is included in xray binary as 'xray' with 'dns' protocol
-# But we can also get standalone slowdns
-# For now, use xray for DNS over HTTPS/TLS
-ln -sf ~/bin/xray ~/bin/slowdns
+# Zivpn udp-zivpn_1.4.9 linux-arm (fallback if bundle missing)
+if [ ! -f ~/bin/zivpn ]; then
+    echo "  Downloading Zivpn..."
+    wget -q "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-arm" -O zivpn
+    chmod +x zivpn
+    cp zivpn ~/bin/zivpn
+fi
 
-# Zivpn
-echo "  Downloading Zivpn..."
-ZIVPN_URL="https://github.com/zaidka/zivpn/releases/download/v0.1.2/zivpn_0.1.2_linux_armv7.tar.gz"
-wget -q "$ZIVPN_URL" -O zivpn.tar.gz
-tar -xzf zivpn.tar.gz zivpn
-chmod +x zivpn
-cp zivpn ~/bin/zivpn
+# SlowDNS dnstt-client (fallback: build from source if bundle missing)
+if [ ! -f ~/bin/slowdns ]; then
+    echo "  Building SlowDNS (dnstt-client) from OutlineFoundation/dnstt..."
+    pkg install -y golang git 2>/dev/null || true
+    rm -rf dnstt && git clone --depth 1 https://github.com/OutlineFoundation/dnstt.git
+    cd dnstt
+    GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags="-s -w" -o ~/bin/slowdns ./dnstt-client
+    chmod +x ~/bin/slowdns
+    cd ~/vpn-binaries
+fi
 
-# UDPGW (badvpn)
-echo "  Building UDPGW..."
-UDPGW_URL="https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz"
-wget -q "$UDPGW_URL" -O badvpn.tar.gz
-tar -xzf badvpn.tar.gz
-cd badvpn-1.999.130
-cmake -DCMAKE_INSTALL_PREFIX=/data/data/com.termux/files/usr -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 .
-make -j$(nproc)
-cp udpgw/badvpn-udpgw ~/bin/udpgw
-cd ~/vpn-binaries
+# NOTE: UDPGW uses the built-in pure-Go proxy (no external binary needed).
 
 # Verify binaries
 echo ""
 echo "[5/7] Verifying binaries..."
-for bin in xray zivpn udpgw; do
+for bin in xray zivpn slowdns; do
     if [ -f ~/bin/$bin ]; then
-        echo "  ✓ $bin: $(~/bin/$bin --version 2>&1 | head -1 || echo 'installed')"
+        echo "  ✓ $bin: $(file ~/bin/$bin | cut -d: -f2)"
     else
         echo "  ✗ $bin: MISSING"
     fi

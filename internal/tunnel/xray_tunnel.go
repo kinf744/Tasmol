@@ -171,7 +171,10 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	}
 
 	ctx, t.cancel = context.WithCancel(ctx)
-	t.cmd = exec.CommandContext(ctx, "xray", "run", "-config", t.configPath)
+	t.cmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
+	if BinDir != "" {
+		t.cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
+	}
 
 	if err := t.cmd.Start(); err != nil {
 		t.status = StatusError

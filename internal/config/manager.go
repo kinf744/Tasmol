@@ -183,11 +183,19 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 	tunnel.UpdatedAt = time.Now()
 
 	if tunnel.Type == TunnelZivpn {
+		// Defaults matching the official udp-zivpn server (port 5667,
+		// salamander obfuscation).
+		if tunnel.Server.Port == 0 {
+			tunnel.Server.Port = 5667
+		}
 		if tunnel.Transport.Network == "" {
 			tunnel.Transport.Network = "udp"
 		}
 		if tunnel.Transport.Obfs == "" {
-			tunnel.Transport.Obfs = "plain"
+			tunnel.Transport.Obfs = "salamander"
+		}
+		if tunnel.Transport.ObfsParam == "" {
+			tunnel.Transport.ObfsParam = "zivpn"
 		}
 	}
 

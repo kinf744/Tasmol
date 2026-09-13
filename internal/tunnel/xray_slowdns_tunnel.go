@@ -13,6 +13,16 @@ import (
 	"vpn-app/internal/config"
 )
 
+// XraySlowDNSTunnel chains the official dnstt SlowDNS client with Xray
+// v25.12.8:
+//
+//	slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
+//	xray run -config <generated>   (outbound -> 127.0.0.1:<fwdPort>)
+//
+// Xray exposes a local SOCKS5 inbound (default 127.0.0.1:10809) used as the
+// device upstream. Defaults: fwdPort 2224, socksPort 10809, resolver
+// 8.8.8.8. All overridable via the tunnel Advanced map ("fwd_port",
+// "socks_port", "dns_resolver").
 type XraySlowDNSTunnel struct {
 	mu         sync.RWMutex
 	config     *config.TunnelConfig
@@ -23,17 +33,13 @@ type XraySlowDNSTunnel struct {
 	cancel     context.CancelFunc
 	startTime  time.Time
 	configPath string
-	localPort  int
-	dnsServer  string
 }
 
 func NewXraySlowDNSTunnel(cfg *config.TunnelConfig) *XraySlowDNSTunnel {
 	return &XraySlowDNSTunnel{
-		config:    cfg,
-		status:    StatusStopped,
-		stats:     Stats{},
-		localPort: 10808,
-		dnsServer: "8.8.8.8",
+		config: cfg,
+		status: StatusStopped,
+		stats:  Stats{},
 	}
 }
 
@@ -58,9 +64,44 @@ func (t *XraySlowDNSTunnel) Stats() Stats {
 
 func (t *XraySlowDNSTunnel) Config() *config.TunnelConfig { return t.config }
 
+func (t *XraySlowDNSTunnel) fwdPort() int {
+	return advInt(t.config.Advanced, "fwd_port", 2224)
+}
+
+func (t *XraySlowDNSTunnel) socksPort() int {
+	return advInt(t.config.Advanced, "socks_port", 10809)
+}
+
+func (t *XraySlowDNSTunnel) resolver() string {
+	if t.config.Server.DNSResolver != "" {
+		return t.config.Server.DNSResolver
+	}
+	return advStr(t.config.Advanced, "dns_resolver", "8.8.8.8")
+}
+
+func (t *XraySlowDNSTunnel) nsDomain() string {
+	if t.config.Server.Nameserver != "" {
+		return t.config.Server.Nameserver
+	}
+	return t.config.Server.Hostname
+}
+
+// buildSlowDNSArgs builds the official dnstt-client invocation:
+// slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
+func (t *XraySlowDNSTunnel) buildSlowDNSArgs() []string {
+	return []string{
+		"-udp", t.resolver() + ":53",
+		"-pubkey", t.config.Server.PublicKey,
+		t.nsDomain(),
+		fmt.Sprintf("127.0.0.1:%d", t.fwdPort()),
+	}
+}
+
+// generateXrayConfig builds an Xray config whose outbound dials the local
+// dnstt forward (127.0.0.1:fwdPort) instead of the remote server directly.
 func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	inbound := map[string]interface{}{
-		"port":     t.localPort,
+		"port":     t.socksPort(),
 		"listen":   "127.0.0.1",
 		"protocol": "socks",
 		"settings": map[string]interface{}{
@@ -69,9 +110,59 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		},
 	}
 
+	streamSettings := map[string]interface{}{
+		"network":  t.config.Transport.Network,
+		"security": t.config.Transport.Security,
+	}
+
+	if t.config.Transport.Network == "ws" {
+		streamSettings["wsSettings"] = map[string]interface{}{
+			"path": t.config.Transport.Path,
+			"headers": map[string]string{
+				"Host": t.config.Transport.Host,
+			},
+		}
+	}
+
+	if t.config.Transport.Security == "tls" {
+		streamSettings["tlsSettings"] = map[string]interface{}{
+			"serverName":    t.config.Server.SNI,
+			"allowInsecure": false,
+			"fingerprint":   t.config.Transport.Fingerprint,
+			"alpn":          t.config.Transport.ALPN,
+		}
+	}
+
+	if t.config.Transport.Security == "reality" {
+		streamSettings["realitySettings"] = map[string]interface{}{
+			"serverName":  t.config.Server.SNI,
+			"publicKey":   t.config.Server.PublicKey,
+			"shortId":     t.config.Server.ShortID,
+			"fingerprint": t.config.Transport.Fingerprint,
+		}
+	}
+
+	settings := map[string]interface{}{
+		"vnext": []map[string]interface{}{
+			{
+				"address": "127.0.0.1",
+				"port":    t.fwdPort(),
+				"users": []map[string]interface{}{
+					{
+						"id":         t.config.Auth.UUID,
+						"flow":       t.config.Auth.Flow,
+						"encryption": "none",
+					},
+				},
+			},
+		},
+	}
+
 	outbound := map[string]interface{}{
-		"protocol": "freedom",
-		"tag":      "direct",
+		"protocol":       "vless",
+		"tag":            "proxy",
+		"settings":       settings,
+		"streamSettings": streamSettings,
 	}
 
 	xrayConfig := map[string]interface{}{
@@ -95,22 +186,6 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	return string(data), nil
 }
 
-func (t *XraySlowDNSTunnel) buildSlowDNSArgs() []string {
-	args := []string{
-		"-udp",
-		"-listen", fmt.Sprintf("127.0.0.1:%d", t.localPort+1),
-		"-dns", t.dnsServer,
-		"-pubkey", t.config.Server.PublicKey,
-		"-nameserver", t.config.Server.Host,
-	}
-
-	if t.config.Server.Port != 0 {
-		args = append(args, "-port", fmt.Sprintf("%d", t.config.Server.Port))
-	}
-
-	return args
-}
-
 func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -119,42 +194,86 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 
+	if t.nsDomain() == "" {
+		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
+	}
+	if t.config.Server.PublicKey == "" {
+		return fmt.Errorf("slowdns server public key is required (server.public_key)")
+	}
+	if t.config.Auth.UUID == "" {
+		return fmt.Errorf("xray uuid is required (auth.uuid)")
+	}
+
 	t.status = StatusStarting
 	t.setError("")
 
-	configContent, err := t.generateXrayConfig()
-	if err != nil {
-		t.status = StatusError
-		t.setError(err.Error())
-		return err
-	}
-
-	tmpDir, _ := os.MkdirTemp("", "xray-slowdns-*")
-	t.configPath = filepath.Join(tmpDir, "config.json")
-	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
-		t.status = StatusError
-		t.setError(err.Error())
-		return err
-	}
-
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	t.xrayCmd = exec.CommandContext(ctx, "xray", "run", "-config", t.configPath)
+	slowdnsArgs := t.buildSlowDNSArgs()
+	t.slowdnscmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSlowDNS), slowdnsArgs...)
+	if err := t.slowdnscmd.Start(); err != nil {
+		t.status = StatusError
+		t.setError(fmt.Sprintf("SlowDNS start failed: %v", err))
+		return fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
+	}
+
+	// Wait until dnstt exposes the forwarded port before starting Xray.
+	t.mu.Unlock()
+	fwdErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.fwdPort()), 20*time.Second)
+	t.mu.Lock()
+
+	if fwdErr != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(fmt.Sprintf("SlowDNS forward not ready: %v", fwdErr))
+		return fmt.Errorf("slowdns forward not ready: %w", fwdErr)
+	}
+
+	configContent, err := t.generateXrayConfig()
+	if err != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+
+	tmpDir, err := os.MkdirTemp("", "xray-slowdns-*")
+	if err != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.configPath = filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+
+	t.xrayCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
+	if BinDir != "" {
+		t.xrayCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
+	}
 	if err := t.xrayCmd.Start(); err != nil {
+		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("Xray start failed: %v", err))
 		return fmt.Errorf("failed to start Xray: %w", err)
 	}
 
-	time.Sleep(1 * time.Second)
+	// Wait until the local SOCKS5 is exposed before reporting running.
+	t.mu.Unlock()
+	socksErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.socksPort()), 20*time.Second)
+	t.mu.Lock()
 
-	slowdnsArgs := t.buildSlowDNSArgs()
-	t.slowdnscmd = exec.CommandContext(ctx, "slowdns", slowdnsArgs...)
-	if err := t.slowdnscmd.Start(); err != nil {
+	if socksErr != nil {
 		t.xrayCmd.Process.Kill()
+		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS start failed: %v", err))
-		return fmt.Errorf("failed to start SlowDNS: %w", err)
+		t.setError(fmt.Sprintf("Xray SOCKS not ready: %v", socksErr))
+		return fmt.Errorf("xray socks not ready: %w", socksErr)
 	}
 
 	t.startTime = time.Now()
