@@ -195,7 +195,9 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 			tunnel.Transport.Obfs = "salamander"
 		}
 		if tunnel.Transport.ObfsParam == "" {
-			tunnel.Transport.ObfsParam = "zivpn"
+			// Fixed obfs value used by the Zivpn UDP tunnel
+			// (see tunnel.DefaultZivpnObfsPassword).
+			tunnel.Transport.ObfsParam = "hu``hqb`c"
 		}
 	}
 

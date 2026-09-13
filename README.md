@@ -280,10 +280,8 @@ tunnels:
       sni: "zivpn.example.com"
     auth:
       password: "zi"   # server password (default "zi")
-    transport:
-      network: "udp"
-      obfs: "salamander"  # matches official server "obfs":"zivpn"
-      obfs_param: "zivpn" # obfs password (default "zivpn")
+    # transport.obfs / obfs_param are NOT edited: the fixed obfs value
+    # "hu``hqb`c" (salamander) is hardcoded in the app source.
     # advanced overrides: socks_port (default 10810),
     #   tls_insecure (default true, self-signed server certs),
     #   up_mbps/down_mbps (defaults "50 mbps"/"200 mbps"),

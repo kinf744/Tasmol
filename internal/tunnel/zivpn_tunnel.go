@@ -27,10 +27,9 @@ import (
 // scripts generate self-signed certificates (override with
 // Advanced["tls_insecure"]=false).
 //
-// Obfuscation mapping (Hysteria2-derived protocol): Transport.Obfs sets the
-// obfs type (default "salamander" to match the official server
-// "obfs":"zivpn"), Transport.ObfsParam sets the obfs password (default
-// "zivpn"). Advanced["obfs_raw"] may hold a raw JSON value injected
+// Obfuscation (Hysteria2-derived protocol) is hardcoded: type "salamander",
+// fixed password DefaultZivpnObfsPassword. No UI field.
+// Advanced["obfs_raw"] may hold a raw JSON value injected
 // verbatim as the "obfs" field for fork variants.
 type ZivpnTunnel struct {
 	mu         sync.RWMutex
@@ -125,6 +124,10 @@ func (t *ZivpnTunnel) authPassword() string {
 	return "zi"
 }
 
+// DefaultZivpnObfsPassword is the fixed obfs value hardcoded for the
+// Zivpn UDP tunnel (no UI field).
+const DefaultZivpnObfsPassword = "hu``hqb`c"
+
 func (t *ZivpnTunnel) obfsType() string {
 	// Hardcoded: the official udp-zivpn server uses salamander obfuscation.
 	// (No UI field; Advanced["obfs_raw"] may still inject a raw block.)
@@ -132,8 +135,8 @@ func (t *ZivpnTunnel) obfsType() string {
 }
 
 func (t *ZivpnTunnel) obfsPassword() string {
-	// Hardcoded: matches the official server "obfs":"zivpn".
-	return "zivpn"
+	// Hardcoded fixed value used by the Zivpn UDP tunnel.
+	return DefaultZivpnObfsPassword
 }
 
 func (t *ZivpnTunnel) sni() string {
