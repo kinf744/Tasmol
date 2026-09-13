@@ -240,46 +240,53 @@ function openTunnelModal(tunnel = null) {
         document.getElementById('tunnel-name').value = tunnel.name;
         document.getElementById('tunnel-type').value = tunnel.type;
         document.getElementById('tunnel-enabled').checked = tunnel.enabled;
-        document.getElementById('tunnel-host').value = tunnel.config?.server?.host || '';
-        document.getElementById('tunnel-port').value = tunnel.config?.server?.port || '';
 
-        if (tunnel.config?.auth) {
-            document.getElementById('tunnel-username').value = tunnel.config.auth.username || '';
-            document.getElementById('tunnel-password').value = tunnel.config.auth.password || '';
-            document.getElementById('tunnel-private-key').value = tunnel.config.auth.private_key || '';
-            document.getElementById('tunnel-ssh-payload').value = (tunnel.config.ssh && tunnel.config.ssh.payload) || '';
-            document.getElementById('tunnel-ssh-proxy').value = (tunnel.config.ssh && tunnel.config.ssh.proxy) || '';
-            document.getElementById('tunnel-uuid').value = tunnel.config.auth.uuid || '';
-            document.getElementById('tunnel-flow').value = tunnel.config.auth.flow || '';
-            document.getElementById('tunnel-xray-password').value = tunnel.config.auth.password || '';
-            document.getElementById('tunnel-xray-method').value = tunnel.config.auth.method || '';
-            document.getElementById('tunnel-zivpn-uuid').value = tunnel.config.auth.uuid || '';
-            document.getElementById('tunnel-zivpn-password').value = tunnel.config.auth.password || '';
-        }
+        // Defensive: handle missing config gracefully
+        const cfg = tunnel.config || {};
+        const server = cfg.server || {};
+        const auth = cfg.auth || {};
+        const ssh = cfg.ssh || {};
+        const transport = cfg.transport || {};
+        const advanced = cfg.advanced || {};
 
-        if (tunnel.config?.server) {
-            document.getElementById('tunnel-slowdns-pubkey').value = tunnel.config.server.public_key || '';
-            document.getElementById('tunnel-slowdns-domain').value = tunnel.config.server.nameserver || tunnel.config.server.hostname || '';
-            document.getElementById('tunnel-slowdns-ns').value = tunnel.config.server.dns_resolver || '8.8.8.8:53';
-            document.getElementById('tunnel-reality-pubkey').value = tunnel.config.server.public_key || '';
-            document.getElementById('tunnel-reality-shortid').value = tunnel.config.server.short_id || '';
-            document.getElementById('tunnel-reality-sni').value = tunnel.config.server.sni || '';
-            document.getElementById('tunnel-zivpn-port-range').value = tunnel.config.server.port_range || '';
-        }
+        document.getElementById('tunnel-id').value = tunnel.id;
+        document.getElementById('tunnel-name').value = tunnel.name;
+        document.getElementById('tunnel-type').value = tunnel.type;
+        document.getElementById('tunnel-enabled').checked = tunnel.enabled;
+        document.getElementById('tunnel-host').value = server.host || '';
+        document.getElementById('tunnel-port').value = server.port || '';
+        document.getElementById('tunnel-zivpn-port-range').value = server.port_range || '';
 
-        if (tunnel.config?.transport) {
-            document.getElementById('tunnel-network').value = tunnel.config.transport.network || '';
-            document.getElementById('tunnel-security').value = tunnel.config.transport.security || '';
-            document.getElementById('tunnel-ws-path').value = tunnel.config.transport.path || '';
-            document.getElementById('tunnel-ws-host').value = tunnel.config.transport.host || '';
-            document.getElementById('tunnel-zivpn-obfs').value = tunnel.config.transport.obfs || 'salamander';
-            document.getElementById('tunnel-zivpn-obfs-param').value = tunnel.config.transport.obfs_param || 'zivpn';
-        }
+        document.getElementById('tunnel-slowdns-pubkey').value = server.public_key || '';
+        document.getElementById('tunnel-slowdns-domain').value = server.nameserver || server.hostname || '';
+        document.getElementById('tunnel-slowdns-ns').value = server.dns_resolver || '8.8.8.8:53';
+        document.getElementById('tunnel-reality-pubkey').value = server.public_key || '';
+        document.getElementById('tunnel-reality-shortid').value = server.short_id || '';
+        document.getElementById('tunnel-reality-sni').value = server.sni || '';
+        document.getElementById('tunnel-zivpn-port-range').value = server.port_range || '';
 
-        const adv = tunnel.config?.advanced || {};
-        document.getElementById('tunnel-link').value = adv.link || '';
-        document.getElementById('tunnel-outbound-json').value = adv.outbound_json || '';
-        document.getElementById('tunnel-xray-json').value = adv.outbound_json || '';
+        document.getElementById('tunnel-username').value = auth.username || '';
+        document.getElementById('tunnel-password').value = auth.password || '';
+        document.getElementById('tunnel-private-key').value = auth.private_key || '';
+        document.getElementById('tunnel-ssh-payload').value = ssh.payload || '';
+        document.getElementById('tunnel-ssh-proxy').value = ssh.proxy || '';
+        document.getElementById('tunnel-uuid').value = auth.uuid || '';
+        document.getElementById('tunnel-flow').value = auth.flow || '';
+        document.getElementById('tunnel-xray-password').value = auth.password || '';
+        document.getElementById('tunnel-xray-method').value = auth.method || '';
+        document.getElementById('tunnel-zivpn-uuid').value = auth.uuid || '';
+        document.getElementById('tunnel-zivpn-password').value = auth.password || '';
+
+        document.getElementById('tunnel-network').value = transport.network || 'tcp';
+        document.getElementById('tunnel-security').value = transport.security || '';
+        document.getElementById('tunnel-ws-path').value = transport.path || '';
+        document.getElementById('tunnel-ws-host').value = transport.host || '';
+        document.getElementById('tunnel-zivpn-obfs').value = transport.obfs || 'salamander';
+        document.getElementById('tunnel-zivpn-obfs-param').value = transport.obfs_param || 'zivpn';
+
+        document.getElementById('tunnel-link').value = advanced.link || '';
+        document.getElementById('tunnel-outbound-json').value = advanced.outbound_json || '';
+        document.getElementById('tunnel-xray-json').value = advanced.outbound_json || '';
     } else {
         title.textContent = 'Add Tunnel';
     }
@@ -288,7 +295,6 @@ function openTunnelModal(tunnel = null) {
     modal.classList.remove('hidden');
     modal.classList.add('flex');
 }
-
 function closeTunnelModal() {
     document.getElementById('tunnel-modal').classList.add('hidden');
     document.getElementById('tunnel-modal').classList.remove('flex');
@@ -307,7 +313,7 @@ function updateTunnelFields() {
     // no direct server host/port.
     const showServer = type !== 'ssh_slowdns' && type !== 'xray';
     // Transport is only meaningful for Xray-family tunnels.
-    const showTransport = isXray;
+    const showTransport = false;
 
     document.getElementById('ssh-auth-fields').classList.toggle('hidden', !isSSH);
     // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
@@ -316,7 +322,7 @@ function updateTunnelFields() {
     document.getElementById('zivpn-auth-fields').classList.toggle('hidden', !isZivpn);
     document.getElementById('slowdns-fields').classList.toggle('hidden', !isSlowDNS);
     document.getElementById('server-fields').classList.toggle('hidden', !showServer);
-    document.getElementById('transport-fields').classList.toggle('hidden', !showTransport);
+    document.getElementById('transport-fields').classList.add('hidden'); // Always hide transport
 
     const showPath = isXray && ['ws', 'grpc', 'xhttp', 'httpupgrade'].includes(network);
     document.getElementById('ws-fields').classList.toggle('hidden', !showPath);
@@ -356,12 +362,12 @@ function saveTunnel(event) {
         },
         auth: {},
         transport: {
-            network: network,
-            security: security,
-            path: document.getElementById('tunnel-ws-path').value,
-            host: document.getElementById('tunnel-ws-host').value,
-            obfs: document.getElementById('tunnel-zivpn-obfs').value,
-            obfs_param: document.getElementById('tunnel-zivpn-obfs-param').value
+            network: isXray ? 'tcp' : network,
+            security: isXray ? 'none' : security,
+            path: isXray ? '' : document.getElementById('tunnel-ws-path').value,
+            host: isXray ? '' : document.getElementById('tunnel-ws-host').value,
+            obfs: isXray ? '' : document.getElementById('tunnel-zivpn-obfs').value,
+            obfs_param: isXray ? '' : document.getElementById('tunnel-zivpn-obfs-param').value
         },
         advanced: {},
         routing: {
