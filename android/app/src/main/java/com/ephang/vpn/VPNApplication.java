@@ -1,4 +1,4 @@
-package com.vpnapp;
+package com.ephang.vpn;
 
 import android.app.Application;
 import android.content.Context;
@@ -13,7 +13,7 @@ public class VPNApplication extends Application {
     public void onCreate() {
         super.onCreate();
         instance = this;
-        prefs = getSharedPreferences("vpn_app_prefs", Context.MODE_PRIVATE);
+        prefs = getSharedPreferences("ephang_vpn_prefs", Context.MODE_PRIVATE);
     }
 
     public static VPNApplication getInstance() {

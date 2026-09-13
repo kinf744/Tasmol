@@ -32,6 +32,12 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".TunnelEditorActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VPNApp.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
+
         <service
             android:name=".TasVpnService"
             android:enabled="true"

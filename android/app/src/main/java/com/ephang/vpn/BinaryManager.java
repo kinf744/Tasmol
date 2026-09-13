@@ -1,4 +1,4 @@
-package com.vpnapp;
+package com.ephang.vpn;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
@@ -123,7 +123,7 @@ public class BinaryManager {
         String dataDir = ctx.getFilesDir().getAbsolutePath().replace("\\", "/");
         String yaml =
                 "app:\n" +
-                "  name: \"TasVPN\"\n" +
+                "  name: \"Ephang VPN\"\n" +
                 "  version: \"1.0.0\"\n" +
                 "  web_port: 0\n" +
                 "  web_host: \"127.0.0.1\"\n" +

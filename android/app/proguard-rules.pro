@@ -7,24 +7,14 @@
     @android.webkit.JavascriptInterface <methods>;
 }
 
-# Keep VPNApplication and its methods
--keep class com.vpnapp.VPNApplication { *; }
-
-# Keep WebAppInterface
--keep class com.vpnapp.WebAppInterface { *; }
-
-# Keep MainActivity
--keep class com.vpnapp.MainActivity { *; }
-
-# Keep VPNService
--keep class com.vpnapp.VPNService { *; }
-
-# Keep BootReceiver
--keep class com.vpnapp.BootReceiver { *; }
+# Keep application classes
+-keep class com.ephang.vpn.VPNApplication { *; }
+-keep class com.ephang.vpn.MainActivity { *; }
+-keep class com.ephang.vpn.BootReceiver { *; }
 
 # Keep TasVpnService and BinaryManager (VPN data plane)
--keep class com.vpnapp.TasVpnService { *; }
--keep class com.vpnapp.BinaryManager { *; }
+-keep class com.ephang.vpn.TasVpnService { *; }
+-keep class com.ephang.vpn.BinaryManager { *; }
 
 # Keep gomobile bindings (vpnlib.aar) - accessed via JNI/reflection
 -keep class vpnlib.** { *; }
@@ -35,7 +25,7 @@
 }
 
 # Keep BuildConfig
--keep class com.vpnapp.BuildConfig { *; }
+-keep class com.ephang.vpn.BuildConfig { *; }
 
 # Gson/JSON parsing (if used)
 -keepattributes Signature

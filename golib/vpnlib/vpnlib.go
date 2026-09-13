@@ -745,6 +745,97 @@ func (c *Controller) GetStatus() string {
 	return string(b)
 }
 
+// ---------------------------------------------------------------------------
+// Offline helpers (no running Controller needed). Used by the native UI to
+// manage tunnels and parse links while disconnected.
+// ---------------------------------------------------------------------------
+
+// ParseLink parses a subscription link into a TunnelConfig JSON document.
+func ParseLink(link string) string {
+	tc, err := tunnel.ParseXrayLink(link)
+	if err != nil {
+		return errJSON(err)
+	}
+	b, err := json.Marshal(tc)
+	if err != nil {
+		return errJSON(err)
+	}
+	return string(b)
+}
+
+// openConfigManager opens the config file (creating defaults if missing).
+func openConfigManager(configPath string) (*config.Manager, error) {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return nil, err
+	}
+	return config.NewManager(configPath)
+}
+
+// ConfigAdd appends a tunnel (TunnelConfig JSON) to the config file.
+func ConfigAdd(configPath, tunnelJSON string) string {
+	var tc config.TunnelConfig
+	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
+		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
+	}
+	mgr, err := openConfigManager(configPath)
+	if err != nil {
+		return errJSON(err)
+	}
+	defer mgr.Close()
+	if err := mgr.AddTunnel(&tc); err != nil {
+		return errJSON(err)
+	}
+	b, _ := json.Marshal(map[string]string{"id": tc.ID})
+	return string(b)
+}
+
+// ConfigUpdate replaces a tunnel in the config file.
+func ConfigUpdate(configPath, id, tunnelJSON string) string {
+	var tc config.TunnelConfig
+	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
+		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
+	}
+	tc.ID = id
+	mgr, err := openConfigManager(configPath)
+	if err != nil {
+		return errJSON(err)
+	}
+	defer mgr.Close()
+	if err := mgr.UpdateTunnel(id, tc); err != nil {
+		return errJSON(err)
+	}
+	return ""
+}
+
+// ConfigDelete removes a tunnel from the config file.
+func ConfigDelete(configPath, id string) string {
+	mgr, err := openConfigManager(configPath)
+	if err != nil {
+		return errJSON(err)
+	}
+	defer mgr.Close()
+	if err := mgr.DeleteTunnel(id); err != nil {
+		return errJSON(err)
+	}
+	return ""
+}
+
+// ListTunnels returns the full TunnelConfig array from the config file
+// (used by the native UI, online or offline).
+func ListTunnels(configPath string) string {
+	mgr, err := openConfigManager(configPath)
+	if err != nil {
+		return errJSON(err)
+	}
+	defer mgr.Close()
+	out := mgr.Get().Tunnels
+	if out == nil {
+		out = []config.TunnelConfig{}
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
 func waitTCP(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {

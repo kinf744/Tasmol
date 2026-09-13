@@ -1,4 +1,4 @@
-package com.vpnapp;
+package com.ephang.vpn;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -30,13 +30,41 @@ public class TasVpnService extends VpnService {
     private static final String CHANNEL_ID = "tasvpn_channel";
     private static final int NOTIFICATION_ID = 42;
 
-    public static final String ACTION_CONNECT = "com.vpnapp.action.CONNECT";
-    public static final String ACTION_DISCONNECT = "com.vpnapp.action.DISCONNECT";
+    public static final String ACTION_CONNECT = "com.ephang.vpn.action.CONNECT";
+    public static final String ACTION_DISCONNECT = "com.ephang.vpn.action.DISCONNECT";
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
     private static volatile Object controller = null;
     private static volatile String activeTunnelId = null;
     private static volatile String lastError = null;
+
+    private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
+    private static final int MAX_LOG_LINES = 200;
+
+    /** Append a timestamped event to the in-memory connection log. */
+    public static synchronized void logEvent(String msg) {
+        java.text.SimpleDateFormat fmt =
+                new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
+        eventLog.addLast(fmt.format(new java.util.Date()) + "  " + msg);
+        while (eventLog.size() > MAX_LOG_LINES) {
+            eventLog.removeFirst();
+        }
+    }
+
+    public static synchronized String getLog() {
+        if (eventLog.isEmpty()) {
+            return "No events yet.";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String line : eventLog) {
+            sb.append(line).append('\n');
+        }
+        return sb.toString();
+    }
+
+    public static synchronized void clearLog() {
+        eventLog.clear();
+    }
 
     private ParcelFileDescriptor tunFd = null;
 
@@ -96,7 +124,7 @@ public class TasVpnService extends VpnService {
             }
 
             Builder builder = new Builder()
-                    .setSession("TasVPN")
+                    .setSession("Ephang VPN")
                     .setMtu(1500)
                     .addAddress("10.8.0.2", 32)
                     .addRoute("0.0.0.0", 0)
@@ -131,9 +159,11 @@ public class TasVpnService extends VpnService {
 
             startForeground(NOTIFICATION_ID, buildNotification("Connected (" + tunnelId + ")"));
             Log.i(TAG, "VPN session running");
+            logEvent("connected (" + tunnelId + ")");
         } catch (Exception e) {
             Log.e(TAG, "startSession failed", e);
             lastError = e.getMessage();
+            logEvent("connect failed: " + e.getMessage());
             controller = null;
             activeTunnelId = null;
             stopSelf();
@@ -159,6 +189,7 @@ public class TasVpnService extends VpnService {
         } finally {
             tunFd = null;
         }
+        logEvent("disconnected");
         stopForeground(true);
     }
 
@@ -196,13 +227,32 @@ public class TasVpnService extends VpnService {
         }
     }
 
+    /** Switch the data plane to another tunnel without restarting the VPN. */
+    public static String setActiveTunnel(String tunnelId) {
+        Object ctrl = controller;
+        if (ctrl == null) {
+            return "{\"error\":\"not running\"}";
+        }
+        try {
+            String err = ((vpnlib.Controller) ctrl).setActiveTunnel(tunnelId);
+            if (err == null || err.isEmpty()) {
+                activeTunnelId = tunnelId;
+                VPNApplication.getInstance().setActiveTunnelId(tunnelId);
+                logEvent("switched to tunnel " + tunnelId);
+            }
+            return err;
+        } catch (Exception e) {
+            return "{\"error\":\"" + e.getMessage() + "\"}";
+        }
+    }
+
     // --- notification ---
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel ch = new NotificationChannel(
-                    CHANNEL_ID, "TasVPN", NotificationManager.IMPORTANCE_LOW);
-            ch.setDescription("TasVPN connection status");
+                    CHANNEL_ID, "Ephang VPN", NotificationManager.IMPORTANCE_LOW);
+            ch.setDescription("Ephang VPN connection status");
             NotificationManager nm = getSystemService(NotificationManager.class);
             if (nm != null) {
                 nm.createNotificationChannel(ch);
@@ -216,7 +266,7 @@ public class TasVpnService extends VpnService {
         PendingIntent pi = PendingIntent.getActivity(
                 this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle("TasVPN")
+                .setContentTitle("Ephang VPN")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_vpn)
                 .setContentIntent(pi)

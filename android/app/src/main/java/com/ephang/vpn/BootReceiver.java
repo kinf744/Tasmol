@@ -1,4 +1,4 @@
-package com.vpnapp;
+package com.ephang.vpn;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

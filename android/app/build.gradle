@@ -4,12 +4,12 @@ plugins {
 }
 
 android {
-    namespace 'com.vpnapp'
+    namespace 'com.ephang.vpn'
     compileSdk 34
 
     defaultConfig {
-        applicationId "com.vpnapp"
-        minSdk 24
+        applicationId "com.ephang.vpn"
+        minSdk 26
         targetSdk 34
         versionCode 1
         versionName "1.0.0"

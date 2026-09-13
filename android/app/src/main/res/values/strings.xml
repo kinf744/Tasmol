@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">VPN App</string>
+    <string name="app_name">Ephang VPN</string>
     <string name="vpn_service_running">VPN App Running</string>
     <string name="tap_to_open">Tap to open Web UI</string>
     <string name="unable_to_connect">Unable to connect</string>
