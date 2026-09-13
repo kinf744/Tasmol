@@ -134,32 +134,12 @@ jobs:
           arm-linux-gnueabihf-strip build/armv7/vpn-app 2>/dev/null || strip build/armv7/vpn-app
           ls -lh build/armv7/vpn-app
 
-      - name: Create Termux bundle archive (app + official binaries)
-        run: |
-          mkdir -p bundle/vpn-app-termux
-          cp build/armv7/vpn-app bundle/vpn-app-termux/
-          cp bin/armv7/xray bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: xray missing from bundle"
-          cp bin/armv7/zivpn bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: zivpn missing from bundle"
-          cp bin/armv7/slowdns bundle/vpn-app-termux/ 2>/dev/null || echo "WARNING: slowdns missing from bundle (build-slowdns job)"
-          cp bin/armv7/geoip.dat bundle/vpn-app-termux/ 2>/dev/null || true
-          cp bin/armv7/geosite.dat bundle/vpn-app-termux/ 2>/dev/null || true
-          cp scripts/download_binaries.sh scripts/install_termux.sh bundle/vpn-app-termux/ 2>/dev/null || true
-          chmod +x bundle/vpn-app-termux/* 2>/dev/null || true
-          cd bundle
-          tar -czf vpn-app-termux-armv7.tar.gz vpn-app-termux
-          sha256sum vpn-app-termux-armv7.tar.gz > vpn-app-termux-armv7.tar.gz.sha256
-          cat vpn-app-termux-armv7.tar.gz.sha256
-          ls -lh
-          cd ..
-
       - name: Upload ARMv7 artifact
         uses: actions/upload-artifact@v4
         with:
           name: vpn-app-armv7
           path: |
             build/armv7/vpn-app
-            bundle/vpn-app-termux-armv7.tar.gz
-            bundle/vpn-app-termux-armv7.tar.gz.sha256
           retention-days: 30
 
       - name: Create Release
