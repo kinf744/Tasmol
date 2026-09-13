@@ -61,11 +61,11 @@ public class BinaryManager {
         Log.i(TAG, "nativeLibraryDir=" + nativeLibDir);
 
         for (String[] pair : NATIVE_LIBS) {
-            File src = new File(nativeLibDir, pair[0]);
-            File dst = new File(dir, pair[1]);
-            if (!src.exists()) {
+            File src = findNativeLibrary(nativeLibDir, pair[0]);
+            if (src == null) {
                 throw new IllegalStateException("bundled binary missing: " + pair[0]);
             }
+            File dst = new File(dir, pair[1]);
             if (!dst.exists() || dst.length() != src.length()) {
                 copyFile(src, dst);
             }
@@ -76,6 +76,24 @@ public class BinaryManager {
                 throw new IllegalStateException("binary not executable: " + dst);
             }
         }
+
+    /** Search for a native library in the native library directory and its
+     *  architecture-specific subdirectories (arm, armeabi-v7a, arm64-v8a, etc.). */
+    private static File findNativeLibrary(String nativeLibDir, String libName) {
+        File direct = new File(nativeLibDir, libName);
+        if (direct.exists()) {
+            return direct;
+        }
+        // Common architecture subdirectories where the library might be
+        String[] archSubdirs = {"arm", "armeabi-v7a", "arm64-v8a", "x86", "x86_64"};
+        for (String arch : archSubdirs) {
+            File candidate = new File(nativeLibDir, arch + File.separator + libName);
+            if (candidate.exists()) {
+                return candidate;
+            }
+        }
+        return null;
+    }
 
         for (String dat : ASSET_DATS) {
             File dst = new File(dir, dat);
