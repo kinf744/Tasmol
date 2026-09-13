@@ -46,8 +46,11 @@ jobs:
 
       - name: Export NDK env
         run: |
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
           ls "$ANDROID_HOME/ndk/" || true
+          NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/* | head -1)
+          echo "Detected NDK: $NDK_DIR"
+          ls "$NDK_DIR/meta/platforms.json"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
 
       - name: Install gomobile
         run: |
