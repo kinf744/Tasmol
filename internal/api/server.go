@@ -146,7 +146,6 @@ func (s *Server) broadcastStatus() {
 }
 
 func (s *Server) getStatusData() gin.H {
-	cfg := s.core.GetConfig()
 	tunnels := s.core.GetTunnelManager().List()
 
 	tunnelData := make([]gin.H, 0, len(tunnels))
