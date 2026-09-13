@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"vpn-app/internal/config"
 )
 
 // BinDir is the directory holding the official tunnel binaries
@@ -15,6 +17,17 @@ import (
 // App.BinDir (see core.NewVPNCore). When empty, binaries are resolved
 // via PATH.
 var BinDir string
+
+// BinNames optionally remaps logical binary names to on-disk file names.
+// The Android APK ships the official binaries as native libraries
+// (lib_xray.so, ...), so mobile mode sets:
+// BinNames = {"xray":"lib_xray.so", "zivpn":"lib_zivpn.so", "slowdns":"lib_slowdns.so"}.
+var BinNames map[string]string
+
+// NativeSSH selects the pure-Go SSH implementation (golang.org/x/crypto/ssh
+// + embedded SOCKS5 server) instead of the external openssh binary. The APK
+// cannot rely on an openssh binary, so mobile mode enables this.
+var NativeSSH bool
 
 // Binary names as stored in bin/armv7/ of the repository.
 const (
@@ -27,8 +40,12 @@ const (
 
 // LookupBin returns the executable path for a tunnel binary: it prefers
 // <binDir>/<name> when that file exists, otherwise it falls back to PATH
-// resolution (exec.LookPath) and finally to the bare name.
+// resolution (exec.LookPath) and finally to the bare name. BinNames remaps
+// the logical name to the on-disk name (Android native libraries).
 func LookupBin(binDir, name string) string {
+	if mapped, ok := BinNames[name]; ok && mapped != "" {
+		name = mapped
+	}
 	if binDir == "" {
 		binDir = BinDir
 	}
@@ -42,6 +59,36 @@ func LookupBin(binDir, name string) string {
 		return p
 	}
 	return name
+}
+
+// Default local SOCKS5 ports exposed by each tunnel type. They double as
+// the tun2socks upstream endpoints on mobile. Overridable per tunnel via
+// Advanced["socks_port"].
+const (
+	DefaultSSHPort         = 10801
+	DefaultSSHSlowDNSPort  = 10802
+	DefaultXrayPort        = 10808
+	DefaultXraySlowDNSPort = 10809
+	DefaultZivpnPort       = 10810
+)
+
+// SocksAddr returns the local SOCKS5 endpoint a tunnel exposes, used by the
+// mobile data plane (tun2socks upstream) and by SOCKS-aware clients.
+func SocksAddr(cfg *config.TunnelConfig) string {
+	port := DefaultXrayPort
+	switch cfg.Type {
+	case config.TunnelSSH:
+		port = advInt(cfg.Advanced, "socks_port", DefaultSSHPort)
+	case config.TunnelSSHSlowDNS:
+		port = advInt(cfg.Advanced, "socks_port", DefaultSSHSlowDNSPort)
+	case config.TunnelXray:
+		port = advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
+	case config.TunnelXraySlowDNS:
+		port = advInt(cfg.Advanced, "socks_port", DefaultXraySlowDNSPort)
+	case config.TunnelZivpn:
+		port = advInt(cfg.Advanced, "socks_port", DefaultZivpnPort)
+	}
+	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
 // waitForTCP polls addr until a TCP connection succeeds or timeout elapses.

@@ -54,6 +54,8 @@ android {
 }
 
 dependencies {
+    // Go mobile data plane (built by CI/locally: gomobile bind ./golib/vpnlib).
+    implementation files('libs/vpnlib.aar')
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.swiperefreshlayout:swiperefreshlayout:1.1.0'

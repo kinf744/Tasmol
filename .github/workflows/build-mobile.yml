@@ -1,0 +1,157 @@
+name: Build Mobile (Android APK, armv7)
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.23'
+  GOMOBILE_VERSION: v0.0.0-20240520174638-fa72addaaa1b
+  GRADLE_VERSION: '8.7'
+
+jobs:
+  gomobile-aar:
+    name: gomobile bind vpnlib (armv7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Android SDK + NDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools-version: '34.0.0'
+          ndk-version: r26d
+          cmake-version: '3.22.1'
+
+      - name: Export NDK env
+        run: |
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.3.11579264" >> $GITHUB_ENV
+          ls "$ANDROID_HOME/ndk/" || true
+
+      - name: Install gomobile
+        run: |
+          go install "golang.org/x/mobile/cmd/gomobile@${{ env.GOMOBILE_VERSION }}"
+          go install "golang.org/x/mobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}"
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: gomobile init
+        run: gomobile init
+
+      - name: Resolve Go modules (tun2socks)
+        run: |
+          go mod tidy
+          go mod verify
+          git diff --stat || true
+
+      - name: Bind vpnlib AAR (android/armv7)
+        run: |
+          mkdir -p android/app/libs
+          gomobile bind \
+            -target=android/armv7 \
+            -androidapi 24 \
+            -javapkg com.vpnapp.go \
+            -ldflags='-s -w' \
+            -o android/app/libs/vpnlib.aar \
+            ./golib/vpnlib
+
+      - name: Verify AAR
+        run: |
+          ls -lh android/app/libs/vpnlib.aar
+          unzip -l android/app/libs/vpnlib.aar | head -25
+          unzip -p android/app/libs/vpnlib.aar jni/armeabi-v7a/libgojni.so > /tmp/libgojni.so
+          file /tmp/libgojni.so
+
+      - name: Upload AAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpnlib-aar
+          path: android/app/libs/vpnlib.aar
+          retention-days: 30
+
+  apk:
+    name: Build Android APK (armv7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: gomobile-aar
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download vpnlib AAR
+        uses: actions/download-artifact@v4
+        with:
+          name: vpnlib-aar
+          path: android/app/libs
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools-version: '34.0.0'
+
+      - name: Stage official binaries into jniLibs
+        run: |
+          ls -lh bin/armv7/
+          bash scripts/fetch_android_bins.sh
+
+      - name: Install Gradle
+        run: |
+          cd /tmp
+          wget -q "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+          unzip -q "gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+          echo "/tmp/gradle-${{ env.GRADLE_VERSION }}/bin" >> $GITHUB_PATH
+
+      - name: Build Release APK
+        run: |
+          cd android
+          gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
+          file android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tasvpn-android-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Create Release (APK)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: android/app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

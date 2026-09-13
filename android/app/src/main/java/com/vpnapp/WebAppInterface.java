@@ -64,4 +64,36 @@ public class WebAppInterface {
     public boolean isDarkMode() {
         return VPNApplication.getInstance().isDarkModeEnabled();
     }
+
+    /** Called by the Web UI main Connect button inside the APK. */
+    @JavascriptInterface
+    public void vpnToggle() {
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).bridgeToggleVpn();
+        }
+    }
+
+    @JavascriptInterface
+    public void vpnConnect(String tunnelId) {
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).bridgeConnect(tunnelId);
+        }
+    }
+
+    @JavascriptInterface
+    public void vpnDisconnect() {
+        if (context instanceof MainActivity) {
+            ((MainActivity) context).bridgeDisconnect();
+        }
+    }
+
+    @JavascriptInterface
+    public String vpnStatus() {
+        return TasVpnService.controllerStatus();
+    }
+
+    @JavascriptInterface
+    public boolean vpnRunning() {
+        return TasVpnService.isRunning();
+    }
 }

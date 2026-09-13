@@ -147,8 +147,14 @@ func (m *manager) GetUDPGW() UDPGW {
 func CreateTunnel(cfg *config.TunnelConfig) (Tunnel, error) {
 	switch cfg.Type {
 	case config.TunnelSSH:
+		if NativeSSH {
+			return NewNativeSSHTunnel(cfg), nil
+		}
 		return NewSSHTunnel(cfg), nil
 	case config.TunnelSSHSlowDNS:
+		if NativeSSH {
+			return NewNativeSSHSlowDNSTunnel(cfg), nil
+		}
 		return NewSSHSlowDNSTunnel(cfg), nil
 	case config.TunnelXray:
 		return NewXrayTunnel(cfg), nil

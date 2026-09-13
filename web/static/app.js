@@ -202,6 +202,11 @@ function showSection(section) {
 }
 
 function toggleVPN() {
+    // Inside the Android APK, the Connect button drives the native VpnService.
+    if (window.Android && typeof Android.vpnToggle === 'function') {
+        Android.vpnToggle();
+        return;
+    }
     const running = document.getElementById('status-text').textContent === 'Connected';
     fetch(`/api/v1/tunnels/${running ? 'stop-all' : 'start-all'}`, { method: 'POST' })
         .then(res => res.json())

@@ -32,4 +32,13 @@
 
         </FrameLayout>
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_connect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="16dp"
+        android:contentDescription="Connect / Disconnect VPN"
+        android:src="@android:drawable/ic_media_play" />
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

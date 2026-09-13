@@ -23,7 +23,20 @@ type VPNCore struct {
 	wg             sync.WaitGroup
 }
 
+// Options tunes VPNCore behaviour per platform.
+type Options struct {
+	// EnableFeatures turns on netlink-based professional features
+	// (kill switch, split tunneling, DNS leak protection). They require
+	// root; keep enabled on servers/Termux, disabled in mobile (Android
+	// VpnService) mode where traffic capture replaces them.
+	EnableFeatures bool
+}
+
 func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
+	return NewVPNCoreWithOptions(configManager, Options{EnableFeatures: true})
+}
+
+func NewVPNCoreWithOptions(configManager *config.Manager, opts Options) (*VPNCore, error) {
 	cfg := configManager.Get()
 
 	// Point tunnel engines at the repository-bundled official binaries.
@@ -41,12 +54,15 @@ func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
 		}
 	}
 
-	featureManager := features.NewFeatureManager(
-		&cfg.Features,
-		cfg.Network.Interface,
-		cfg.Network.Gateway,
-		cfg.Network.DNS,
-	)
+	var featureManager *features.FeatureManager
+	if opts.EnableFeatures {
+		featureManager = features.NewFeatureManager(
+			&cfg.Features,
+			cfg.Network.Interface,
+			cfg.Network.Gateway,
+			cfg.Network.DNS,
+		)
+	}
 
 	v := &VPNCore{
 		configManager:  configManager,
@@ -63,9 +79,12 @@ func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
 func (v *VPNCore) onConfigChange(cfg *config.Config) {
 	v.mu.Lock()
 	v.config = cfg
+	fm := v.featureManager
 	v.mu.Unlock()
 
-	v.featureManager.UpdateConfig(&cfg.Features)
+	if fm != nil {
+		fm.UpdateConfig(&cfg.Features)
+	}
 }
 
 func (v *VPNCore) Start(ctx context.Context) error {
@@ -78,12 +97,16 @@ func (v *VPNCore) Start(ctx context.Context) error {
 	v.running = true
 	v.mu.Unlock()
 
-	if err := v.featureManager.Start(v.ctx); err != nil {
-		return fmt.Errorf("failed to start features: %w", err)
+	if v.featureManager != nil {
+		if err := v.featureManager.Start(v.ctx); err != nil {
+			return fmt.Errorf("failed to start features: %w", err)
+		}
 	}
 
 	if err := v.tunnelManager.StartAll(v.ctx); err != nil {
-		v.featureManager.Stop(v.ctx)
+		if v.featureManager != nil {
+			v.featureManager.Stop(v.ctx)
+		}
 		return fmt.Errorf("failed to start tunnels: %w", err)
 	}
 
@@ -109,8 +132,10 @@ func (v *VPNCore) Stop(ctx context.Context) error {
 		return fmt.Errorf("failed to stop tunnels: %w", err)
 	}
 
-	if err := v.featureManager.Stop(v.ctx); err != nil {
-		return fmt.Errorf("failed to stop features: %w", err)
+	if v.featureManager != nil {
+		if err := v.featureManager.Stop(v.ctx); err != nil {
+			return fmt.Errorf("failed to stop features: %w", err)
+		}
 	}
 
 	v.wg.Wait()
@@ -129,6 +154,18 @@ func (v *VPNCore) GetTunnelManager() tunnel.Manager {
 
 func (v *VPNCore) GetFeatureManager() *features.FeatureManager {
 	return v.featureManager
+}
+
+// FeatureStatus reports professional-feature states. It returns an empty
+// map when features are disabled (mobile mode) instead of nil-dereferencing.
+func (v *VPNCore) FeatureStatus() map[string]bool {
+	v.mu.RLock()
+	fm := v.featureManager
+	v.mu.RUnlock()
+	if fm == nil {
+		return map[string]bool{}
+	}
+	return fm.GetStatus()
 }
 
 func (v *VPNCore) GetConfig() *config.Config {

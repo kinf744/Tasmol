@@ -22,4 +22,5 @@ require (
 	github.com/google/uuid v1.5.0
 	github.com/klauspost/compress v1.17.0
 	github.com/pelletier/go-toml/v2 v2.1.1
+	github.com/xjasonlyu/tun2socks/v2 v2.6.0
 )

@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"html/template"
+	"io/fs"
 	"net/http"
 	"sync"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"vpn-app/internal/config"
 	"vpn-app/internal/core"
 	"vpn-app/internal/tunnel"
+	webui "vpn-app/web"
 )
 
 type Server struct {
@@ -53,8 +56,13 @@ func NewServer(core *core.VPNCore, configMgr *config.Manager) *Server {
 }
 
 func (s *Server) setupRoutes() {
-	s.router.Static("/static", "./web/static")
-	s.router.LoadHTMLGlob("web/templates/*")
+	// The Web UI is embedded in the binary (web/embed.go) so it works
+	// everywhere: Termux, server installs and the Android APK.
+	htmlTmpl := template.Must(template.New("index.html").ParseFS(webui.FS, "templates/index.html"))
+	s.router.SetHTMLTemplate(htmlTmpl)
+	if staticFS, err := fs.Sub(webui.FS, "static"); err == nil {
+		s.router.StaticFS("/static", http.FS(staticFS))
+	}
 
 	s.router.GET("/", s.indexHandler)
 	s.router.GET("/ws", s.wsHandler)
@@ -167,7 +175,7 @@ func (s *Server) getStatusData() gin.H {
 
 	return gin.H{
 		"running":   s.core.IsRunning(),
-		"features":  s.core.GetFeatureManager().GetStatus(),
+		"features":  s.core.FeatureStatus(),
 		"tunnels":   tunnelData,
 		"udpgw":     s.core.GetTunnelManager().GetUDPGW().GetStats(),
 		"timestamp": time.Now().Unix(),
@@ -362,7 +370,7 @@ func (s *Server) restartTunnelHandler(c *gin.Context) {
 }
 
 func (s *Server) getFeaturesHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, s.core.GetFeatureManager().GetStatus())
+	c.JSON(http.StatusOK, s.core.FeatureStatus())
 }
 
 func (s *Server) updateFeaturesHandler(c *gin.Context) {
@@ -372,7 +380,12 @@ func (s *Server) updateFeaturesHandler(c *gin.Context) {
 		return
 	}
 
-	if err := s.core.GetFeatureManager().UpdateConfig(&features); err != nil {
+	fm := s.core.GetFeatureManager()
+	if fm == nil {
+		c.JSON(http.StatusConflict, gin.H{"error": "features disabled in mobile mode"})
+		return
+	}
+	if err := fm.UpdateConfig(&features); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
