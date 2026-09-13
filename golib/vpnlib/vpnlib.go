@@ -2,9 +2,11 @@
 // (Voie B, no-root operation).
 //
 // Architecture: the Android VpnService captures device packets into a TUN
-// file descriptor and hands it to Controller.Start. The data plane IS
-// Xray (xray-core v26, in-process library): its TUN inbound reads the fd
-// via the official XRAY_TUN_FD environment variable, routes everything
+// file descriptor and hands it to Controller.Start. The data plane IS the
+// official Xray binary (v26.5.9, stored in the repository bundle): vpnlib
+// spawns it as a child process with the TUN fd inherited as fd 3
+// (Go os/exec ExtraFiles) and XRAY_TUN_FD=3 in its environment, which the
+// documented Xray TUN inbound reads on Android. Xray routes everything
 // through the active tunnel's outbound and resolves DNS over HTTPS.
 //
 // Per active tunnel, the front Xray dials:
@@ -24,28 +26,29 @@
 package vpnlib
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
-	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	xcore "github.com/xtls/xray-core/v26/core"
-	xserial "github.com/xtls/xray-core/v26/infra/conf/serial"
-	_ "github.com/xtls/xray-core/v26/main/distro/all"
 
 	"vpn-app/internal/api"
 	"vpn-app/internal/config"
 	"vpn-app/internal/core"
 	"vpn-app/internal/tunnel"
 )
+
+// frontChildFd is the fd number the TUN fd is inherited as inside the
+// Xray child process (Go os/exec ExtraFiles[0] always lands on fd 3).
+// XRAY_TUN_FD is set to the same value.
+const frontChildFd = "3"
 
 // startParams configures Controller.Start (JSON document from Kotlin).
 type startParams struct {
@@ -73,8 +76,12 @@ type Controller struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	front      *xcore.Instance
+	front      *exec.Cmd
+	frontCfg   string
+	frontAlive bool
 	tunFd      int
+	mtu        int
+	configPath string
 	dnsProcs   map[string]*dnsttProc
 	activeID   string
 	autoFollow bool
@@ -82,14 +89,8 @@ type Controller struct {
 }
 
 type dnsttProc struct {
-	cmd     processKiller
+	cmd     *exec.Cmd
 	fwdPort int
-}
-
-// processKiller abstracts *exec.Cmd for the dnstt helpers.
-type processKiller interface {
-	Kill() error
-	Wait() error
 }
 
 // NewController creates a Controller. It must be called once.
@@ -108,8 +109,8 @@ func errJSON(err error) string {
 }
 
 // Start boots the management core, the helpers of the active tunnel and the
-// in-process Xray front reading the Android TUN fd. Returns "" on success
-// or a JSON {"error": "..."} document.
+// Xray front fed by the Android TUN fd. Returns "" on success or a JSON
+// {"error": "..."} document.
 func (c *Controller) Start(paramsJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -155,6 +156,8 @@ func (c *Controller) Start(paramsJSON string) string {
 	c.cfgMgr = cfgMgr
 	c.vpn = vpn
 	c.tunFd = p.TunFd
+	c.mtu = p.MTU
+	c.configPath = p.ConfigPath
 	c.autoFollow = p.AutoFollow
 	c.activeID = p.ActiveTunnel
 
@@ -176,7 +179,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		c.cleanupLocked()
 		return errJSON(err)
 	}
-	if err := c.startFrontLocked(p.MTU); err != nil {
+	if err := c.startFrontLocked(); err != nil {
 		c.cleanupLocked()
 		return errJSON(err)
 	}
@@ -217,13 +220,10 @@ func (c *Controller) cleanupLocked() {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	if c.front != nil {
-		_ = c.front.Close()
-		c.front = nil
-	}
+	c.killFrontLocked()
 	for id, dp := range c.dnsProcs {
-		if dp.cmd != nil {
-			_ = dp.cmd.Kill()
+		if dp.cmd != nil && dp.cmd.Process != nil {
+			_ = dp.cmd.Process.Kill()
 		}
 		delete(c.dnsProcs, id)
 	}
@@ -239,6 +239,19 @@ func (c *Controller) cleanupLocked() {
 	c.running = false
 	c.activeID = ""
 	c.wg.Wait()
+}
+
+func (c *Controller) killFrontLocked() {
+	if c.front != nil && c.front.Process != nil {
+		_ = c.front.Process.Kill()
+		_, _ = c.front.Process.Wait()
+	}
+	c.front = nil
+	c.frontAlive = false
+	if c.frontCfg != "" {
+		os.Remove(c.frontCfg)
+		c.frontCfg = ""
+	}
 }
 
 // ensureHelpersLocked starts the helper processes the active tunnel needs.
@@ -300,12 +313,18 @@ func frontOutbound(tc *config.TunnelConfig) (map[string]interface{}, error) {
 			},
 		}, nil
 	case config.TunnelXray:
+		if tc.Auth.UUID == "" {
+			return nil, fmt.Errorf("xray uuid is required (auth.uuid)")
+		}
 		port := tc.Server.Port
 		if port == 0 {
 			port = 443
 		}
 		return tunnel.BuildVlessOutbound(tc, tc.Server.Host, port), nil
 	case config.TunnelXraySlowDNS:
+		if tc.Auth.UUID == "" {
+			return nil, fmt.Errorf("xray uuid is required (auth.uuid)")
+		}
 		fwd := tunnel.DnsttForwardPort(tc, tunnel.DefaultXraySlowDNSFwdPort)
 		return tunnel.BuildVlessOutbound(tc, "127.0.0.1", fwd), nil
 	default:
@@ -363,46 +382,86 @@ func buildFrontConfig(tc *config.TunnelConfig, mtu int) ([]byte, error) {
 	return json.Marshal(doc)
 }
 
-// startFrontLocked builds and starts the in-process Xray front
-// (caller holds c.mu).
-func (c *Controller) startFrontLocked(mtu int) error {
+// startFrontLocked writes the front config and spawns the official Xray
+// binary with the TUN fd inherited as fd 3 (caller holds c.mu).
+func (c *Controller) startFrontLocked() error {
 	t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
 	if !ok {
 		return fmt.Errorf("active tunnel gone: %s", c.activeID)
 	}
 
-	raw, err := buildFrontConfig(t.Config(), mtu)
+	raw, err := buildFrontConfig(t.Config(), c.mtu)
 	if err != nil {
 		return err
 	}
 
-	fd := strconv.Itoa(c.tunFd)
-	os.Setenv("XRAY_TUN_FD", fd)
-	os.Setenv("xray.tun.fd", fd)
+	cfgPath := filepath.Join(filepath.Dir(c.configPath), "front.json")
+	if err := os.WriteFile(cfgPath, raw, 0600); err != nil {
+		return fmt.Errorf("write front config: %w", err)
+	}
 
-	pbCfg, err := xserial.LoadJSONConfig(bytes.NewReader(raw))
-	if err != nil {
-		return fmt.Errorf("xray config: %w", err)
+	tunFile := os.NewFile(uintptr(c.tunFd), "tun")
+	if tunFile == nil {
+		os.Remove(cfgPath)
+		return fmt.Errorf("invalid tun fd %d", c.tunFd)
 	}
-	inst, err := xcore.New(pbCfg)
-	if err != nil {
-		return fmt.Errorf("xray init: %w", err)
+
+	bin := tunnel.LookupBin(tunnel.BinDir, tunnel.BinXray)
+	cmd := exec.Command(bin, "run", "-c", cfgPath)
+	cmd.Env = append(os.Environ(),
+		"XRAY_TUN_FD="+frontChildFd,
+		"xray.tun.fd="+frontChildFd,
+		"XRAY_LOCATION_ASSET="+tunnel.BinDir,
+	)
+	// ExtraFiles[0] is inherited by the child as fd 3.
+	cmd.ExtraFiles = []*os.File{tunFile}
+
+	if err := cmd.Start(); err != nil {
+		os.Remove(cfgPath)
+		return fmt.Errorf("xray front start: %w", err)
 	}
-	if err := inst.Start(); err != nil {
-		_ = inst.Close()
-		return fmt.Errorf("xray start: %w", err)
+
+	c.front = cmd
+	c.frontCfg = cfgPath
+	c.frontAlive = true
+	go c.watchFront(cmd)
+
+	// Brief grace period: a broken config kills the child immediately.
+	time.Sleep(1500 * time.Millisecond)
+	if !c.frontProcessAlive() {
+		out := "xray front exited immediately (bad config or bad TUN fd?)"
+		c.killFrontLocked()
+		return fmt.Errorf("%s", out)
 	}
-	c.front = inst
 	return nil
 }
 
-// rebuildFrontLocked restarts the front (tunnel switch).
-func (c *Controller) rebuildFrontLocked(mtu int) error {
-	if c.front != nil {
-		_ = c.front.Close()
-		c.front = nil
+// frontProcessAlive reports whether the front child is still running.
+func (c *Controller) frontProcessAlive() bool {
+	if c.front == nil || c.front.Process == nil {
+		return false
 	}
-	return c.startFrontLocked(mtu)
+	// Signal 0 performs error checking without delivering a signal.
+	if err := c.front.Process.Signal(syscall.Signal(0)); err != nil {
+		return false
+	}
+	return true
+}
+
+// watchFront flips frontAlive off when the child exits.
+func (c *Controller) watchFront(cmd *exec.Cmd) {
+	_ = cmd.Wait()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.front == cmd {
+		c.frontAlive = false
+	}
+}
+
+// rebuildFrontLocked restarts the front (tunnel switch).
+func (c *Controller) rebuildFrontLocked() error {
+	c.killFrontLocked()
+	return c.startFrontLocked()
 }
 
 // followLoop migrates the front to any running tunnel when the active one
@@ -421,17 +480,16 @@ func (c *Controller) followLoop() {
 				c.mu.Unlock()
 				continue
 			}
-			activeAlive := false
+			activeAlive := c.frontAlive
 			if t, ok := c.vpn.GetTunnelManager().Get(c.activeID); ok {
 				cfgType := t.Config().Type
-				if cfgType == config.TunnelXray || cfgType == config.TunnelXraySlowDNS {
-					activeAlive = c.front != nil
-				} else {
-					activeAlive = t.Status() == tunnel.StatusRunning
+				if cfgType != config.TunnelXray && cfgType != config.TunnelXraySlowDNS {
+					activeAlive = activeAlive && t.Status() == tunnel.StatusRunning
 				}
+			} else {
+				activeAlive = false
 			}
 			if !activeAlive {
-				migrated := false
 				for _, cand := range c.vpn.GetTunnelManager().List() {
 					ccfg := cand.Config()
 					usable := ccfg.Enabled && (cand.Status() == tunnel.StatusRunning ||
@@ -441,13 +499,10 @@ func (c *Controller) followLoop() {
 					}
 					c.activeID = cand.ID()
 					if err := c.ensureHelpersLocked(c.activeID); err == nil {
-						if err := c.rebuildFrontLocked(1500); err == nil {
-							migrated = true
-						}
+						_ = c.rebuildFrontLocked()
 					}
 					break
 				}
-				_ = migrated
 			}
 			c.mu.Unlock()
 		}
@@ -470,7 +525,7 @@ func (c *Controller) SetActiveTunnel(id string) string {
 		return errJSON(err)
 	}
 	c.activeID = id
-	if err := c.rebuildFrontLocked(1500); err != nil {
+	if err := c.rebuildFrontLocked(); err != nil {
 		return errJSON(err)
 	}
 	return ""
@@ -573,7 +628,7 @@ func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 		if err := c.ensureHelpersLocked(id); err != nil {
 			return errJSON(err)
 		}
-		if err := c.rebuildFrontLocked(1500); err != nil {
+		if err := c.rebuildFrontLocked(); err != nil {
 			return errJSON(err)
 		}
 	}
@@ -682,7 +737,7 @@ func (c *Controller) GetStatus() string {
 		})
 	}
 	out["active_tunnel"] = c.activeID
-	out["front_running"] = c.front != nil
+	out["front_running"] = c.frontAlive
 	out["uptime"] = int64(time.Since(c.startTime).Seconds())
 	out["tunnels"] = list
 

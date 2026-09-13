@@ -11,7 +11,7 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-GOMOBILE_VERSION="${GOMOBILE_VERSION:-latest}"
+GOMOBILE_VERSION="${GOMOBILE_VERSION:-v0.0.0-20240520174638-fa72addaaa1b}"
 
 if [ -z "$ANDROID_HOME" ]; then
     echo "ERROR: ANDROID_HOME is not set"

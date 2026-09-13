@@ -14,16 +14,15 @@ on:
       go_version:
         description: 'Go version'
         required: false
-        default: '1.26'
+        default: '1.23'
         type: choice
         options:
+          - '1.22'
           - '1.23'
           - '1.24'
-          - '1.25'
-          - '1.26'
 
 env:
-  GO_VERSION: ${{ github.event.inputs.go_version || '1.26' }}
+  GO_VERSION: ${{ github.event.inputs.go_version || '1.23' }}
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:

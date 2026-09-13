@@ -31,9 +31,10 @@ import java.util.Map;
 public class BinaryManager {
     private static final String TAG = "BinaryManager";
 
-    // NOTE: Xray runs in-process (xray-core library + XRAY_TUN_FD), so only
-    // the helper binaries that must stay external are staged here.
+    // The Xray binary runs as a child process fed by the TUN fd
+    // (Go ExtraFiles -> fd 3 + XRAY_TUN_FD=3).
     private static final String[][] NATIVE_LIBS = {
+            {"lib_xray.so", "xray"},
             {"lib_zivpn.so", "zivpn"},
             {"lib_slowdns.so", "slowdns"},
     };

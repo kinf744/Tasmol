@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.26'
-  GOMOBILE_VERSION: latest
+  GO_VERSION: '1.23'
+  GOMOBILE_VERSION: v0.0.0-20240520174638-fa72addaaa1b
   GRADLE_VERSION: '8.7'
 
 jobs:
