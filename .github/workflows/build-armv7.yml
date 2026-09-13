@@ -50,13 +50,11 @@ jobs:
 
       - name: Download Go dependencies
         run: |
-          cd /root/vpn-app
           go mod download
           go mod verify
 
       - name: Build ARMv7 binary
         run: |
-          cd /root/vpn-app
           export GOOS=linux
           export GOARCH=arm
           export GOARM=7
@@ -78,7 +76,7 @@ jobs:
         run: |
           file build/armv7/vpn-app
           ls -lh build/armv7/vpn-app
-          build/armv7/vpn-app -version 2>&1 || true
+          ./build/armv7/vpn-app -version 2>&1 || true
 
       - name: Strip binary
         run: |
@@ -91,6 +89,7 @@ jobs:
           tar -czf vpn-app-armv7-linux.tar.gz vpn-app
           sha256sum vpn-app-armv7-linux.tar.gz > vpn-app-armv7-linux.tar.gz.sha256
           cat vpn-app-armv7-linux.tar.gz.sha256
+          cd ../..
 
       - name: Upload ARMv7 artifact
         uses: actions/upload-artifact@v4
@@ -186,6 +185,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Download VPN App binary
+        uses: actions/download-artifact@v4
+        with:
+          name: vpn-app-armv7
+          path: build/armv7
 
       - name: Download tunnel binaries (ARMv7)
         run: |
