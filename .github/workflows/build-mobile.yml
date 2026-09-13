@@ -75,7 +75,6 @@ jobs:
           gomobile bind \
             -target=android/arm \
             -androidapi 24 \
-            -javapkg com.vpnapp.go \
             -ldflags='-s -w' \
             -o android/app/libs/vpnlib.aar \
             ./golib/vpnlib

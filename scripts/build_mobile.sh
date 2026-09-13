@@ -33,6 +33,8 @@ go mod tidy
 echo "=== Binding golib/vpnlib for android/arm (armeabi-v7a) ==="
 mkdir -p android/app/libs
 export GOARM=7
+# NOTE: no -javapkg flag: the generated Java package stays "vpnlib",
+# matching the imports in the Android sources.
 gomobile bind \
     -target=android/arm \
     -androidapi 24 \

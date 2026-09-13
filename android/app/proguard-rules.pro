@@ -22,6 +22,13 @@
 # Keep BootReceiver
 -keep class com.vpnapp.BootReceiver { *; }
 
+# Keep TasVpnService and BinaryManager (VPN data plane)
+-keep class com.vpnapp.TasVpnService { *; }
+-keep class com.vpnapp.BinaryManager { *; }
+
+# Keep gomobile bindings (vpnlib.aar) - accessed via JNI/reflection
+-keep class vpnlib.** { *; }
+
 # Keep R classes
 -keepclassmembers class **.R$* {
     public static <fields>;
