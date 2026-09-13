@@ -191,7 +191,7 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 		}
 	}
 
-	m.config.Tunnels = append(m.config.Tunnels, tunnel)
+	m.config.Tunnels = append(m.config.Tunnels, *tunnel)
 	return m.Save()
 }
 
