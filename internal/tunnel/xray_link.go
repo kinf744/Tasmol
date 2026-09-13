@@ -200,6 +200,54 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 	return BuildVlessOutbound(cfg, addr, port)
 }
 
+// SlowDNSOutbound is TunnelOutbound with the server address rewritten to
+// the local dnstt forward. Required for xray_slowdns tunnels carrying a
+// parsed link / pasted JSON (which embeds the real server address and
+// would otherwise bypass the DNS tunnel).
+func SlowDNSOutbound(cfg *config.TunnelConfig, fwdPort int) map[string]interface{} {
+	ob := TunnelOutbound(cfg, "127.0.0.1", fwdPort)
+	rewriteOutboundAddr(ob, "127.0.0.1", fwdPort)
+	return ob
+}
+
+// rewriteOutboundAddr points vnext[] (vless/vmess) or servers[]
+// (trojan/shadowsocks) at addr:port, tolerating both map shapes produced
+// by the builders ([]map) and by JSON decoding ([]interface{}).
+func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
+	s, ok := ob["settings"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if rewriteAddrList(s["vnext"], addr, port) {
+		return
+	}
+	rewriteAddrList(s["servers"], addr, port)
+}
+
+func rewriteAddrList(v interface{}, addr string, port int) bool {
+	set := func(m map[string]interface{}) {
+		m["address"] = addr
+		m["port"] = port
+	}
+	switch arr := v.(type) {
+	case []map[string]interface{}:
+		if len(arr) == 0 {
+			return false
+		}
+		set(arr[0])
+		return true
+	case []interface{}:
+		if len(arr) == 0 {
+			return false
+		}
+		if m, ok := arr[0].(map[string]interface{}); ok {
+			set(m)
+			return true
+		}
+	}
+	return false
+}
+
 // ---------------------------------------------------------------------------
 // Subscription link parsing (vmess / vless / trojan / shadowsocks).
 // ParseXrayLink fills a TunnelConfig (display fields) and stores the

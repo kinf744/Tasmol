@@ -99,7 +99,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		},
 	}
 
-	outbound := TunnelOutbound(t.config, "127.0.0.1", t.fwdPort())
+	outbound := SlowDNSOutbound(t.config, t.fwdPort())
 
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{

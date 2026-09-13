@@ -44,7 +44,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secSsh;
     private EditText edUsername;
     private EditText edPassword;
-    private EditText edPrivkey;
+    private EditText edSshProxy;
+    private EditText edSshPayload;
     private LinearLayout secXray;
     private EditText edUuid;
     private EditText edFlow;
@@ -108,7 +109,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSsh = findViewById(R.id.sec_ssh);
         edUsername = findViewById(R.id.ed_username);
         edPassword = findViewById(R.id.ed_password);
-        edPrivkey = findViewById(R.id.ed_privkey);
+        edSshProxy = findViewById(R.id.ed_ssh_proxy);
+        edSshPayload = findViewById(R.id.ed_ssh_payload);
         secXray = findViewById(R.id.sec_xray);
         edUuid = findViewById(R.id.ed_uuid);
         edFlow = findViewById(R.id.ed_flow);
@@ -176,15 +178,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean isXray = type.equals("xray") || type.equals("xray_slowdns");
         boolean isSlowDNS = type.equals("ssh_slowdns") || type.equals("xray_slowdns");
         boolean isZivpn = type.equals("zivpn");
-        boolean showServer = !type.equals("ssh_slowdns");
+        boolean showServer = !type.equals("ssh_slowdns") && !type.equals("xray");
+
+        // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
+        boolean showXrayAuth = type.equals("xray_slowdns");
+        // Transport only matters for Xray-family tunnels (zivpn obfs is
+        // hardcoded in the backend, ssh uses none).
+        boolean showTransport = isXray;
 
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
-        secXray.setVisibility(isXray ? View.VISIBLE : View.GONE);
+        secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
         secServer.setVisibility(showServer ? View.VISIBLE : View.GONE);
-        secTransport.setVisibility(type.equals("ssh_slowdns") ? View.GONE : View.VISIBLE);
+        secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
 
         boolean showPath = isXray && (network.equals("ws") || network.equals("grpc")
                 || network.equals("xhttp") || network.equals("httpupgrade"));
@@ -223,11 +231,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edRealityPubkey.setText(server.optString("public_key", ""));
                     edShortid.setText(server.optString("short_id", ""));
                 }
+                JSONObject ssh = t.optJSONObject("ssh");
+                if (ssh != null) {
+                    edSshProxy.setText(ssh.optString("proxy", ""));
+                    edSshPayload.setText(ssh.optString("payload", ""));
+                }
                 JSONObject auth = t.optJSONObject("auth");
                 if (auth != null) {
                     edUsername.setText(auth.optString("username", ""));
                     edPassword.setText(auth.optString("password", ""));
-                    edPrivkey.setText(auth.optString("private_key", ""));
                     edUuid.setText(auth.optString("uuid", ""));
                     edFlow.setText(auth.optString("flow", ""));
                     edXpass.setText(auth.optString("password", ""));
@@ -389,10 +401,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
 
             JSONObject auth = new JSONObject();
+            JSONObject ssh = new JSONObject();
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
                 auth.put("username", edUsername.getText().toString().trim());
                 auth.put("password", edPassword.getText().toString());
-                auth.put("private_key", edPrivkey.getText().toString().trim());
+                ssh.put("proxy", edSshProxy.getText().toString().trim());
+                ssh.put("payload", edSshPayload.getText().toString());
             }
             if (type.equals("xray") || type.equals("xray_slowdns")) {
                 auth.put("uuid", edUuid.getText().toString().trim());
@@ -407,14 +421,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
             int secPos = edSecurity.getSelectedItemPosition();
             String security = secPos >= 0 ? SECURITIES[secPos] : "";
             JSONObject transport = new JSONObject();
-            transport.put("network", edNetwork.getSelectedItem().toString());
-            transport.put("security", security);
-            transport.put("path", edPath.getText().toString().trim());
-            transport.put("host", edWshost.getText().toString().trim());
-            if (type.equals("zivpn")) {
-                transport.put("obfs", edObfs.getSelectedItem().toString());
-                String obfsParam = edObfsParam.getText().toString().trim();
-                transport.put("obfs_param", obfsParam.isEmpty() ? "zivpn" : obfsParam);
+            // Transport only matters for Xray-family tunnels (zivpn obfs is
+            // hardcoded server-side, ssh uses none).
+            if (type.equals("xray") || type.equals("xray_slowdns")) {
+                transport.put("network", edNetwork.getSelectedItem().toString());
+                transport.put("security", security);
+                transport.put("path", edPath.getText().toString().trim());
+                transport.put("host", edWshost.getText().toString().trim());
             }
 
             JSONObject advanced = new JSONObject();
@@ -427,6 +440,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (!edLink.getText().toString().trim().isEmpty()) {
                     advanced.put("link", edLink.getText().toString().trim());
                 }
+                if (type.equals("xray") && !advanced.has("outbound_json")) {
+                    toast("Xray needs a link (Parse) or a JSON config");
+                    return;
+                }
             }
 
             JSONObject tunnel = new JSONObject();
@@ -436,6 +453,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
             tunnel.put("priority", 0);
             tunnel.put("server", server);
             tunnel.put("auth", auth);
+            tunnel.put("ssh", ssh);
             tunnel.put("transport", transport);
             tunnel.put("advanced", advanced);
             tunnel.put("routing", new JSONObject("{\"domain_strategy\":\"AsIs\",\"rules\":[],\"dns\":{\"servers\":[\"1.1.1.1\",\"8.8.8.8\"]}}"));

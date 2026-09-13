@@ -378,7 +378,7 @@
                     </div>
                 </div>
                 <div id="ssh-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4">
-                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SSH Authentication</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
@@ -390,9 +390,14 @@
                         </div>
                     </div>
                     <div class="mt-4">
-                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Private Key Path</label>
-                        <input type="text" id="tunnel-private-key" class="input-field w-full">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Proxy ip:port (optional HTTP CONNECT hop)</label>
+                        <input type="text" id="tunnel-ssh-proxy" placeholder="127.0.0.1:8080" class="input-field w-full">
                     </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Payload (optional, tokens: [crlf] [lf] [host] [port])</label>
+                        <textarea id="tunnel-ssh-payload" rows="3" placeholder="GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]" class="input-field w-full font-mono text-xs"></textarea>
+                    </div>
+                    <input type="hidden" id="tunnel-private-key">
                 </div>
                 <div id="xray-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
                     <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>

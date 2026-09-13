@@ -247,6 +247,8 @@ function openTunnelModal(tunnel = null) {
             document.getElementById('tunnel-username').value = tunnel.config.auth.username || '';
             document.getElementById('tunnel-password').value = tunnel.config.auth.password || '';
             document.getElementById('tunnel-private-key').value = tunnel.config.auth.private_key || '';
+            document.getElementById('tunnel-ssh-payload').value = (tunnel.config.ssh && tunnel.config.ssh.payload) || '';
+            document.getElementById('tunnel-ssh-proxy').value = (tunnel.config.ssh && tunnel.config.ssh.proxy) || '';
             document.getElementById('tunnel-uuid').value = tunnel.config.auth.uuid || '';
             document.getElementById('tunnel-flow').value = tunnel.config.auth.flow || '';
             document.getElementById('tunnel-xray-password').value = tunnel.config.auth.password || '';
@@ -301,21 +303,24 @@ function updateTunnelFields() {
     const isXray = ['xray', 'xray_slowdns'].includes(type);
     const isSlowDNS = ['ssh_slowdns', 'xray_slowdns'].includes(type);
     const isZivpn = type === 'zivpn';
-    // ssh_slowdns tunnels dial through dnstt: no direct server host/port.
-    const showServer = type !== 'ssh_slowdns';
+    // ssh_slowdns dials through dnstt and xray uses link/JSON only:
+    // no direct server host/port.
+    const showServer = type !== 'ssh_slowdns' && type !== 'xray';
+    // Transport is only meaningful for Xray-family tunnels.
+    const showTransport = isXray;
 
     document.getElementById('ssh-auth-fields').classList.toggle('hidden', !isSSH);
-    document.getElementById('xray-auth-fields').classList.toggle('hidden', !isXray);
+    // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
+    document.getElementById('xray-auth-fields').classList.toggle('hidden', type !== 'xray_slowdns');
     document.getElementById('xray-link-fields').classList.toggle('hidden', !isXray);
     document.getElementById('zivpn-auth-fields').classList.toggle('hidden', !isZivpn);
     document.getElementById('slowdns-fields').classList.toggle('hidden', !isSlowDNS);
     document.getElementById('server-fields').classList.toggle('hidden', !showServer);
+    document.getElementById('transport-fields').classList.toggle('hidden', !showTransport);
 
     const showPath = isXray && ['ws', 'grpc', 'xhttp', 'httpupgrade'].includes(network);
     document.getElementById('ws-fields').classList.toggle('hidden', !showPath);
     document.getElementById('reality-fields').classList.toggle('hidden', !(isXray && security === 'reality'));
-    document.getElementById('zivpn-obfs-fields').classList.toggle('hidden', !isZivpn);
-    document.getElementById('transport-fields').classList.toggle('hidden', type === 'ssh_slowdns');
 
     // Hidden required inputs would block submit: toggle required flags.
     document.getElementById('tunnel-host').required = showServer;
@@ -370,6 +375,10 @@ function saveTunnel(event) {
         tunnel.auth.username = document.getElementById('tunnel-username').value;
         tunnel.auth.password = document.getElementById('tunnel-password').value;
         tunnel.auth.private_key = document.getElementById('tunnel-private-key').value;
+        tunnel.ssh = {
+            payload: document.getElementById('tunnel-ssh-payload').value,
+            proxy: document.getElementById('tunnel-ssh-proxy').value.trim()
+        };
     }
 
     if (['xray', 'xray_slowdns'].includes(type)) {
@@ -390,6 +399,10 @@ function saveTunnel(event) {
         }
         tunnel.advanced.outbound_json = document.getElementById('tunnel-outbound-json').value;
         tunnel.advanced.link = document.getElementById('tunnel-link').value;
+        if (type === 'xray' && !tunnel.advanced.outbound_json) {
+            showNotification('Xray needs a link (Parse) or a JSON config', 'error');
+            return;
+        }
     }
 
     if (type === 'zivpn') {

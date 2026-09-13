@@ -40,6 +40,7 @@ type TunnelConfig struct {
 	Priority  int                    `yaml:"priority" json:"priority"`
 	Server    ServerConfig           `yaml:"server" json:"server"`
 	Auth      AuthConfig             `yaml:"auth" json:"auth"`
+	SSH       SSHConfig              `yaml:"ssh" json:"ssh"`
 	Transport TransportConfig        `yaml:"transport" json:"transport"`
 	Routing   RoutingConfig          `yaml:"routing" json:"routing"`
 	Advanced  map[string]interface{} `yaml:"advanced" json:"advanced"`
@@ -75,6 +76,15 @@ type AuthConfig struct {
 	Flow         string `yaml:"flow,omitempty" json:"flow,omitempty"`
 	Method       string `yaml:"method,omitempty" json:"method,omitempty"`
 	PasswordHash string `yaml:"password_hash,omitempty" json:"password_hash,omitempty"`
+}
+
+// SSHConfig holds SSH-tunnel options edited in the UI.
+type SSHConfig struct {
+	// Payload is an HTTP payload template sent on the proxy CONNECT hop.
+	// Tokens: [crlf] [lf] [host] [port]. Empty = plain CONNECT.
+	Payload string `yaml:"payload,omitempty" json:"payload,omitempty"`
+	// Proxy is an HTTP proxy "ip:port" used as CONNECT hop before SSH.
+	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
 }
 
 type TransportConfig struct {

@@ -129,6 +129,10 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 
+	if t.config.Auth.UUID == "" && !HasOutboundJSON(t.config) {
+		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
+	}
+
 	t.status = StatusStarting
 	t.setError("")
 

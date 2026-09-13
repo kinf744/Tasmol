@@ -1,12 +1,14 @@
 package tunnel
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"os/exec"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,7 +23,9 @@ import (
 // Host-key checking mirrors the process implementation
 // (StrictHostKeyChecking=no).
 
-// sshDial opens an SSH client connection from a tunnel config.
+// sshDial opens an SSH client connection from a tunnel config. When
+// cfg.SSH.Proxy ("ip:port") is set, SSH is reached through an HTTP CONNECT
+// hop carrying cfg.SSH.Payload (see dialViaProxy).
 func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	auth := make([]ssh.AuthMethod, 0, 2)
 	if cfg.Auth.Password != "" {
@@ -49,7 +53,130 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
 	}
+
+	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
+		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
+		if err != nil {
+			return nil, fmt.Errorf("ssh proxy hop: %w", err)
+		}
+		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
+		if err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return ssh.NewClient(c, chans, reqs), nil
+	}
 	return ssh.Dial("tcp", addr, sshCfg)
+}
+
+// renderPayload expands a payload template: [crlf]/[lf]/[host]/[port] tokens
+// plus [proxy_host]/[proxy_port], then normalizes line endings to CRLF.
+func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
+	p := tpl
+	p = strings.ReplaceAll(p, "[crlf]", "\r\n")
+	p = strings.ReplaceAll(p, "[CRLF]", "\r\n")
+	p = strings.ReplaceAll(p, "[lf]", "\n")
+	p = strings.ReplaceAll(p, "[LF]", "\n")
+	p = strings.ReplaceAll(p, "[host]", host)
+	p = strings.ReplaceAll(p, "[port]", port)
+	p = strings.ReplaceAll(p, "[proxy_host]", proxyHost)
+	p = strings.ReplaceAll(p, "[proxy_port]", proxyPort)
+	// Normalize every line ending to CRLF.
+	p = strings.ReplaceAll(p, "\r\n", "\n")
+	lines := strings.Split(p, "\n")
+	return strings.Join(lines, "\r\n")
+}
+
+// dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
+// request (with the optional custom payload) towards addr.
+func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
+	proxyHost, _, err := splitProxyAddr(proxyAddr)
+	if err != nil {
+		return nil, err
+	}
+	host, port, err := splitProxyAddr(addr)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := net.DialTimeout("tcp", proxyAddr, 15*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("dial proxy %s: %w", proxyAddr, err)
+	}
+	if err := conn.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	var req strings.Builder
+	req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
+	req.WriteString("Host: " + addr + "\r\n")
+	if strings.TrimSpace(payloadTpl) != "" {
+		body := renderPayload(payloadTpl, host, port, proxyHost, portOf(proxyAddr))
+		if body != "" {
+			if !strings.HasSuffix(body, "\r\n") {
+				body += "\r\n"
+			}
+			req.WriteString(body)
+		}
+	}
+	req.WriteString("\r\n")
+
+	if _, err := conn.Write([]byte(req.String())); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("proxy write: %w", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	status, err := reader.ReadString('\n')
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("proxy read: %w", err)
+	}
+	if !strings.Contains(status, " 200") {
+		conn.Close()
+		return nil, fmt.Errorf("proxy refused: %s", strings.TrimSpace(status))
+	}
+	// Consume remaining header lines.
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil || line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+	// Hand the (possibly buffered) connection to the SSH handshake. The
+	// buffered reader may already hold handshake bytes, so wrap it.
+	if reader.Buffered() > 0 {
+		conn = &bufferedConn{Conn: conn, r: reader}
+	} else if err := conn.SetDeadline(time.Time{}); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return conn, nil
+}
+
+// bufferedConn replays bytes already buffered before delegating to Conn.
+type bufferedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (c *bufferedConn) Read(b []byte) (int, error) { return c.r.Read(b) }
+
+func splitProxyAddr(addr string) (host, port string, err error) {
+	host, port, err = net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil || host == "" || port == "" {
+		return "", "", fmt.Errorf("invalid ip:port %q (expected proxy_ip:port)", addr)
+	}
+	return host, port, nil
+}
+
+func portOf(addr string) string {
+	_, port, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return ""
+	}
+	return port
 }
 
 // serveSocks5 runs a minimal SOCKS5 server (CONNECT, no auth) on ln; every

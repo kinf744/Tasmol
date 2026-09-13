@@ -326,7 +326,7 @@ func frontOutbound(tc *config.TunnelConfig) (map[string]interface{}, error) {
 			return nil, fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 		}
 		fwd := tunnel.DnsttForwardPort(tc, tunnel.DefaultXraySlowDNSFwdPort)
-		return tunnel.TunnelOutbound(tc, "127.0.0.1", fwd), nil
+		return tunnel.SlowDNSOutbound(tc, fwd), nil
 	default:
 		return nil, fmt.Errorf("unsupported tunnel type: %s", tc.Type)
 	}

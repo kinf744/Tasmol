@@ -126,16 +126,13 @@ func (t *ZivpnTunnel) authPassword() string {
 }
 
 func (t *ZivpnTunnel) obfsType() string {
-	if t.config.Transport.Obfs != "" {
-		return t.config.Transport.Obfs
-	}
+	// Hardcoded: the official udp-zivpn server uses salamander obfuscation.
+	// (No UI field; Advanced["obfs_raw"] may still inject a raw block.)
 	return "salamander"
 }
 
 func (t *ZivpnTunnel) obfsPassword() string {
-	if t.config.Transport.ObfsParam != "" {
-		return t.config.Transport.ObfsParam
-	}
+	// Hardcoded: matches the official server "obfs":"zivpn".
 	return "zivpn"
 }
 

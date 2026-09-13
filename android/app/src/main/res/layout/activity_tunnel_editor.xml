@@ -159,13 +159,26 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Private key (optional)" />
+                android:text="Proxy ip:port (optional HTTP CONNECT hop)" />
 
             <EditText
-                android:id="@+id/ed_privkey"
+                android:id="@+id/ed_ssh_proxy"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="/path/to/key" />
+                android:hint="127.0.0.1:8080" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Payload (optional)" />
+
+            <EditText
+                android:id="@+id/ed_ssh_payload"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]"
+                android:minLines="2" />
         </LinearLayout>
 
         <LinearLayout
@@ -303,28 +316,44 @@
                 android:layout_height="wrap_content"
                 android:inputType="textPassword" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Obfs" />
-
-            <Spinner
-                android:id="@+id/ed_obfs"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Obfs param" />
-
-            <EditText
-                android:id="@+id/ed_obfs_param"
+            <LinearLayout
+                android:id="@+id/row_obfs"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="zivpn" />
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Obfs" />
+
+                <Spinner
+                    android:id="@+id/ed_obfs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/row_obfs_param"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Obfs param" />
+
+                <EditText
+                    android:id="@+id/ed_obfs_param"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="zivpn" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout

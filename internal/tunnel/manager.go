@@ -3,6 +3,7 @@ package tunnel
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"vpn-app/internal/config"
@@ -144,15 +145,31 @@ func (m *manager) GetUDPGW() UDPGW {
 	return m.udpgw
 }
 
+// useNativeSSH reports whether the pure-Go SSH implementation applies:
+// global mobile default, overridable per tunnel via Advanced["native_ssh"].
+func useNativeSSH(cfg *config.TunnelConfig) bool {
+	if cfg.Advanced != nil {
+		if v, ok := cfg.Advanced["native_ssh"]; ok {
+			if b, ok := v.(bool); ok {
+				return b
+			}
+		}
+	}
+	return NativeSSH
+}
+
 func CreateTunnel(cfg *config.TunnelConfig) (Tunnel, error) {
 	switch cfg.Type {
 	case config.TunnelSSH:
-		if NativeSSH {
+		if useNativeSSH(cfg) {
 			return NewNativeSSHTunnel(cfg), nil
+		}
+		if strings.TrimSpace(cfg.SSH.Proxy) != "" || strings.TrimSpace(cfg.SSH.Payload) != "" {
+			return nil, fmt.Errorf("ssh proxy/payload need the native SSH engine (advanced.native_ssh=true)")
 		}
 		return NewSSHTunnel(cfg), nil
 	case config.TunnelSSHSlowDNS:
-		if NativeSSH {
+		if useNativeSSH(cfg) {
 			return NewNativeSSHSlowDNSTunnel(cfg), nil
 		}
 		return NewSSHSlowDNSTunnel(cfg), nil

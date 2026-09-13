@@ -168,21 +168,43 @@ tunnels:
       # OR private_key: "/path/to/key"
 ```
 
-#### SSH + SlowDNS (dnstt-client + ssh)
+#### SSH (username, password, payload, proxy)
+```yaml
+tunnels:
+  - name: "My SSH"
+    type: "ssh"
+    enabled: true
+    server:
+      host: "ssh.example.com"
+      port: 22
+    auth:
+      username: "user"
+      password: "pass"
+    ssh:
+      proxy: "127.0.0.1:8080"   # optional HTTP CONNECT hop (ip:port)
+      payload: |                 # optional payload template
+        GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]
+    # tokens: [crlf] [lf] [host] [port] [proxy_host] [proxy_port]
+    # NOTE: proxy/payload need the native SSH engine (mobile default;
+    # server mode: advanced.native_ssh=true). No transport section.
+```
+
+#### SSH + SlowDNS (username, password, dns, NS, pubkey)
 ```yaml
 tunnels:
   - name: "SSH + SlowDNS"
     type: "ssh_slowdns"
     enabled: true
     server:
-      host: "ssh.example.com"      # informational (SSH goes through the DNS tunnel)
       nameserver: "ns.example.com" # dnstt zone domain (required)
       public_key: "<64-hex-dnstt-pubkey>"  # (required)
-      dns_resolver: "8.8.8.8"      # UDP resolver for dnstt (default 8.8.8.8)
+      dns_resolver: "8.8.8.8:53"   # resolver with port (required)
     auth:
       username: "user"
       password: "pass"
-      # private_key: "/path/to/key"  # alternative to password
+    ssh:
+      proxy: ""                    # ignored for slowdns (dnstt is the hop)
+      payload: ""
     # advanced overrides: fwd_port (default 2222), socks_port (default 10802)
 ```
 
@@ -204,11 +226,20 @@ tunnels:
       security: "tls"
 ```
 
-#### Xray (links or JSON)
-The Xray form accepts subscription links (`vmess://`, `vless://`,
-`trojan://`, `ss://`) via **Parse link** (fills every field, incl. the
-normalized outbound JSON) or a raw Xray outbound JSON object
-(`advanced.outbound_json`, used verbatim). Manual fields stay available.
+#### Xray (link OR JSON only)
+The Xray form shows exactly two fields: **subscription link**
+(`vmess://`, `vless://`, `trojan://`, `ss://`) and **outbound JSON**.
+Mechanism: paste a link + **Parse link** (fills the JSON box), or paste
+the JSON directly — the JSON box wins at runtime when non-empty.
+```yaml
+tunnels:
+  - name: "Xray link"
+    type: "xray"
+    enabled: true
+    advanced:
+      link: "vless://uuid@host:443?security=tls&sni=host#name"
+      outbound_json: '{"protocol":"vless",...}'  # from Parse, or pasted
+```
 Transports supported by Xray/Xray-SlowDNS tunnels: `tcp`, `ws`, `grpc`,
 `xhttp`, `httpupgrade` (+ `tls`/`reality` security).
 
