@@ -51,8 +51,11 @@ type TunnelConfig struct {
 }
 
 type ServerConfig struct {
-	Host      string `yaml:"host" json:"host"`
-	Port      int    `yaml:"port" json:"port"`
+	Host string `yaml:"host" json:"host"`
+	Port int    `yaml:"port" json:"port"`
+	// PortRange accepts a single port ("5667") or a range ("6000-19999",
+	// as used by Zivpn UDP accounts). It takes precedence over Port.
+	PortRange string `yaml:"port_range,omitempty" json:"port_range,omitempty"`
 	Hostname  string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
 	SNI       string `yaml:"sni,omitempty" json:"sni,omitempty"`
 	PublicKey string `yaml:"public_key,omitempty" json:"public_key,omitempty"`

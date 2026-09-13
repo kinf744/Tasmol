@@ -99,7 +99,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		},
 	}
 
-	outbound := BuildVlessOutbound(t.config, "127.0.0.1", t.fwdPort())
+	outbound := TunnelOutbound(t.config, "127.0.0.1", t.fwdPort())
 
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
@@ -136,8 +136,8 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	if t.config.Server.PublicKey == "" {
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
-	if t.config.Auth.UUID == "" {
-		return fmt.Errorf("xray uuid is required (auth.uuid)")
+	if t.config.Auth.UUID == "" && !HasOutboundJSON(t.config) {
+		return fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 	}
 
 	t.status = StatusStarting

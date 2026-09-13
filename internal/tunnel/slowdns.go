@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"vpn-app/internal/config"
@@ -27,12 +28,20 @@ func DnsttForwardPort(cfg *config.TunnelConfig, def int) int {
 	return advInt(cfg.Advanced, "fwd_port", def)
 }
 
-// DnsttResolver resolves the UDP DNS resolver used by dnstt-client.
+// DnsttResolver resolves the UDP DNS resolver used by dnstt-client as
+// "host:port" (e.g. "8.8.8.8:53"). A bare IP gets ":53" appended.
 func DnsttResolver(cfg *config.TunnelConfig) string {
-	if cfg.Server.DNSResolver != "" {
-		return cfg.Server.DNSResolver
+	resolver := cfg.Server.DNSResolver
+	if resolver == "" {
+		resolver = advStr(cfg.Advanced, "dns_resolver", "8.8.8.8:53")
 	}
-	return advStr(cfg.Advanced, "dns_resolver", "8.8.8.8")
+	if resolver == "" {
+		resolver = "8.8.8.8:53"
+	}
+	if !strings.Contains(resolver, ":") {
+		resolver += ":53"
+	}
+	return resolver
 }
 
 // DnsttDomain resolves the dnstt zone (nameserver) domain.
@@ -46,7 +55,7 @@ func DnsttDomain(cfg *config.TunnelConfig) string {
 // DnsttArgs builds the official dnstt-client command line.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	return []string{
-		"-udp", DnsttResolver(cfg) + ":53",
+		"-udp", DnsttResolver(cfg),
 		"-pubkey", cfg.Server.PublicKey,
 		DnsttDomain(cfg),
 		fmt.Sprintf("127.0.0.1:%d", fwdPort),

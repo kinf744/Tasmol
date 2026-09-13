@@ -64,7 +64,7 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		},
 	}
 
-	outbound := t.buildOutbound()
+	outbound := TunnelOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
 
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
@@ -95,37 +95,7 @@ func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 // dialing addr:port. The mobile front-end reuses it with 127.0.0.1 and the
 // dnstt forward port for xray_slowdns tunnels.
 func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
-	streamSettings := map[string]interface{}{
-		"network":  cfg.Transport.Network,
-		"security": cfg.Transport.Security,
-	}
-
-	if cfg.Transport.Network == "ws" {
-		streamSettings["wsSettings"] = map[string]interface{}{
-			"path": cfg.Transport.Path,
-			"headers": map[string]string{
-				"Host": cfg.Transport.Host,
-			},
-		}
-	}
-
-	if cfg.Transport.Security == "tls" {
-		streamSettings["tlsSettings"] = map[string]interface{}{
-			"serverName":    cfg.Server.SNI,
-			"allowInsecure": false,
-			"fingerprint":   cfg.Transport.Fingerprint,
-			"alpn":          cfg.Transport.ALPN,
-		}
-	}
-
-	if cfg.Transport.Security == "reality" {
-		streamSettings["realitySettings"] = map[string]interface{}{
-			"serverName":  cfg.Server.SNI,
-			"publicKey":   cfg.Server.PublicKey,
-			"shortId":     cfg.Server.ShortID,
-			"fingerprint": cfg.Transport.Fingerprint,
-		}
-	}
+	streamSettings := buildStreamSettings(cfg)
 
 	settings := map[string]interface{}{
 		"vnext": []map[string]interface{}{

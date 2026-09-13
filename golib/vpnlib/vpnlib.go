@@ -313,20 +313,20 @@ func frontOutbound(tc *config.TunnelConfig) (map[string]interface{}, error) {
 			},
 		}, nil
 	case config.TunnelXray:
-		if tc.Auth.UUID == "" {
-			return nil, fmt.Errorf("xray uuid is required (auth.uuid)")
+		if !tunnel.HasOutboundJSON(tc) && tc.Auth.UUID == "" {
+			return nil, fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 		}
 		port := tc.Server.Port
 		if port == 0 {
 			port = 443
 		}
-		return tunnel.BuildVlessOutbound(tc, tc.Server.Host, port), nil
+		return tunnel.TunnelOutbound(tc, tc.Server.Host, port), nil
 	case config.TunnelXraySlowDNS:
-		if tc.Auth.UUID == "" {
-			return nil, fmt.Errorf("xray uuid is required (auth.uuid)")
+		if !tunnel.HasOutboundJSON(tc) && tc.Auth.UUID == "" {
+			return nil, fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 		}
 		fwd := tunnel.DnsttForwardPort(tc, tunnel.DefaultXraySlowDNSFwdPort)
-		return tunnel.BuildVlessOutbound(tc, "127.0.0.1", fwd), nil
+		return tunnel.TunnelOutbound(tc, "127.0.0.1", fwd), nil
 	default:
 		return nil, fmt.Errorf("unsupported tunnel type: %s", tc.Type)
 	}

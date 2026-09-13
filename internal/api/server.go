@@ -75,6 +75,7 @@ func (s *Server) setupRoutes() {
 
 		api.GET("/tunnels", s.listTunnelsHandler)
 		api.POST("/tunnels", s.createTunnelHandler)
+		api.POST("/tunnels/parse-link", s.parseLinkHandler)
 		api.GET("/tunnels/:id", s.getTunnelHandler)
 		api.PUT("/tunnels/:id", s.updateTunnelHandler)
 		api.DELETE("/tunnels/:id", s.deleteTunnelHandler)
@@ -259,6 +260,25 @@ func (s *Server) createTunnelHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"id": tunnelCfg.ID, "message": "Tunnel created"})
+}
+
+// parseLinkHandler parses a subscription link (vmess/vless/trojan/ss)
+// into a TunnelConfig draft (fields + normalized outbound JSON).
+func (s *Server) parseLinkHandler(c *gin.Context) {
+	var req struct {
+		Link string `json:"link" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	tc, err := tunnel.ParseXrayLink(req.Link)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"tunnel": tc})
 }
 
 func (s *Server) getTunnelHandler(c *gin.Context) {

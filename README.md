@@ -204,7 +204,17 @@ tunnels:
       security: "tls"
 ```
 
+#### Xray (links or JSON)
+The Xray form accepts subscription links (`vmess://`, `vless://`,
+`trojan://`, `ss://`) via **Parse link** (fills every field, incl. the
+normalized outbound JSON) or a raw Xray outbound JSON object
+(`advanced.outbound_json`, used verbatim). Manual fields stay available.
+Transports supported by Xray/Xray-SlowDNS tunnels: `tcp`, `ws`, `grpc`,
+`xhttp`, `httpupgrade` (+ `tls`/`reality` security).
+
 #### Xray + SlowDNS (dnstt-client + xray v26.5.9)
+Fields: link (vmess/vless/trojan/ss), DNS resolver with port
+(e.g. `8.8.8.8:53`), NS domain, public key.
 ```yaml
 tunnels:
   - name: "Xray + SlowDNS"
@@ -225,7 +235,9 @@ tunnels:
     # advanced overrides: fwd_port (default 2224), socks_port (default 10809)
 ```
 
-#### Zivpn (official udp-zivpn 1.4.9, client mode)
+#### Zivpn UDP (official udp-zivpn 1.4.9, client mode)
+Fields: IP/Host, Port range only (e.g. `6000-19999`, a random port is
+dialed at each connect), Password.
 ```yaml
 tunnels:
   - name: "Zivpn"
@@ -233,7 +245,7 @@ tunnels:
     enabled: true
     server:
       host: "zivpn.example.com"
-      port: 5667        # official server listen port (default)
+      port_range: "6000-19999"  # single port also accepted ("5667")
       sni: "zivpn.example.com"
     auth:
       password: "zi"   # server password (default "zi")

@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +41,7 @@ type ZivpnTunnel struct {
 	cancel     context.CancelFunc
 	startTime  time.Time
 	configPath string
+	dialPort   int
 }
 
 func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
@@ -70,10 +74,44 @@ func (t *ZivpnTunnel) Stats() Stats {
 func (t *ZivpnTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *ZivpnTunnel) serverPort() int {
+	if t.dialPort != 0 {
+		return t.dialPort
+	}
+	if t.config.Server.PortRange != "" {
+		if port, err := PickPortFromRange(t.config.Server.PortRange); err == nil {
+			return port
+		}
+	}
 	if t.config.Server.Port != 0 {
 		return t.config.Server.Port
 	}
 	return 5667
+}
+
+// PickPortFromRange parses "5667" or "6000-19999" (Zivpn UDP accounts) and
+// returns the port to dial (random within a range, for load spreading).
+func PickPortFromRange(pr string) (int, error) {
+	pr = strings.TrimSpace(pr)
+	if pr == "" {
+		return 0, fmt.Errorf("empty port range")
+	}
+	if !strings.Contains(pr, "-") {
+		port, err := strconv.Atoi(pr)
+		if err != nil || port <= 0 || port > 65535 {
+			return 0, fmt.Errorf("invalid port %q", pr)
+		}
+		return port, nil
+	}
+	parts := strings.SplitN(pr, "-", 2)
+	lo, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+	hi, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err1 != nil || err2 != nil || lo <= 0 || hi > 65535 || lo > hi {
+		return 0, fmt.Errorf("invalid port range %q (expected LO-HI)", pr)
+	}
+	if lo == hi {
+		return lo, nil
+	}
+	return lo + rand.IntN(hi-lo+1), nil
 }
 
 func (t *ZivpnTunnel) socksPort() int {
@@ -170,6 +208,18 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	t.status = StatusStarting
 	t.setError("")
+
+	if t.config.Server.PortRange != "" {
+		port, err := PickPortFromRange(t.config.Server.PortRange)
+		if err != nil {
+			t.status = StatusError
+			t.setError(err.Error())
+			return err
+		}
+		t.dialPort = port
+	} else {
+		t.dialPort = 0
+	}
 
 	configContent, err := t.generateClientConfig()
 	if err != nil {

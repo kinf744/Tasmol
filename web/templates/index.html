@@ -364,12 +364,12 @@
                         <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
                     </label>
                 </div>
-                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div id="server-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4">
                     <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Server Configuration</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
-                            <input type="text" id="tunnel-host" required class="input-field w-full">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">DNS Resolver (IP:port)</label>
+                            <input type="text" id="tunnel-slowdns-ns" value="8.8.8.8:53" placeholder="8.8.8.8:53" class="input-field w-full">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
@@ -406,19 +406,42 @@
                             <input type="text" id="tunnel-flow" placeholder="xtls-rprx-vision" class="input-field w-full">
                         </div>
                     </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password (Trojan / Shadowsocks)</label>
+                        <input type="password" id="tunnel-xray-password" class="input-field w-full">
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Method (Shadowsocks / VMess scy)</label>
+                        <input type="text" id="tunnel-xray-method" placeholder="aes-256-gcm" class="input-field w-full">
+                    </div>
+                </div>
+                <div id="xray-link-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Import (link or JSON)</h4>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Subscription link (vmess / vless / trojan / ss)</label>
+                        <textarea id="tunnel-xray-link" rows="2" placeholder="vless://uuid@host:port?..." class="input-field w-full"></textarea>
+                    </div>
+                    <button type="button" onclick="parseXrayLink()" class="btn-secondary px-4 py-2 rounded-lg mt-2">Parse link</button>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Xray outbound JSON (optional, overrides manual fields)</label>
+                        <textarea id="tunnel-xray-json" rows="4" placeholder='{"protocol":"vless",...}' class="input-field w-full font-mono text-xs"></textarea>
+                    </div>
+                    <input type="hidden" id="tunnel-outbound-json">
+                    <input type="hidden" id="tunnel-link">
                 </div>
                 <div id="zivpn-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
-                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>
+                    <h4 class="text-md font-medium text-gray-700 dark:text-gray-300 mb-3">Zivpn UDP Authentication</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UUID</label>
-                            <input type="text" id="tunnel-zivpn-uuid" class="input-field w-full">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port Range (ex: 6000-19999)</label>
+                            <input type="text" id="tunnel-zivpn-port-range" placeholder="6000-19999" class="input-field w-full">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
                             <input type="password" id="tunnel-zivpn-password" class="input-field w-full">
                         </div>
                     </div>
+                    <input type="hidden" id="tunnel-zivpn-uuid">
                 </div>
                 <div id="slowdns-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
                     <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SlowDNS (dnstt-client) Configuration</h4>
@@ -445,8 +468,10 @@
                             <select id="tunnel-network" class="input-field w-full" onchange="updateTunnelFields()">
                                 <option value="tcp">TCP</option>
                                 <option value="udp">UDP</option>
-                                <option value="ws">WebSocket</option>
+                                <option value="ws">WebSocket (ws)</option>
                                 <option value="grpc">gRPC</option>
+                                <option value="xhttp">XHTTP</option>
+                                <option value="httpupgrade">HTTPUpgrade</option>
                             </select>
                         </div>
                         <div>

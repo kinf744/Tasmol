@@ -249,6 +249,8 @@ function openTunnelModal(tunnel = null) {
             document.getElementById('tunnel-private-key').value = tunnel.config.auth.private_key || '';
             document.getElementById('tunnel-uuid').value = tunnel.config.auth.uuid || '';
             document.getElementById('tunnel-flow').value = tunnel.config.auth.flow || '';
+            document.getElementById('tunnel-xray-password').value = tunnel.config.auth.password || '';
+            document.getElementById('tunnel-xray-method').value = tunnel.config.auth.method || '';
             document.getElementById('tunnel-zivpn-uuid').value = tunnel.config.auth.uuid || '';
             document.getElementById('tunnel-zivpn-password').value = tunnel.config.auth.password || '';
         }
@@ -256,10 +258,11 @@ function openTunnelModal(tunnel = null) {
         if (tunnel.config?.server) {
             document.getElementById('tunnel-slowdns-pubkey').value = tunnel.config.server.public_key || '';
             document.getElementById('tunnel-slowdns-domain').value = tunnel.config.server.nameserver || tunnel.config.server.hostname || '';
-            document.getElementById('tunnel-slowdns-ns').value = tunnel.config.server.dns_resolver || '8.8.8.8';
+            document.getElementById('tunnel-slowdns-ns').value = tunnel.config.server.dns_resolver || '8.8.8.8:53';
             document.getElementById('tunnel-reality-pubkey').value = tunnel.config.server.public_key || '';
             document.getElementById('tunnel-reality-shortid').value = tunnel.config.server.short_id || '';
             document.getElementById('tunnel-reality-sni').value = tunnel.config.server.sni || '';
+            document.getElementById('tunnel-zivpn-port-range').value = tunnel.config.server.port_range || '';
         }
 
         if (tunnel.config?.transport) {
@@ -267,9 +270,14 @@ function openTunnelModal(tunnel = null) {
             document.getElementById('tunnel-security').value = tunnel.config.transport.security || '';
             document.getElementById('tunnel-ws-path').value = tunnel.config.transport.path || '';
             document.getElementById('tunnel-ws-host').value = tunnel.config.transport.host || '';
-            document.getElementById('tunnel-zivpn-obfs').value = tunnel.config.transport.obfs || 'plain';
-            document.getElementById('tunnel-zivpn-obfs-param').value = tunnel.config.transport.obfs_param || '';
+            document.getElementById('tunnel-zivpn-obfs').value = tunnel.config.transport.obfs || 'salamander';
+            document.getElementById('tunnel-zivpn-obfs-param').value = tunnel.config.transport.obfs_param || 'zivpn';
         }
+
+        const adv = tunnel.config?.advanced || {};
+        document.getElementById('tunnel-link').value = adv.link || '';
+        document.getElementById('tunnel-outbound-json').value = adv.outbound_json || '';
+        document.getElementById('tunnel-xray-json').value = adv.outbound_json || '';
     } else {
         title.textContent = 'Add Tunnel';
     }
@@ -286,15 +294,35 @@ function closeTunnelModal() {
 
 function updateTunnelFields() {
     const type = document.getElementById('tunnel-type').value;
+    const network = document.getElementById('tunnel-network').value;
+    const security = document.getElementById('tunnel-security').value;
 
-    document.getElementById('ssh-auth-fields').classList.toggle('hidden', !['ssh', 'ssh_slowdns'].includes(type));
-    document.getElementById('xray-auth-fields').classList.toggle('hidden', !['xray', 'xray_slowdns'].includes(type));
-    document.getElementById('zivpn-auth-fields').classList.toggle('hidden', type !== 'zivpn');
-    document.getElementById('slowdns-fields').classList.toggle('hidden', !['ssh_slowdns', 'xray_slowdns'].includes(type));
+    const isSSH = ['ssh', 'ssh_slowdns'].includes(type);
+    const isXray = ['xray', 'xray_slowdns'].includes(type);
+    const isSlowDNS = ['ssh_slowdns', 'xray_slowdns'].includes(type);
+    const isZivpn = type === 'zivpn';
+    // ssh_slowdns tunnels dial through dnstt: no direct server host/port.
+    const showServer = type !== 'ssh_slowdns';
 
-    document.getElementById('ws-fields').classList.toggle('hidden', document.getElementById('tunnel-network').value !== 'ws');
-    document.getElementById('reality-fields').classList.toggle('hidden', document.getElementById('tunnel-security').value !== 'reality');
-    document.getElementById('zivpn-obfs-fields').classList.toggle('hidden', type !== 'zivpn');
+    document.getElementById('ssh-auth-fields').classList.toggle('hidden', !isSSH);
+    document.getElementById('xray-auth-fields').classList.toggle('hidden', !isXray);
+    document.getElementById('xray-link-fields').classList.toggle('hidden', !isXray);
+    document.getElementById('zivpn-auth-fields').classList.toggle('hidden', !isZivpn);
+    document.getElementById('slowdns-fields').classList.toggle('hidden', !isSlowDNS);
+    document.getElementById('server-fields').classList.toggle('hidden', !showServer);
+
+    const showPath = isXray && ['ws', 'grpc', 'xhttp', 'httpupgrade'].includes(network);
+    document.getElementById('ws-fields').classList.toggle('hidden', !showPath);
+    document.getElementById('reality-fields').classList.toggle('hidden', !(isXray && security === 'reality'));
+    document.getElementById('zivpn-obfs-fields').classList.toggle('hidden', !isZivpn);
+    document.getElementById('transport-fields').classList.toggle('hidden', type === 'ssh_slowdns');
+
+    // Hidden required inputs would block submit: toggle required flags.
+    document.getElementById('tunnel-host').required = showServer;
+    // zivpn uses a port range instead of the numeric port.
+    const portInput = document.getElementById('tunnel-port');
+    portInput.required = showServer && !isZivpn;
+    portInput.parentElement.style.display = isZivpn ? 'none' : '';
 }
 
 function saveTunnel(event) {
@@ -305,6 +333,7 @@ function saveTunnel(event) {
     const network = document.getElementById('tunnel-network').value;
     const security = document.getElementById('tunnel-security').value;
 
+    const portRaw = document.getElementById('tunnel-port').value;
     const tunnel = {
         name: document.getElementById('tunnel-name').value,
         type: type,
@@ -312,7 +341,8 @@ function saveTunnel(event) {
         priority: 0,
         server: {
             host: document.getElementById('tunnel-host').value,
-            port: parseInt(document.getElementById('tunnel-port').value),
+            port: parseInt(portRaw) || 0,
+            port_range: type === 'zivpn' ? document.getElementById('tunnel-zivpn-port-range').value.trim() : '',
             public_key: document.getElementById('tunnel-slowdns-pubkey').value || document.getElementById('tunnel-reality-pubkey').value,
             nameserver: document.getElementById('tunnel-slowdns-domain').value,
             dns_resolver: document.getElementById('tunnel-slowdns-ns').value,
@@ -328,6 +358,7 @@ function saveTunnel(event) {
             obfs: document.getElementById('tunnel-zivpn-obfs').value,
             obfs_param: document.getElementById('tunnel-zivpn-obfs-param').value
         },
+        advanced: {},
         routing: {
             domain_strategy: 'AsIs',
             rules: [],
@@ -344,10 +375,24 @@ function saveTunnel(event) {
     if (['xray', 'xray_slowdns'].includes(type)) {
         tunnel.auth.uuid = document.getElementById('tunnel-uuid').value;
         tunnel.auth.flow = document.getElementById('tunnel-flow').value;
+        tunnel.auth.password = document.getElementById('tunnel-xray-password').value;
+        tunnel.auth.method = document.getElementById('tunnel-xray-method').value;
+        // Outbound JSON (from a parsed link or pasted) wins at runtime.
+        const manualJson = document.getElementById('tunnel-xray-json').value.trim();
+        if (manualJson !== '') {
+            try {
+                JSON.parse(manualJson);
+            } catch (e) {
+                showNotification('Invalid outbound JSON: ' + e.message, 'error');
+                return;
+            }
+            document.getElementById('tunnel-outbound-json').value = manualJson;
+        }
+        tunnel.advanced.outbound_json = document.getElementById('tunnel-outbound-json').value;
+        tunnel.advanced.link = document.getElementById('tunnel-link').value;
     }
 
     if (type === 'zivpn') {
-        tunnel.auth.uuid = document.getElementById('tunnel-zivpn-uuid').value;
         tunnel.auth.password = document.getElementById('tunnel-zivpn-password').value;
     }
 
@@ -374,6 +419,59 @@ function saveTunnel(event) {
 function editTunnel(id) {
     const tunnel = tunnels.find(t => t.id === id);
     if (tunnel) openTunnelModal(tunnel);
+}
+
+function parseXrayLink() {
+    const link = document.getElementById('tunnel-xray-link').value.trim();
+    if (!link) {
+        showNotification('Paste a vmess/vless/trojan/ss link first', 'error');
+        return;
+    }
+    fetch('/api/v1/tunnels/parse-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ link: link })
+    })
+    .then(async res => {
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || 'parse failed');
+        }
+        return data.tunnel;
+    })
+    .then(t => {
+        if (t.name) document.getElementById('tunnel-name').value = t.name;
+        if (t.server) {
+            if (t.server.host) document.getElementById('tunnel-host').value = t.server.host;
+            if (t.server.port) document.getElementById('tunnel-port').value = t.server.port;
+            if (t.server.sni) document.getElementById('tunnel-reality-sni').value = t.server.sni;
+        }
+        if (t.auth) {
+            if (t.auth.uuid) document.getElementById('tunnel-uuid').value = t.auth.uuid;
+            if (t.auth.flow) document.getElementById('tunnel-flow').value = t.auth.flow;
+            if (t.auth.password) document.getElementById('tunnel-xray-password').value = t.auth.password;
+            if (t.auth.method) document.getElementById('tunnel-xray-method').value = t.auth.method;
+        }
+        if (t.transport) {
+            if (t.transport.network) document.getElementById('tunnel-network').value = t.transport.network;
+            if (t.transport.security) document.getElementById('tunnel-security').value = t.transport.security;
+            if (t.transport.path) document.getElementById('tunnel-ws-path').value = t.transport.path;
+            if (t.transport.host) document.getElementById('tunnel-ws-host').value = t.transport.host;
+        }
+        if (t.advanced) {
+            if (t.advanced.outbound_json) {
+                document.getElementById('tunnel-outbound-json').value = t.advanced.outbound_json;
+                document.getElementById('tunnel-xray-json').value = t.advanced.outbound_json;
+            }
+            if (t.advanced.link) document.getElementById('tunnel-link').value = t.advanced.link;
+        }
+        updateTunnelFields();
+        showNotification('Link parsed', 'success');
+    })
+    .catch(err => {
+        console.error('Link parse failed:', err);
+        showNotification('Link parse failed: ' + err.message, 'error');
+    });
 }
 
 function toggleTunnel(id, status) {
