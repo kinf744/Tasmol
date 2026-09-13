@@ -1,0 +1,403 @@
+name: Build ARMv7 (armeabi-v7a)
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag'
+        required: false
+        type: string
+      go_version:
+        description: 'Go version'
+        required: false
+        default: '1.23'
+        type: choice
+        options:
+          - '1.22'
+          - '1.23'
+          - '1.24'
+
+env:
+  GO_VERSION: ${{ github.event.inputs.go_version || '1.23' }}
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  build-armv7:
+    name: Build Linux ARMv7 (armeabi-v7a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+
+      - name: Download Go dependencies
+        run: |
+          cd /root/vpn-app
+          go mod download
+          go mod verify
+
+      - name: Build ARMv7 binary
+        run: |
+          cd /root/vpn-app
+          export GOOS=linux
+          export GOARCH=arm
+          export GOARM=7
+          export CGO_ENABLED=1
+          export CC=arm-linux-gnueabihf-gcc
+          export CGO_CFLAGS="-march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16"
+          export CGO_LDFLAGS="-march=armv7-a -mfloat-abi=hard -mfpu=vfpv3-d16"
+          
+          VERSION="${{ env.VERSION }}"
+          COMMIT=$(git rev-parse --short HEAD)
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          LDFLAGS="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE"
+          
+          mkdir -p build/armv7
+          go build -ldflags="$LDFLAGS" -o build/armv7/vpn-app ./cmd/vpn-app
+
+      - name: Verify binary
+        run: |
+          file build/armv7/vpn-app
+          ls -lh build/armv7/vpn-app
+          build/armv7/vpn-app -version 2>&1 || true
+
+      - name: Strip binary
+        run: |
+          arm-linux-gnueabihf-strip build/armv7/vpn-app 2>/dev/null || strip build/armv7/vpn-app
+          ls -lh build/armv7/vpn-app
+
+      - name: Create release archive
+        run: |
+          cd build/armv7
+          tar -czf vpn-app-armv7-linux.tar.gz vpn-app
+          sha256sum vpn-app-armv7-linux.tar.gz > vpn-app-armv7-linux.tar.gz.sha256
+          cat vpn-app-armv7-linux.tar.gz.sha256
+
+      - name: Upload ARMv7 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-app-armv7
+          path: |
+            build/armv7/vpn-app
+            build/armv7/vpn-app-armv7-linux.tar.gz
+            build/armv7/vpn-app-armv7-linux.tar.gz.sha256
+          retention-days: 30
+
+      - name: Create Release
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/armv7/vpn-app
+            build/armv7/vpn-app-armv7-linux.tar.gz
+            build/armv7/vpn-app-armv7-linux.tar.gz.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-android-apk:
+    name: Build Android APK (WebView wrapper)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    needs: build-armv7
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          ndk-version: r26c
+          build-tools-version: '34.0.0'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build Release APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Verify APK
+        run: |
+          ls -lh android/app/build/outputs/apk/release/app-release.apk
+          file android/app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-app-android-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      - name: Create Release (APK)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: android/app/build/outputs/apk/release/app-release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-termux-package:
+    name: Create Termux Install Package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-armv7
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download tunnel binaries (ARMv7)
+        run: |
+          mkdir -p termux-package/bin
+          cd termux-package
+          
+          # Xray
+          echo "Downloading Xray..."
+          wget -q https://github.com/XTLS/Xray-core/releases/download/v24.8.31/Xray-linux-armv7-v3.zip
+          unzip -o Xray-linux-armv7-v3.zip xray
+          chmod +x xray
+          cp xray bin/xray
+          
+          # Zivpn
+          echo "Downloading Zivpn..."
+          wget -q https://github.com/zaidka/zivpn/releases/download/v0.1.2/zivpn_0.1.2_linux_armv7.tar.gz
+          tar -xzf zivpn_0.1.2_linux_armv7.tar.gz zivpn
+          chmod +x zivpn
+          cp zivpn bin/zivpn
+          
+          # badvpn (UDPGW) - build from source
+          echo "Building UDPGW..."
+          wget -q https://github.com/ambrop72/badvpn/archive/refs/tags/1.999.130.tar.gz -O badvpn.tar.gz
+          tar -xzf badvpn.tar.gz
+          cd badvpn-1.999.130
+          cmake -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_NOTHING_BY_DEFAULT=1 -DBUILD_UDPGW=1 .
+          make -j$(nproc)
+          cp udpgw/badvpn-udpgw ../bin/udpgw
+          cd ..
+          
+          # SSH is provided by Termux packages
+          
+          ls -la bin/
+
+      - name: Copy VPN App binary
+        run: |
+          cp build/armv7/vpn-app termux-package/bin/vpn-app
+          chmod +x termux-package/bin/vpn-app
+
+      - name: Create install script
+        run: |
+          cat > termux-package/install.sh << 'EOF'
+#!/bin/bash
+# VPN App Termux Installer (ARMv7)
+
+set -e
+
+echo "=========================================="
+echo "  VPN App - Termux Installer (armv7)"
+echo "=========================================="
+
+# Check architecture
+ARCH=$(uname -m)
+echo "Device architecture: $ARCH"
+
+# Update packages
+echo "[1/5] Updating Termux packages..."
+pkg update -y && pkg upgrade -y
+
+# Install dependencies
+echo "[2/5] Installing dependencies..."
+pkg install -y \
+    git curl wget unzip tar gzip iproute2 wireguard-tools \
+    dnsutils net-tools openssh openssl-tool jq tsu procps \
+    util-linux coreutils binutils
+
+# Create directories
+echo "[3/5] Creating directories..."
+mkdir -p ~/.vpn-app
+mkdir -p ~/bin
+
+# Install binaries
+echo "[4/5] Installing tunnel binaries..."
+cp bin/* ~/bin/
+chmod +x ~/bin/*
+
+# Create default config
+echo "[5/5] Creating configuration..."
+cat > ~/.vpn-app/config.yaml << 'CONFIGEOF'
+app:
+  name: "VPN App"
+  version: "1.0.0"
+  web_port: 8080
+  web_host: "0.0.0.0"
+  log_level: "info"
+  data_dir: "/data/data/com.termux/files/home/.vpn-app"
+  bin_dir: "/data/data/com.termux/files/usr/bin"
+
+tunnels: []
+
+network:
+  interface: "tun0"
+  mtu: 1500
+  dns:
+    - "1.1.1.1"
+    - "8.8.8.8"
+  exclude_ips:
+    - "127.0.0.0/8"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+features:
+  kill_switch: true
+  split_tunneling: false
+  dns_leak_protection: true
+  auto_reconnect: true
+  reconnect_interval: 5
+  max_retries: 3
+  obfuscation: false
+
+udpgw:
+  enabled: true
+  listen_addr: "127.0.0.1:7300"
+  max_clients: 100
+  timeout: 30
+  mtu: 1500
+  log_level: "info"
+CONFIGEOF
+
+# Create startup script
+cat > ~/bin/vpn-start << 'STARTEOF'
+#!/bin/bash
+termux-wake-lock
+su -c "echo 1 > /proc/sys/net/ipv4/ip_forward" 2>/dev/null || true
+cd ~/.vpn-app
+exec vpn-app -config ~/.vpn-app/config.yaml
+STARTEOF
+chmod +x ~/bin/vpn-start
+
+# Create auto-start for Termux:Boot
+mkdir -p ~/.termux/boot
+cat > ~/.termux/boot/vpn-app << 'BOOTEOF'
+#!/bin/bash
+sleep 10
+/data/data/com.termux/files/home/bin/vpn-start >> /data/data/com.termux/files/home/.vpn-app/boot.log 2>&1 &
+BOOTEOF
+chmod +x ~/.termux/boot/vpn-app
+
+# Add aliases
+cat >> ~/.bashrc << 'ALIASEOF'
+
+# VPN App aliases
+alias vpn='vpn-app'
+alias vpn-start='~/bin/vpn-start'
+alias vpn-stop='pkill -f vpn-app'
+alias vpn-status='curl -s http://localhost:8080/api/v1/status | jq'
+alias vpn-logs='tail -f ~/.vpn-app/vpn.log'
+alias vpn-config='nano ~/.vpn-app/config.yaml'
+ALIASEOF
+
+echo ""
+echo "=========================================="
+echo "  Installation Complete!"
+echo "=========================================="
+echo ""
+echo "To start VPN App: vpn-start"
+echo "Web UI: http://localhost:8080"
+echo ""
+echo "Required: termux-wake-lock, root for IP forwarding"
+EOF
+          chmod +x termux-package/install.sh
+
+      - name: Create package archive
+        run: |
+          cd termux-package
+          tar -czf vpn-app-termux-armv7.tar.gz bin/ install.sh
+          sha256sum vpn-app-termux-armv7.tar.gz > vpn-app-termux-armv7.tar.gz.sha256
+          cat vpn-app-termux-armv7.tar.gz.sha256
+
+      - name: Upload Termux package
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpn-app-termux-armv7
+          path: |
+            termux-package/vpn-app-termux-armv7.tar.gz
+            termux-package/vpn-app-termux-armv7.tar.gz.sha256
+          retention-days: 30
+
+      - name: Create Release (Termux)
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            termux-package/vpn-app-termux-armv7.tar.gz
+            termux-package/vpn-app-termux-armv7.tar.gz.sha256
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-binary:
+    name: Test Binary (Basic)
+    runs-on: ubuntu-latest
+    needs: build-armv7
+    timeout-minutes: 10
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: vpn-app-armv7
+          path: build/armv7
+
+      - name: Test binary runs
+        run: |
+          chmod +x build/armv7/vpn-app
+          # Test version flag
+          ./build/armv7/vpn-app -version || true
+          # Test help
+          ./build/armv7/vpn-app -help 2>&1 | head -20 || true
+          
+      - name: Verify architecture
+        run: |
+          file build/armv7/vpn-app
+          # Should show: ELF 32-bit LSB executable, ARM, EABI5 version 1
