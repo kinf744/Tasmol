@@ -61,8 +61,9 @@ jobs:
       - name: gomobile init
         run: gomobile init
 
-      - name: Resolve Go modules (tun2socks)
+      - name: Resolve Go modules (gomobile bind deps)
         run: |
+          go get "golang.org/x/mobile@${{ env.GOMOBILE_VERSION }}"
           go mod tidy
           go mod verify
           git diff --stat || true

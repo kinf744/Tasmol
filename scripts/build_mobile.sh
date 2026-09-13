@@ -26,6 +26,10 @@ export PATH="$PATH:$(go env GOPATH)/bin"
 echo "=== gomobile init (NDK: ${ANDROID_NDK_HOME:-default}) ==="
 gomobile init
 
+echo "=== Resolving gomobile bind dependency ==="
+go get "golang.org/x/mobile@$GOMOBILE_VERSION"
+go mod tidy
+
 echo "=== Binding golib/vpnlib for android/arm (armeabi-v7a) ==="
 mkdir -p android/app/libs
 export GOARM=7
