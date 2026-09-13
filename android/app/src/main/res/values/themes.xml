@@ -11,7 +11,7 @@
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorError">@color/error</item>
         <item name="android:statusBarColor">?attr/colorPrimaryVariant</item>
-        <item name="android:navigationBarColor">?attr/colorBackground</item>
+        <item name="android:navigationBarColor">@color/background</item>
     </style>
 
     <style name="Theme.VPNApp.NoActionBar">
