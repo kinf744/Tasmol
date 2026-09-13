@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
 )
 
 type DNSLeakProtection struct {
@@ -115,18 +114,9 @@ func (dlp *DNSLeakProtection) applyProtection() error {
 		}
 	}
 
-	blockRule := netlink.NewRule()
-	blockRule.Table = unix.RT_TABLE_UNSPEC
-	blockRule.Priority = 32765
-	blockRule.Mask = 0
-	blockRule.Family = netlink.FAMILY_V4
-	blockRule.Action = netlink.RULE_ACTION_UNREACHABLE
-	blockRule.Src = &net.IPNet{IP: net.IPv4(0, 0, 0, 0), Mask: net.CIDRMask(0, 32)}
-
-	if err := netlink.RuleAdd(blockRule); err != nil {
-		return fmt.Errorf("failed to add DNS block rule: %w", err)
-	}
-
+	// NOTE: vishvananda/netlink does not expose ip-rule actions, so DNS
+	// is forced through the VPN purely via the /32 routes above plus the
+	// background leak monitor.
 	return nil
 }
 

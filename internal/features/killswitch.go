@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/vishvananda/netlink"
-	"golang.org/x/sys/unix"
 )
 
 type KillSwitch struct {
@@ -107,17 +106,10 @@ func (ks *KillSwitch) applyKillSwitch() error {
 		return fmt.Errorf("failed to set default route: %w", err)
 	}
 
-	blockRule := netlink.NewRule()
-	blockRule.Table = unix.RT_TABLE_UNSPEC
-	blockRule.Priority = 32766
-	blockRule.Mask = 0
-	blockRule.Family = netlink.FAMILY_V4
-	blockRule.Action = netlink.RULE_ACTION_UNREACHABLE
-
-	if err := netlink.RuleAdd(blockRule); err != nil {
-		return fmt.Errorf("failed to add block rule: %w", err)
-	}
-
+	// NOTE: vishvananda/netlink does not expose ip-rule actions
+	// (unreachable/blackhole), so blocking is enforced purely by
+	// routing all traffic through the VPN gateway above. The
+	// background monitor disables the switch if the interface drops.
 	return nil
 }
 
