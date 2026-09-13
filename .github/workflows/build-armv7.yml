@@ -26,50 +26,6 @@ env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
-  build-slowdns:
-    name: Build SlowDNS (dnstt-client) ARMv7
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: false
-
-      - name: Build dnstt-client for armv7
-        run: |
-          rm -rf /tmp/dnstt && git clone --depth 1 https://github.com/OutlineFoundation/dnstt.git /tmp/dnstt
-          cd /tmp/dnstt
-          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags="-s -w" -o slowdns-armv7 ./dnstt-client
-          file slowdns-armv7
-          ls -lh slowdns-armv7
-
-      - name: Store binary in repository bundle
-        if: github.event_name == 'push'
-        run: |
-          cp /tmp/dnstt/slowdns-armv7 bin/armv7/slowdns
-          chmod +x bin/armv7/slowdns
-          file bin/armv7/slowdns
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add bin/armv7/slowdns
-          git diff --cached --quiet || git commit -m "chore: update bin/armv7/slowdns (dnstt-client armv7) [skip ci]"
-          git push || echo "nothing to push or push skipped"
-
-      - name: Upload SlowDNS artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: slowdns-armv7
-          path: /tmp/dnstt/slowdns-armv7
-          retention-days: 30
-
   build-armv7:
     name: Build Linux ARMv7 (armeabi-v7a)
     runs-on: ubuntu-latest
