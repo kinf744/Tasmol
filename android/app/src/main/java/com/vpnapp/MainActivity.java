@@ -236,16 +236,17 @@ public class MainActivity extends AppCompatActivity {
             requestVpnPermission(tunnels.get(0).get("id"));
             return;
         }
-        String[] names = new String[tunnels.size()];
-        for (int i = 0; i < tunnels.size(); i++) {
-            String name = tunnels.get(i).get("name");
-            String type = tunnels.get(i).get("type");
+        final List<Map<String, String>> tunnelList = tunnels;
+        String[] names = new String[tunnelList.size()];
+        for (int i = 0; i < tunnelList.size(); i++) {
+            String name = tunnelList.get(i).get("name");
+            String type = tunnelList.get(i).get("type");
             names[i] = (name != null ? name : "tunnel") + (type != null ? " (" + type + ")" : "");
         }
         new AlertDialog.Builder(this)
                 .setTitle("Choose tunnel")
                 .setItems(names, (d, which) -> {
-                    String id = tunnels.get(which).get("id");
+                    String id = tunnelList.get(which).get("id");
                     if (id == null || id.isEmpty()) {
                         showToast("Tunnel has no id");
                         return;

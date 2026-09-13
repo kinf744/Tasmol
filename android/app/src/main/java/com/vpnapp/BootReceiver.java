@@ -9,7 +9,7 @@ public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction()) ||
-            Intent.ACTION_QUICKBOOT_POWERON.equals(intent.getAction())) {
+            "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
 
             VPNApplication app = (VPNApplication) context.getApplicationContext();
             if (!app.isAutoStartEnabled()) {
