@@ -5,7 +5,7 @@ go 1.23
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/gorilla/websocket v1.5.1
-	github.com/creack/pty v1.1.22
+	github.com/creack/pty v1.1.24
 	github.com/vishvananda/netlink v1.2.1-beta.2
 	github.com/songgao/water v0.0.0-20240314162616-5a3e6b4e6f8a
 	golang.org/x/crypto v0.23.0
