@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VPN App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#3b82f6',
+                        secondary: '#1e293b',
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 dark:bg-gray-900 min-h-screen">
+    <div id="app">
+        <header class="bg-white dark:bg-gray-800 shadow-sm border-b border-gray-200 dark:border-gray-700">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center h-16">
+                    <div class="flex items-center">
+                        <i class="fas fa-shield-alt text-primary text-2xl mr-3"></i>
+                        <h1 class="text-xl font-bold text-gray-900 dark:text-white">VPN App</h1>
+                    </div>
+                    <div class="flex items-center space-x-4">
+                        <span id="connection-status" class="px-3 py-1 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                            <i class="fas fa-circle text-xs mr-1" id="status-indicator"></i>
+                            <span id="status-text">Disconnected</span>
+                        </span>
+                        <button onclick="toggleDarkMode()" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <i class="fas fa-moon" id="dark-mode-icon"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                <aside class="lg:col-span-1">
+                    <nav class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-4">
+                        <ul class="space-y-1" id="sidebar-menu">
+                            <li>
+                                <button onclick="showSection('dashboard')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="dashboard">
+                                    <i class="fas fa-tachometer-alt"></i>
+                                    <span>Dashboard</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button onclick="showSection('tunnels')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="tunnels">
+                                    <i class="fas fa-server"></i>
+                                    <span>Tunnels</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button onclick="showSection('features')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="features">
+                                    <i class="fas fa-cogs"></i>
+                                    <span>Features</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button onclick="showSection('settings')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="settings">
+                                    <i class="fas fa-cog"></i>
+                                    <span>Settings</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button onclick="showSection('import-export')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="import-export">
+                                    <i class="fas fa-file-export"></i>
+                                    <span>Import/Export</span>
+                                </button>
+                            </li>
+                            <li>
+                                <button onclick="showSection('logs')" class="menu-btn w-full text-left px-4 py-2 rounded-lg flex items-center space-x-3 text-gray-700 dark:text-gray-300 hover:bg-primary/10 dark:hover:bg-primary/20" data-section="logs">
+                                    <i class="fas fa-terminal"></i>
+                                    <span>Logs</span>
+                                </button>
+                            </li>
+                        </ul>
+                    </nav>
+                </aside>
+
+                <main class="lg:col-span-3 space-y-6">
+                    <section id="dashboard-section" class="section">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h2>
+                            <button onclick="toggleVPN()" id="main-toggle" class="btn-primary px-6 py-2 rounded-lg flex items-center space-x-2">
+                                <i class="fas fa-power-off"></i>
+                                <span>Connect</span>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Active Tunnels</p>
+                                        <p class="text-3xl font-bold text-gray-900 dark:text-white" id="stat-active-tunnels">0</p>
+                                    </div>
+                                    <div class="bg-primary/10 p-3 rounded-lg">
+                                        <i class="fas fa-server text-primary text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Data Up</p>
+                                        <p class="text-3xl font-bold text-green-600" id="stat-bytes-up">0 B</p>
+                                    </div>
+                                    <div class="bg-green-100 dark:bg-green-900/30 p-3 rounded-lg">
+                                        <i class="fas fa-arrow-up text-green-600 text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Data Down</p>
+                                        <p class="text-3xl font-bold text-blue-600" id="stat-bytes-down">0 B</p>
+                                    </div>
+                                    <div class="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-lg">
+                                        <i class="fas fa-arrow-down text-blue-600 text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Latency</p>
+                                        <p class="text-3xl font-bold text-gray-900 dark:text-white" id="stat-latency">-- ms</p>
+                                    </div>
+                                    <div class="bg-yellow-100 dark:bg-yellow-900/30 p-3 rounded-lg">
+                                        <i class="fas fa-tachometer-alt text-yellow-600 text-2xl"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Tunnel Status</h3>
+                            <div class="overflow-x-auto">
+                                <table class="w-full">
+                                    <thead>
+                                        <tr class="text-left text-sm text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                                            <th class="pb-3 px-4">Name</th>
+                                            <th class="pb-3 px-4">Type</th>
+                                            <th class="pb-3 px-4">Status</th>
+                                            <th class="pb-3 px-4">Uptime</th>
+                                            <th class="pb-3 px-4">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tunnel-table-body" class="divide-y divide-gray-200 dark:divide-gray-700">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="tunnels-section" class="section hidden">
+                        <div class="flex justify-between items-center mb-6">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Tunnels</h2>
+                            <button onclick="openTunnelModal()" class="btn-primary px-4 py-2 rounded-lg flex items-center space-x-2">
+                                <i class="fas fa-plus"></i>
+                                <span>Add Tunnel</span>
+                            </button>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="tunnels-grid">
+                        </div>
+                    </section>
+
+                    <section id="features-section" class="section hidden">
+                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Features</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Kill Switch</h3>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Block traffic if VPN disconnects</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="kill-switch-toggle" class="sr-only peer" onchange="toggleFeature('kill_switch', this.checked)">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Split Tunneling</h3>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Route only selected traffic through VPN</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="split-tunnel-toggle" class="sr-only peer" onchange="toggleFeature('split_tunneling', this.checked)">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">DNS Leak Protection</h3>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Prevent DNS queries from leaking</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="dns-leak-toggle" class="sr-only peer" onchange="toggleFeature('dns_leak_protection', this.checked)">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Auto Reconnect</h3>
+                                        <p class="text-sm text-gray-500 dark:text-gray-400">Automatically reconnect on disconnect</p>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" id="auto-reconnect-toggle" class="sr-only peer" onchange="toggleFeature('auto_reconnect', this.checked)">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="settings-section" class="section hidden">
+                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Settings</h2>
+                        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                            <div class="space-y-6">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Web UI Port</label>
+                                    <input type="number" id="web-port" value="8080" class="input-field w-full md:w-64">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Web UI Host</label>
+                                    <input type="text" id="web-host" value="0.0.0.0" class="input-field w-full md:w-64">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Log Level</label>
+                                    <select id="log-level" class="input-field w-full md:w-64">
+                                        <option value="debug">Debug</option>
+                                        <option value="info" selected>Info</option>
+                                        <option value="warn">Warning</option>
+                                        <option value="error">Error</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Interface Name</label>
+                                    <input type="text" id="interface-name" value="tun0" class="input-field w-full md:w-64">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MTU</label>
+                                    <input type="number" id="mtu" value="1500" class="input-field w-full md:w-64">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">DNS Servers (comma separated)</label>
+                                    <input type="text" id="dns-servers" value="1.1.1.1,8.8.8.8" class="input-field w-full md:w-96">
+                                </div>
+                                <button onclick="saveSettings()" class="btn-primary px-6 py-2 rounded-lg">Save Settings</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="import-export-section" class="section hidden">
+                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-6">Import / Export</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Export Configuration</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Format</label>
+                                        <select id="export-format" class="input-field w-full md:w-64">
+                                            <option value="yaml">YAML</option>
+                                            <option value="json">JSON</option>
+                                            <option value="zip">ZIP (encrypted)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password (for encryption)</label>
+                                        <input type="password" id="export-password" placeholder="Optional" class="input-field w-full md:w-96">
+                                    </div>
+                                    <button onclick="exportConfig()" class="btn-primary px-6 py-2 rounded-lg flex items-center space-x-2">
+                                        <i class="fas fa-download"></i>
+                                        <span>Export</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Import Configuration</h3>
+                                <div class="space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Config File</label>
+                                        <input type="file" id="import-file" accept=".yaml,.yml,.json,.zip" class="input-field w-full">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Password (if encrypted)</label>
+                                        <input type="password" id="import-password" placeholder="Optional" class="input-field w-full md:w-96">
+                                    </div>
+                                    <button onclick="importConfig()" class="btn-primary px-6 py-2 rounded-lg flex items-center space-x-2">
+                                        <i class="fas fa-upload"></i>
+                                        <span>Import</span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section id="logs-section" class="section hidden">
+                        <div class="flex justify-between items-center mb-4">
+                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">Logs</h2>
+                            <div class="flex space-x-2">
+                                <select id="log-level-filter" class="input-field">
+                                    <option value="all">All Levels</option>
+                                    <option value="debug">Debug</option>
+                                    <option value="info">Info</option>
+                                    <option value="warn">Warning</option>
+                                    <option value="error">Error</option>
+                                </select>
+                                <button onclick="clearLogs()" class="btn-secondary px-4 py-2 rounded-lg">Clear</button>
+                            </div>
+                        </div>
+                        <div class="bg-black rounded-lg p-4 font-mono text-sm text-green-400 h-96 overflow-y-auto" id="logs-container">
+                            <div class="text-gray-500">No logs yet...</div>
+                        </div>
+                    </section>
+                </main>
+            </div>
+        </div>
+    </div>
+
+    <div id="tunnel-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white" id="modal-title">Add Tunnel</h3>
+                <button onclick="closeTunnelModal()" class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            <form id="tunnel-form" class="p-4 space-y-4" onsubmit="saveTunnel(event)">
+                <input type="hidden" id="tunnel-id">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name</label>
+                    <input type="text" id="tunnel-name" required class="input-field w-full">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Type</label>
+                    <select id="tunnel-type" required class="input-field w-full" onchange="updateTunnelFields()">
+                        <option value="ssh">SSH</option>
+                        <option value="ssh_slowdns">SSH + SlowDNS</option>
+                        <option value="xray">Xray (VLESS/VMess/Trojan)</option>
+                        <option value="xray_slowdns">Xray + SlowDNS</option>
+                        <option value="zivpn">Zivpn</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Enabled</label>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="tunnel-enabled" class="sr-only peer" checked>
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/30 dark:peer-focus:ring-primary/50 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Server Configuration</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
+                            <input type="text" id="tunnel-host" required class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Port</label>
+                            <input type="number" id="tunnel-port" required class="input-field w-full">
+                        </div>
+                    </div>
+                </div>
+                <div id="ssh-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
+                            <input type="text" id="tunnel-username" class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                            <input type="password" id="tunnel-password" class="input-field w-full">
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Private Key Path</label>
+                        <input type="text" id="tunnel-private-key" class="input-field w-full">
+                    </div>
+                </div>
+                <div id="xray-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UUID</label>
+                            <input type="text" id="tunnel-uuid" class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Flow</label>
+                            <input type="text" id="tunnel-flow" placeholder="xtls-rprx-vision" class="input-field w-full">
+                        </div>
+                    </div>
+                </div>
+                <div id="zivpn-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Authentication</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">UUID</label>
+                            <input type="text" id="tunnel-zivpn-uuid" class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
+                            <input type="password" id="tunnel-zivpn-password" class="input-field w-full">
+                        </div>
+                    </div>
+                </div>
+                <div id="slowdns-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SlowDNS Configuration</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Public Key</label>
+                            <input type="text" id="tunnel-slowdns-pubkey" class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nameserver</label>
+                            <input type="text" id="tunnel-slowdns-ns" value="8.8.8.8" class="input-field w-full">
+                        </div>
+                    </div>
+                </div>
+                <div id="transport-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+                    <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">Transport</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Network</label>
+                            <select id="tunnel-network" class="input-field w-full">
+                                <option value="tcp">TCP</option>
+                                <option value="udp">UDP</option>
+                                <option value="ws">WebSocket</option>
+                                <option value="grpc">gRPC</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Security</label>
+                            <select id="tunnel-security" class="input-field w-full">
+                                <option value="">None</option>
+                                <option value="tls">TLS</option>
+                                <option value="reality">Reality</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div id="ws-fields" class="mt-4 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Path</label>
+                                <input type="text" id="tunnel-ws-path" placeholder="/path" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Host</label>
+                                <input type="text" id="tunnel-ws-host" class="input-field w-full">
+                            </div>
+                        </div>
+                    </div>
+                    <div id="reality-fields" class="mt-4 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Public Key</label>
+                                <input type="text" id="tunnel-reality-pubkey" class="input-field w-full">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Short ID</label>
+                                <input type="text" id="tunnel-reality-shortid" class="input-field w-full">
+                            </div>
+                        </div>
+                        <div class="mt-4">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">SNI</label>
+                            <input type="text" id="tunnel-reality-sni" class="input-field w-full">
+                        </div>
+                    </div>
+                    <div id="zivpn-obfs-fields" class="mt-4 hidden">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Obfs</label>
+                                <select id="tunnel-zivpn-obfs" class="input-field w-full">
+                                    <option value="plain">Plain (default)</option>
+                                    <option value="obfs4">obfs4</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Obfs Param</label>
+                                <input type="text" id="tunnel-zivpn-obfs-param" class="input-field w-full">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button type="button" onclick="closeTunnelModal()" class="btn-secondary px-6 py-2 rounded-lg">Cancel</button>
+                    <button type="submit" class="btn-primary px-6 py-2 rounded-lg">Save</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
