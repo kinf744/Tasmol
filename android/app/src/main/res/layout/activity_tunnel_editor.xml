@@ -106,7 +106,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Port range (ex: 6000-19999)"
+                android:text="Port range(s) (ex: 6000-19999, comma-separated OK)"
                 android:visibility="gone" />
 
             <EditText

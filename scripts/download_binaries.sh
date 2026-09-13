@@ -3,7 +3,9 @@
 #
 # Sources (verified):
 #   xray    : XTLS/Xray-core v26.5.9  -> Xray-linux-arm32-v7a.zip
-#   zivpn   : zahidbd2/udp-zivpn udp-zivpn_1.4.9 -> udp-zivpn-linux-arm
+#   zivpn   : uz_core client (jniLibs/armeabi-v7a/libuz_core.so of the
+#             reference app) -> installed as "zivpn", invoked as
+#             zivpn -s <obfs> --config '<inline-json>'
 #   slowdns : dnstt-client built from OutlineFoundation/dnstt (no upstream
 #             armv7 release exists) - built by CI, stored in bin/armv7/
 #   ssh     : Termux package (pkg install openssh)
@@ -61,11 +63,11 @@ for dat in geoip.dat geosite.dat; do
     fi
 done
 
-# 3. Zivpn (official udp-zivpn 1.4.9, ARM 32-bit, client+server binary)
-echo "[3/4] Zivpn udp-zivpn_1.4.9 (linux-arm)..."
+# 3. Zivpn UDP client (uz_core, ARM 32-bit)
+echo "[3/4] Zivpn (uz_core)..."
 if ! install_from_repo zivpn; then
     cd "$TMP_DIR"
-    wget -q "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-arm" -O zivpn
+    wget -q "https://raw.githubusercontent.com/kinf744/Forot/main/android/app/src/main/jniLibs/armeabi-v7a/libuz_core.so" -O zivpn
     chmod +x zivpn
     cp zivpn "$BIN_DIR/zivpn"
     echo "  [url] zivpn -> $BIN_DIR/zivpn"

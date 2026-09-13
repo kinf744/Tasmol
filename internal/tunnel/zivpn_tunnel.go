@@ -4,44 +4,67 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"math/rand/v2"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"vpn-app/internal/config"
 )
 
-// ZivpnTunnel drives the official udp-zivpn binary (zahidbd2/udp-zivpn
-// release udp-zivpn_1.4.9, udp-zivpn-linux-arm) in client mode:
+// ZivpnTunnel drives the official uz_core binary (the Zivpn UDP client,
+// shipped in the repository bundle as bin/armv7/zivpn) exactly like the
+// proven reference implementation:
 //
-//	zivpn client --config <client.json>
+//	uz -s <obfs> --config '<inline-json>'
 //
-// The client exposes a local SOCKS5 proxy (default 127.0.0.1:10810) used
-// as the device upstream. Server port defaults to 5667 (official server
-// listen port). TLS is insecure by default because official install
-// scripts generate self-signed certificates (override with
-// Advanced["tls_insecure"]=false).
+// Per port range (comma-separated, e.g. "6000-19999" or
+// "6000-6999,7000-7999") one uz_core process is spawned exposing SOCKS5 on
+// 127.0.0.1:<uzPort>; a round-robin TCP load balancer unifies them on the
+// tunnel SOCKS port (default 127.0.0.1:10810) used as the device upstream.
 //
-// Obfuscation (Hysteria2-derived protocol) is hardcoded: type "salamander",
-// fixed password DefaultZivpnObfsPassword. No UI field.
-// Advanced["obfs_raw"] may hold a raw JSON value injected
-// verbatim as the "obfs" field for fork variants.
+// The inline client JSON (flat, binary-native):
+//
+//	{"server":"<ip>:<range>","obfs":"<obfs>","auth":"<password>",
+//	 "socks5":{"listen":"127.0.0.1:<uzPort>"},"insecure":true,
+//	 "recvwindowconn":65536,"recvwindow":262144,
+//	 "disable_mtu_discovery":true,"down_mbps":50,"up_mbps":10}
+//
+// The server hostname is resolved to an IP before spawning (fallback: the
+// hostname itself). The obfs value is hardcoded (DefaultZivpnObfsPassword,
+// no UI field).
 type ZivpnTunnel struct {
-	mu         sync.RWMutex
-	config     *config.TunnelConfig
-	status     Status
-	stats      Stats
-	cmd        *exec.Cmd
-	cancel     context.CancelFunc
-	startTime  time.Time
-	configPath string
-	dialPort   int
+	mu        sync.RWMutex
+	config    *config.TunnelConfig
+	status    Status
+	stats     Stats
+	cancel    context.CancelFunc
+	startTime time.Time
+
+	procs []*uzProc
+	lbLn  net.Listener
+	lbIdx atomic.Uint32
 }
+
+type uzProc struct {
+	cmd     *exec.Cmd
+	uzPort  int
+	rng     string
+	stderr  io.ReadCloser
+	started bool
+}
+
+// DefaultZivpnObfsPassword is the fixed obfs value hardcoded for the
+// Zivpn UDP tunnel (no UI field).
+const DefaultZivpnObfsPassword = "hu``hqb`c"
+
+// DefaultZivpnPortRange is used when no range is configured.
+const DefaultZivpnPortRange = "6000-19999"
 
 func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
 	return &ZivpnTunnel{
@@ -72,49 +95,8 @@ func (t *ZivpnTunnel) Stats() Stats {
 
 func (t *ZivpnTunnel) Config() *config.TunnelConfig { return t.config }
 
-func (t *ZivpnTunnel) serverPort() int {
-	if t.dialPort != 0 {
-		return t.dialPort
-	}
-	if t.config.Server.PortRange != "" {
-		if port, err := PickPortFromRange(t.config.Server.PortRange); err == nil {
-			return port
-		}
-	}
-	if t.config.Server.Port != 0 {
-		return t.config.Server.Port
-	}
-	return 5667
-}
-
-// PickPortFromRange parses "5667" or "6000-19999" (Zivpn UDP accounts) and
-// returns the port to dial (random within a range, for load spreading).
-func PickPortFromRange(pr string) (int, error) {
-	pr = strings.TrimSpace(pr)
-	if pr == "" {
-		return 0, fmt.Errorf("empty port range")
-	}
-	if !strings.Contains(pr, "-") {
-		port, err := strconv.Atoi(pr)
-		if err != nil || port <= 0 || port > 65535 {
-			return 0, fmt.Errorf("invalid port %q", pr)
-		}
-		return port, nil
-	}
-	parts := strings.SplitN(pr, "-", 2)
-	lo, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
-	hi, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err1 != nil || err2 != nil || lo <= 0 || hi > 65535 || lo > hi {
-		return 0, fmt.Errorf("invalid port range %q (expected LO-HI)", pr)
-	}
-	if lo == hi {
-		return lo, nil
-	}
-	return lo + rand.IntN(hi-lo+1), nil
-}
-
 func (t *ZivpnTunnel) socksPort() int {
-	return advInt(t.config.Advanced, "socks_port", 10810)
+	return advInt(t.config.Advanced, "socks_port", DefaultZivpnPort)
 }
 
 func (t *ZivpnTunnel) authPassword() string {
@@ -124,74 +106,62 @@ func (t *ZivpnTunnel) authPassword() string {
 	return "zi"
 }
 
-// DefaultZivpnObfsPassword is the fixed obfs value hardcoded for the
-// Zivpn UDP tunnel (no UI field).
-const DefaultZivpnObfsPassword = "hu``hqb`c"
-
-func (t *ZivpnTunnel) obfsType() string {
-	// Hardcoded: the official udp-zivpn server uses salamander obfuscation.
-	// (No UI field; Advanced["obfs_raw"] may still inject a raw block.)
-	return "salamander"
-}
-
-func (t *ZivpnTunnel) obfsPassword() string {
-	// Hardcoded fixed value used by the Zivpn UDP tunnel.
-	return DefaultZivpnObfsPassword
-}
-
-func (t *ZivpnTunnel) sni() string {
-	if t.config.Server.SNI != "" {
-		return t.config.Server.SNI
+// portRanges returns the configured ranges (comma-separated supported).
+func (t *ZivpnTunnel) portRanges() []string {
+	pr := strings.TrimSpace(t.config.Server.PortRange)
+	if pr == "" && t.config.Server.Port != 0 {
+		pr = fmt.Sprintf("%d-%d", t.config.Server.Port, t.config.Server.Port)
 	}
-	return t.config.Server.Host
-}
-
-// generateClientConfig builds the client.json consumed by
-// `zivpn client --config`.
-func (t *ZivpnTunnel) generateClientConfig() (string, error) {
-	var obfs interface{}
-	if raw, ok := t.config.Advanced["obfs_raw"].(string); ok && raw != "" {
-		var v interface{}
-		if err := json.Unmarshal([]byte(raw), &v); err != nil {
-			return "", fmt.Errorf("invalid obfs_raw JSON: %w", err)
-		}
-		obfs = v
-	} else {
-		// Standard Hysteria2-style salamander block. The nested key must be
-		// the obfs type name (e.g. "salamander").
-		obfs = map[string]interface{}{
-			"type": t.obfsType(),
-			t.obfsType(): map[string]interface{}{
-				"password": t.obfsPassword(),
-			},
+	if pr == "" {
+		pr = DefaultZivpnPortRange
+	}
+	var out []string
+	for _, r := range strings.Split(pr, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			out = append(out, r)
 		}
 	}
-
-	clientCfg := map[string]interface{}{
-		"server": fmt.Sprintf("%s:%d", t.config.Server.Host, t.serverPort()),
-		"auth": map[string]interface{}{
-			"mode":     "password",
-			"password": t.authPassword(),
-		},
-		"tls": map[string]interface{}{
-			"sni":      t.sni(),
-			"insecure": advBool(t.config.Advanced, "tls_insecure", true),
-		},
-		"obfs": obfs,
-		"socks5": map[string]interface{}{
-			"listen": fmt.Sprintf("127.0.0.1:%d", t.socksPort()),
-		},
-		"bandwidth": map[string]interface{}{
-			"up":   advStr(t.config.Advanced, "up_mbps", "50 mbps"),
-			"down": advStr(t.config.Advanced, "down_mbps", "200 mbps"),
-		},
+	if len(out) == 0 {
+		out = []string{DefaultZivpnPortRange}
 	}
+	return out
+}
 
-	data, err := json.MarshalIndent(clientCfg, "", "  ")
+// resolveServerIP resolves the server hostname to an IP, falling back to
+// the hostname itself when resolution fails.
+func (t *ZivpnTunnel) resolveServerIP() string {
+	host := strings.TrimSpace(t.config.Server.Host)
+	if host == "" {
+		return host
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return host
+	}
+	if addr, err := net.ResolveIPAddr("ip", host); err == nil && addr != nil {
+		return addr.String()
+	}
+	return host
+}
+
+// buildUzConfig renders the inline client JSON for one range.
+func buildUzConfig(ip, portRange, password, obfs string, uzPort int) (string, error) {
+	doc := map[string]interface{}{
+		"server":                fmt.Sprintf("%s:%s", ip, portRange),
+		"obfs":                  obfs,
+		"auth":                  password,
+		"socks5":                map[string]interface{}{"listen": fmt.Sprintf("127.0.0.1:%d", uzPort)},
+		"insecure":              true,
+		"recvwindowconn":        65536,
+		"recvwindow":            262144,
+		"disable_mtu_discovery": true,
+		"down_mbps":             50,
+		"up_mbps":               10,
+	}
+	raw, err := json.Marshal(doc)
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	return string(raw), nil
 }
 
 func (t *ZivpnTunnel) Start(ctx context.Context) error {
@@ -201,74 +171,227 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	if t.status == StatusRunning {
 		return nil
 	}
-
-	if t.config.Server.Host == "" {
+	if strings.TrimSpace(t.config.Server.Host) == "" {
 		return fmt.Errorf("zivpn server host is required (server.host)")
 	}
 
 	t.status = StatusStarting
 	t.setError("")
 
-	if t.config.Server.PortRange != "" {
-		port, err := PickPortFromRange(t.config.Server.PortRange)
+	ctx, t.cancel = context.WithCancel(ctx)
+
+	bin := LookupBin(BinDir, BinZivpn)
+	lbPort := t.socksPort()
+	ranges := t.portRanges()
+	ip := t.resolveServerIP()
+	password := t.authPassword()
+
+	workDir := os.TempDir()
+	homeDir := os.TempDir()
+	if BinDir != "" {
+		workDir = filepath.Dir(BinDir)
+		homeDir = filepath.Dir(BinDir)
+	}
+
+	procs := make([]*uzProc, 0, len(ranges))
+	for i, rng := range ranges {
+		uzPort := lbPort + 1 + i
+		cfgJSON, err := buildUzConfig(ip, rng, password, DefaultZivpnObfsPassword, uzPort)
 		if err != nil {
+			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(err.Error())
 			return err
 		}
-		t.dialPort = port
-	} else {
-		t.dialPort = 0
+
+		cmd := exec.CommandContext(ctx, bin, "-s", DefaultZivpnObfsPassword, "--config", cfgJSON)
+		cmd.Dir = workDir
+		cmd.Env = append(os.Environ(),
+			"LD_LIBRARY_PATH="+BinDir,
+			"HOME="+homeDir,
+			"TMPDIR="+homeDir,
+		)
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			t.killProcsLocked(procs)
+			t.status = StatusError
+			t.setError(err.Error())
+			return err
+		}
+		cmd.Stdout = nil
+
+		if err := cmd.Start(); err != nil {
+			t.killProcsLocked(procs)
+			t.status = StatusError
+			t.setError(fmt.Sprintf("zivpn start failed: %v", err))
+			return fmt.Errorf("failed to start zivpn (uz_core): %w", err)
+		}
+
+		up := &uzProc{cmd: cmd, uzPort: uzPort, rng: rng, stderr: stderr}
+		procs = append(procs, up)
+		go t.watchOutput(up)
+
+		// Readiness: uz exposes its SOCKS port (5s budget, like reference).
+		if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
+			t.killProcsLocked(procs)
+			t.status = StatusError
+			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
+			return fmt.Errorf("zivpn range %s not ready: %w", rng, err)
+		}
+		up.started = true
 	}
 
-	configContent, err := t.generateClientConfig()
+	// Round-robin balancer unifying the uz SOCKS endpoints.
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", lbPort))
 	if err != nil {
+		t.killProcsLocked(procs)
 		t.status = StatusError
 		t.setError(err.Error())
-		return err
+		return fmt.Errorf("zivpn balancer listen: %w", err)
 	}
+	t.procs = procs
+	t.lbLn = ln
+	go t.serveBalancer(ctx, ln)
 
-	tmpDir, err := os.MkdirTemp("", "zivpn-*")
-	if err != nil {
+	// Balancer readiness probe.
+	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", lbPort), 3*time.Second); err != nil {
+		t.killProcsLocked(procs)
+		ln.Close()
+		t.lbLn = nil
+		t.procs = nil
 		t.status = StatusError
-		t.setError(err.Error())
-		return err
-	}
-	t.configPath = filepath.Join(tmpDir, "client.json")
-	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
-		t.status = StatusError
-		t.setError(err.Error())
-		return err
-	}
-
-	ctx, t.cancel = context.WithCancel(ctx)
-	t.cmd = exec.CommandContext(ctx,
-		LookupBin(BinDir, BinZivpn), "client", "--config", t.configPath)
-
-	if err := t.cmd.Start(); err != nil {
-		t.status = StatusError
-		t.setError(err.Error())
-		return fmt.Errorf("failed to start Zivpn client: %w", err)
-	}
-
-	// Wait until the local SOCKS5 is exposed before reporting running.
-	t.mu.Unlock()
-	socksErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.socksPort()), 20*time.Second)
-	t.mu.Lock()
-
-	if socksErr != nil {
-		t.cmd.Process.Kill()
-		t.status = StatusError
-		t.setError(fmt.Sprintf("Zivpn SOCKS not ready: %v", socksErr))
-		return fmt.Errorf("zivpn socks not ready: %w", socksErr)
+		t.setError(fmt.Sprintf("zivpn balancer not ready: %v", err))
+		return fmt.Errorf("zivpn balancer not ready: %w", err)
 	}
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
 
-	go t.monitorProcess()
+	go t.monitorProcs()
 
 	return nil
+}
+
+// serveBalancer round-robins TCP connections over the uz upstreams.
+func (t *ZivpnTunnel) serveBalancer(ctx context.Context, ln net.Listener) {
+	for {
+		client, err := ln.Accept()
+		if err != nil {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Listener closed on Stop.
+				if t.Status() != StatusRunning {
+					return
+				}
+				continue
+			}
+		}
+		go t.relayClient(client)
+	}
+}
+
+func (t *ZivpnTunnel) relayClient(client net.Conn) {
+	t.mu.RLock()
+	procs := append([]*uzProc(nil), t.procs...)
+	t.mu.RUnlock()
+
+	if len(procs) == 0 {
+		client.Close()
+		return
+	}
+	idx := int(t.lbIdx.Add(1)-1) % len(procs)
+	up := procs[idx]
+
+	upstream, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", up.uzPort), 5*time.Second)
+	if err != nil {
+		client.Close()
+		return
+	}
+	if c, ok := client.(*net.TCPConn); ok {
+		c.SetNoDelay(true)
+	}
+	if c, ok := upstream.(*net.TCPConn); ok {
+		c.SetNoDelay(true)
+	}
+
+	done := make(chan struct{}, 2)
+	go func() {
+		io.Copy(upstream, client)
+		done <- struct{}{}
+	}()
+	go func() {
+		io.Copy(client, upstream)
+		done <- struct{}{}
+	}()
+	<-done
+	client.Close()
+	upstream.Close()
+}
+
+// watchOutput scans a uz process stream for error keywords.
+func (t *ZivpnTunnel) watchOutput(up *uzProc) {
+	buf := make([]byte, 0, 4096)
+	tmp := make([]byte, 1024)
+	for {
+		n, err := up.stderr.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+			for {
+				i := indexNewline(buf)
+				if i < 0 {
+					break
+				}
+				line := strings.ToLower(string(buf[:i]))
+				buf = buf[i+1:]
+				if strings.Contains(line, "error") || strings.Contains(line, "fail") ||
+					strings.Contains(line, "exception") || strings.Contains(line, "refused") {
+					t.mu.Lock()
+					if t.status == StatusRunning {
+						t.setError(fmt.Sprintf("zivpn [%s]: %s", up.rng, strings.TrimSpace(line)))
+					}
+					t.mu.Unlock()
+				}
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
+func indexNewline(b []byte) int {
+	for i, c := range b {
+		if c == '\n' {
+			return i
+		}
+	}
+	return -1
+}
+
+func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
+	for _, up := range procs {
+		if up.cmd != nil && up.cmd.Process != nil {
+			_ = up.cmd.Process.Kill()
+		}
+	}
+}
+
+func (t *ZivpnTunnel) monitorProcs() {
+	for _, up := range t.procs {
+		if up.cmd != nil {
+			_ = up.cmd.Wait()
+		}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.status == StatusRunning {
+		t.status = StatusError
+		if t.stats.LastError == "" {
+			t.setError("zivpn process exited")
+		}
+	}
 }
 
 func (t *ZivpnTunnel) Stop(ctx context.Context) error {
@@ -285,15 +408,12 @@ func (t *ZivpnTunnel) Stop(ctx context.Context) error {
 		t.cancel()
 	}
 
-	if t.cmd != nil && t.cmd.Process != nil {
-		t.cmd.Process.Kill()
-		t.cmd.Wait()
+	if t.lbLn != nil {
+		t.lbLn.Close()
+		t.lbLn = nil
 	}
-
-	if t.configPath != "" {
-		os.Remove(t.configPath)
-		os.Remove(filepath.Dir(t.configPath))
-	}
+	t.killProcsLocked(t.procs)
+	t.procs = nil
 
 	t.status = StatusStopped
 	return nil
@@ -305,19 +425,6 @@ func (t *ZivpnTunnel) Restart(ctx context.Context) error {
 	}
 	time.Sleep(500 * time.Millisecond)
 	return t.Start(ctx)
-}
-
-func (t *ZivpnTunnel) monitorProcess() {
-	err := t.cmd.Wait()
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	if t.status == StatusRunning {
-		t.status = StatusError
-		if err != nil {
-			t.setError(err.Error())
-		}
-	}
 }
 
 func (t *ZivpnTunnel) setError(msg string) {

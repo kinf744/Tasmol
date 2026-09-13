@@ -93,10 +93,10 @@ if [ ! -f ~/bin/xray ]; then
     cp geoip.dat geosite.dat ~/.vpn-app/ 2>/dev/null || true
 fi
 
-# Zivpn udp-zivpn_1.4.9 linux-arm (fallback if bundle missing)
+# Zivpn UDP client uz_core (fallback if bundle missing)
 if [ ! -f ~/bin/zivpn ]; then
-    echo "  Downloading Zivpn..."
-    wget -q "https://github.com/zahidbd2/udp-zivpn/releases/download/udp-zivpn_1.4.9/udp-zivpn-linux-arm" -O zivpn
+    echo "  Downloading Zivpn (uz_core)..."
+    wget -q "https://raw.githubusercontent.com/kinf744/Forot/main/android/app/src/main/jniLibs/armeabi-v7a/libuz_core.so" -O zivpn
     chmod +x zivpn
     cp zivpn ~/bin/zivpn
 fi

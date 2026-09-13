@@ -266,9 +266,27 @@ tunnels:
     # advanced overrides: fwd_port (default 2224), socks_port (default 10809)
 ```
 
-#### Zivpn UDP (official udp-zivpn 1.4.9, client mode)
-Fields: IP/Host, Port range only (e.g. `6000-19999`, a random port is
-dialed at each connect), Password.
+#### Zivpn UDP (uz_core client, reference architecture)
+Fields: IP/Host, Port range(s) (e.g. `6000-19999`, comma-separated
+supported), Password. No transport/obfs fields (hardcoded in source).
+
+Architecture (mirrors the proven reference app): the hostname is resolved
+to IP, then **one `uz_core` process per port range** is spawned:
+
+    zivpn -s <obfs> --config '<inline-json>'
+
+with the flat client JSON the binary expects:
+
+```json
+{"server":"<ip>:<range>","obfs":"hu``hqb`c","auth":"<password>",
+ "socks5":{"listen":"127.0.0.1:<uzPort>"},"insecure":true,
+ "recvwindowconn":65536,"recvwindow":262144,
+ "disable_mtu_discovery":true,"down_mbps":50,"up_mbps":10}
+```
+
+A round-robin TCP balancer unifies the uz SOCKS endpoints on the tunnel
+SOCKS port (default `:10810`, `Advanced["socks_port"]` override).
+
 ```yaml
 tunnels:
   - name: "Zivpn"
@@ -276,12 +294,10 @@ tunnels:
     enabled: true
     server:
       host: "zivpn.example.com"
-      port_range: "6000-19999"  # single port also accepted ("5667")
-      sni: "zivpn.example.com"
+      port_range: "6000-19999"  # comma-separated ranges supported
     auth:
       password: "zi"   # server password (default "zi")
-    # transport.obfs / obfs_param are NOT edited: the fixed obfs value
-    # "hu``hqb`c" (salamander) is hardcoded in the app source.
+    # obfs "hu``hqb`c" (salamander) is hardcoded in the app source.
     # advanced overrides: socks_port (default 10810),
     #   tls_insecure (default true, self-signed server certs),
     #   up_mbps/down_mbps (defaults "50 mbps"/"200 mbps"),
