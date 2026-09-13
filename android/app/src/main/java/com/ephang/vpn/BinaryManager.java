@@ -77,6 +77,20 @@ public class BinaryManager {
             }
         }
 
+        for (String dat : ASSET_DATS) {
+            File dst = new File(dir, dat);
+            if (!dst.exists()) {
+                try {
+                    copyAsset(ctx, "bin/" + dat, dst);
+                } catch (Exception e) {
+                    Log.w(TAG, "asset bin/" + dat + " missing, Xray geo rules unavailable");
+                }
+            }
+        }
+
+        ensureDefaultConfig(ctx);
+    }
+
     /** Search for a native library in the native library directory and its
      *  architecture-specific subdirectories (arm, armeabi-v7a, arm64-v8a, etc.). */
     private static File findNativeLibrary(String nativeLibDir, String libName) {
@@ -93,20 +107,6 @@ public class BinaryManager {
             }
         }
         return null;
-    }
-
-        for (String dat : ASSET_DATS) {
-            File dst = new File(dir, dat);
-            if (!dst.exists()) {
-                try {
-                    copyAsset(ctx, "bin/" + dat, dst);
-                } catch (Exception e) {
-                    Log.w(TAG, "asset bin/" + dat + " missing, Xray geo rules unavailable");
-                }
-            }
-        }
-
-        ensureDefaultConfig(ctx);
     }
 
     private static void copyFile(File src, File dst) throws Exception {
