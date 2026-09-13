@@ -4,6 +4,7 @@ import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
+import android.util.Log;
 
 public class VPNApplication extends Application {
     private static VPNApplication instance;
@@ -14,6 +15,15 @@ public class VPNApplication extends Application {
         super.onCreate();
         instance = this;
         prefs = getSharedPreferences("ephang_vpn_prefs", Context.MODE_PRIVATE);
+
+        // Stage binaries + config.yaml on app launch so the Servers/Home/Editor
+        // screens work before any VPN connection (fixes "no such file" when
+        // reading /data/user/0/.../config.yaml on first run).
+        try {
+            BinaryManager.ensureReady(this);
+        } catch (Exception e) {
+            Log.e("VPNApplication", "ensureReady failed on launch", e);
+        }
     }
 
     public static VPNApplication getInstance() {
