@@ -12,14 +12,14 @@ import (
 )
 
 type udpgwImpl struct {
-	mu       sync.RWMutex
-	config   config.UDPGWConfig
-	status   bool
-	cmd      *exec.Cmd
-	cancel   context.CancelFunc
-	stats    UDPGWStats
+	mu        sync.RWMutex
+	config    config.UDPGWConfig
+	status    bool
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	stats     UDPGWStats
 	startTime time.Time
-	listener net.Listener
+	listener  net.Listener
 }
 
 func NewUDPGW(cfg config.UDPGWConfig) UDPGW {
@@ -113,14 +113,14 @@ func (u *udpgwImpl) monitorProcess() {
 }
 
 type udpgwProxy struct {
-	mu       sync.RWMutex
-	config   config.UDPGWConfig
-	conn     net.PacketConn
-	status   bool
-	stats    UDPGWStats
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	mu     sync.RWMutex
+	config config.UDPGWConfig
+	conn   net.PacketConn
+	status bool
+	stats  UDPGWStats
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 func NewUDPGWProxy(cfg config.UDPGWConfig) UDPGW {

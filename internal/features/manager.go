@@ -9,11 +9,11 @@ import (
 )
 
 type FeatureManager struct {
-	mu          sync.RWMutex
-	config      *config.FeaturesConfig
-	killSwitch  *KillSwitch
-	splitTunnel *SplitTunnel
-	dnsLeak     *DNSLeakProtection
+	mu            sync.RWMutex
+	config        *config.FeaturesConfig
+	killSwitch    *KillSwitch
+	splitTunnel   *SplitTunnel
+	dnsLeak       *DNSLeakProtection
 	interfaceName string
 	vpnGateway    string
 	dnsServers    []string
@@ -66,10 +66,6 @@ func (fm *FeatureManager) Start(ctx context.Context) error {
 		fm.splitTunnel.AddIncludedIP(ip)
 	}
 
-	for _, ip := range fm.config.ExcludeIPs {
-		fm.splitTunnel.AddExcludedIP(ip)
-	}
-
 	return nil
 }
 
@@ -102,14 +98,18 @@ func (fm *FeatureManager) Stop(ctx context.Context) error {
 
 func (fm *FeatureManager) UpdateConfig(cfg *config.FeaturesConfig) error {
 	fm.mu.Lock()
-	defer fm.mu.Unlock()
-
 	wasRunning := fm.running
+	fm.mu.Unlock()
+
 	if wasRunning {
-		fm.Stop(context.Background())
+		if err := fm.Stop(context.Background()); err != nil {
+			return err
+		}
 	}
 
+	fm.mu.Lock()
 	fm.config = cfg
+	fm.mu.Unlock()
 
 	if wasRunning {
 		return fm.Start(context.Background())
@@ -123,8 +123,8 @@ func (fm *FeatureManager) GetStatus() map[string]bool {
 	defer fm.mu.RUnlock()
 
 	return map[string]bool{
-		"kill_switch":        fm.killSwitch.IsEnabled(),
-		"split_tunneling":    fm.splitTunnel.IsEnabled(),
+		"kill_switch":         fm.killSwitch.IsEnabled(),
+		"split_tunneling":     fm.splitTunnel.IsEnabled(),
 		"dns_leak_protection": fm.dnsLeak.IsEnabled(),
 	}
 }

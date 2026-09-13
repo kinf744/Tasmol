@@ -48,6 +48,7 @@ type Manager interface {
 	GetRunning() []Tunnel
 	StartAll(ctx context.Context) error
 	StopAll(ctx context.Context) error
+	GetUDPGW() UDPGW
 	OnStatusChange(func(Tunnel, Status))
 	OnStatsUpdate(func(Tunnel, Stats))
 }

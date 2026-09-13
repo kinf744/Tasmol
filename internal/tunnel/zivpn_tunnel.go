@@ -28,8 +28,8 @@ func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
 	}
 }
 
-func (t *ZivpnTunnel) ID() string        { return t.config.ID }
-func (t *ZivpnTunnel) Name() string      { return t.config.Name }
+func (t *ZivpnTunnel) ID() string              { return t.config.ID }
+func (t *ZivpnTunnel) Name() string            { return t.config.Name }
 func (t *ZivpnTunnel) Type() config.TunnelType { return config.TunnelZivpn }
 
 func (t *ZivpnTunnel) Status() Status {

@@ -9,14 +9,14 @@ import (
 )
 
 type SplitTunnel struct {
-	mu           sync.RWMutex
-	enabled      bool
-	interfaceName string
-	vpnGateway    string
-	includedIPs   []*net.IPNet
-	excludedIPs   []*net.IPNet
-	includedPorts map[string]bool
-	excludedPorts map[string]bool
+	mu             sync.RWMutex
+	enabled        bool
+	interfaceName  string
+	vpnGateway     string
+	includedIPs    []*net.IPNet
+	excludedIPs    []*net.IPNet
+	includedPorts  map[string]bool
+	excludedPorts  map[string]bool
 	originalRoutes []netlink.Route
 }
 

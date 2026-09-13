@@ -12,15 +12,15 @@ import (
 )
 
 type VPNCore struct {
-	mu           sync.RWMutex
-	config       *config.Config
-	configManager *config.Manager
-	tunnelManager tunnel.Manager
+	mu             sync.RWMutex
+	config         *config.Config
+	configManager  *config.Manager
+	tunnelManager  tunnel.Manager
 	featureManager *features.FeatureManager
-	running       bool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	running        bool
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
 }
 
 func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
@@ -157,8 +157,7 @@ func (v *VPNCore) statsCollector() {
 func (v *VPNCore) collectStats() {
 	tunnels := v.tunnelManager.List()
 	for _, t := range tunnels {
-		stats := t.Stats()
-		// Update tunnel stats in config
-		// This would be persisted periodically
+		_ = t.Stats()
+		// Stats are exposed via the API; persistence happens on tunnel update
 	}
 }

@@ -1,8 +1,9 @@
 package api
 
 import (
+	"context"
 	"net/http"
-	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -14,28 +15,24 @@ import (
 )
 
 type Server struct {
-	core       *core.VPNCore
-	configMgr  *config.Manager
-	router     *gin.Engine
-	upgrader   websocket.Upgrader
-	wsClients  map[*websocket.Conn]bool
-	wsMu       sync.Mutex
+	core      *core.VPNCore
+	configMgr *config.Manager
+	router    *gin.Engine
+	upgrader  websocket.Upgrader
+	wsClients map[*websocket.Conn]bool
+	wsMu      sync.Mutex
 }
 
-type Sync struct{}
-
-var syncInstance Sync
-
 type TunnelRequest struct {
-	Name     string                 `json:"name" binding:"required"`
-	Type     string                 `json:"type" binding:"required"`
-	Enabled  bool                   `json:"enabled"`
-	Priority int                    `json:"priority"`
-	Server   config.ServerConfig    `json:"server" binding:"required"`
-	Auth     config.AuthConfig      `json:"auth" binding:"required"`
+	Name      string                 `json:"name" binding:"required"`
+	Type      string                 `json:"type" binding:"required"`
+	Enabled   bool                   `json:"enabled"`
+	Priority  int                    `json:"priority"`
+	Server    config.ServerConfig    `json:"server" binding:"required"`
+	Auth      config.AuthConfig      `json:"auth" binding:"required"`
 	Transport config.TransportConfig `json:"transport"`
-	Routing  config.RoutingConfig   `json:"routing"`
-	Advanced map[string]interface{} `json:"advanced"`
+	Routing   config.RoutingConfig   `json:"routing"`
+	Advanced  map[string]interface{} `json:"advanced"`
 }
 
 func NewServer(core *core.VPNCore, configMgr *config.Manager) *Server {
@@ -170,11 +167,11 @@ func (s *Server) getStatusData() gin.H {
 	}
 
 	return gin.H{
-		"running":     s.core.IsRunning(),
-		"features":    s.core.GetFeatureManager().GetStatus(),
-		"tunnels":     tunnelData,
-		"udpgw":       s.core.GetTunnelManager().GetUDPGW().GetStats(),
-		"timestamp":   time.Now().Unix(),
+		"running":   s.core.IsRunning(),
+		"features":  s.core.GetFeatureManager().GetStatus(),
+		"tunnels":   tunnelData,
+		"udpgw":     s.core.GetTunnelManager().GetUDPGW().GetStats(),
+		"timestamp": time.Now().Unix(),
 	}
 }
 
@@ -221,20 +218,20 @@ func (s *Server) createTunnelHandler(c *gin.Context) {
 	}
 
 	tunnelCfg := config.TunnelConfig{
-		Name:        req.Name,
-		Type:        config.TunnelType(req.Type),
-		Enabled:     req.Enabled,
-		Priority:    req.Priority,
-		Server:      req.Server,
-		Auth:        req.Auth,
-		Transport:   req.Transport,
-		Routing:     req.Routing,
-		Advanced:    req.Advanced,
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
+		Name:      req.Name,
+		Type:      config.TunnelType(req.Type),
+		Enabled:   req.Enabled,
+		Priority:  req.Priority,
+		Server:    req.Server,
+		Auth:      req.Auth,
+		Transport: req.Transport,
+		Routing:   req.Routing,
+		Advanced:  req.Advanced,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
-	if err := s.configMgr.AddTunnel(tunnelCfg); err != nil {
+	if err := s.configMgr.AddTunnel(&tunnelCfg); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -251,7 +248,7 @@ func (s *Server) createTunnelHandler(c *gin.Context) {
 	}
 
 	if tunnelCfg.Enabled {
-		t.Start(s.core.GetConfigManager().Get().App.DataDir)
+		t.Start(context.Background())
 	}
 
 	c.JSON(http.StatusCreated, gin.H{"id": tunnelCfg.ID, "message": "Tunnel created"})
@@ -267,13 +264,13 @@ func (s *Server) getTunnelHandler(c *gin.Context) {
 
 	stats := t.Stats()
 	c.JSON(http.StatusOK, gin.H{
-		"id":         t.ID(),
-		"name":       t.Name(),
-		"type":       t.Type(),
-		"status":     t.Status(),
-		"enabled":    t.Config().Enabled,
-		"config":     t.Config(),
-		"stats":      stats,
+		"id":      t.ID(),
+		"name":    t.Name(),
+		"type":    t.Type(),
+		"status":  t.Status(),
+		"enabled": t.Config().Enabled,
+		"config":  t.Config(),
+		"stats":   stats,
 	})
 }
 
@@ -286,17 +283,17 @@ func (s *Server) updateTunnelHandler(c *gin.Context) {
 	}
 
 	tunnelCfg := config.TunnelConfig{
-		ID:          id,
-		Name:        req.Name,
-		Type:        config.TunnelType(req.Type),
-		Enabled:     req.Enabled,
-		Priority:    req.Priority,
-		Server:      req.Server,
-		Auth:        req.Auth,
-		Transport:   req.Transport,
-		Routing:     req.Routing,
-		Advanced:    req.Advanced,
-		UpdatedAt:   time.Now(),
+		ID:        id,
+		Name:      req.Name,
+		Type:      config.TunnelType(req.Type),
+		Enabled:   req.Enabled,
+		Priority:  req.Priority,
+		Server:    req.Server,
+		Auth:      req.Auth,
+		Transport: req.Transport,
+		Routing:   req.Routing,
+		Advanced:  req.Advanced,
+		UpdatedAt: time.Now(),
 	}
 
 	if err := s.configMgr.UpdateTunnel(id, tunnelCfg); err != nil {
@@ -328,7 +325,7 @@ func (s *Server) startTunnelHandler(c *gin.Context) {
 		return
 	}
 
-	if err := t.Start(s.core.GetConfigManager().Get().App.DataDir); err != nil {
+	if err := t.Start(context.Background()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -343,7 +340,7 @@ func (s *Server) stopTunnelHandler(c *gin.Context) {
 		return
 	}
 
-	if err := t.Stop(s.core.GetConfigManager().Get().App.DataDir); err != nil {
+	if err := t.Stop(context.Background()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -358,7 +355,7 @@ func (s *Server) restartTunnelHandler(c *gin.Context) {
 		return
 	}
 
-	if err := t.Restart(s.core.GetConfigManager().Get().App.DataDir); err != nil {
+	if err := t.Restart(context.Background()); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -385,7 +382,6 @@ func (s *Server) updateFeaturesHandler(c *gin.Context) {
 
 func (s *Server) exportHandler(c *gin.Context) {
 	format := c.Query("format")
-	password := c.Query("password")
 
 	// Implementation would use importExport package
 	c.JSON(http.StatusOK, gin.H{"message": "Export initiated", "format": format})

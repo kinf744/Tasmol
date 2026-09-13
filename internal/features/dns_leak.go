@@ -11,15 +11,15 @@ import (
 )
 
 type DNSLeakProtection struct {
-	mu            sync.RWMutex
-	enabled       bool
-	interfaceName string
-	vpnGateway    string
-	dnsServers    []string
-	originalDNS   []string
+	mu             sync.RWMutex
+	enabled        bool
+	interfaceName  string
+	vpnGateway     string
+	dnsServers     []string
+	originalDNS    []string
 	originalRoutes []netlink.Route
-	monitoring    bool
-	stopChan      chan struct{}
+	monitoring     bool
+	stopChan       chan struct{}
 }
 
 func NewDNSLeakProtection(interfaceName, vpnGateway string, dnsServers []string) *DNSLeakProtection {

@@ -11,30 +11,30 @@ import (
 )
 
 type SSHSlowDNSTunnel struct {
-	mu           sync.RWMutex
-	config       *config.TunnelConfig
-	status       Status
-	stats        Stats
-	sshCmd       *exec.Cmd
-	slowdnscmd   *exec.Cmd
-	cancel       context.CancelFunc
-	startTime    time.Time
-	localPort    int
-	dnsServer    string
+	mu         sync.RWMutex
+	config     *config.TunnelConfig
+	status     Status
+	stats      Stats
+	sshCmd     *exec.Cmd
+	slowdnscmd *exec.Cmd
+	cancel     context.CancelFunc
+	startTime  time.Time
+	localPort  int
+	dnsServer  string
 }
 
 func NewSSHSlowDNSTunnel(cfg *config.TunnelConfig) *SSHSlowDNSTunnel {
 	return &SSHSlowDNSTunnel{
-		config:     cfg,
-		status:     StatusStopped,
-		stats:      Stats{},
-		localPort:  2222,
-		dnsServer:  "8.8.8.8",
+		config:    cfg,
+		status:    StatusStopped,
+		stats:     Stats{},
+		localPort: 2222,
+		dnsServer: "8.8.8.8",
 	}
 }
 
-func (t *SSHSlowDNSTunnel) ID() string        { return t.config.ID }
-func (t *SSHSlowDNSTunnel) Name() string      { return t.config.Name }
+func (t *SSHSlowDNSTunnel) ID() string              { return t.config.ID }
+func (t *SSHSlowDNSTunnel) Name() string            { return t.config.Name }
 func (t *SSHSlowDNSTunnel) Type() config.TunnelType { return config.TunnelSSHSlowDNS }
 
 func (t *SSHSlowDNSTunnel) Status() Status {

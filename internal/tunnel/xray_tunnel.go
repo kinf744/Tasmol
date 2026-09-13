@@ -14,13 +14,13 @@ import (
 )
 
 type XrayTunnel struct {
-	mu        sync.RWMutex
-	config    *config.TunnelConfig
-	status    Status
-	stats     Stats
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	startTime time.Time
+	mu         sync.RWMutex
+	config     *config.TunnelConfig
+	status     Status
+	stats      Stats
+	cmd        *exec.Cmd
+	cancel     context.CancelFunc
+	startTime  time.Time
 	configPath string
 }
 
@@ -32,8 +32,8 @@ func NewXrayTunnel(cfg *config.TunnelConfig) *XrayTunnel {
 	}
 }
 
-func (t *XrayTunnel) ID() string        { return t.config.ID }
-func (t *XrayTunnel) Name() string      { return t.config.Name }
+func (t *XrayTunnel) ID() string              { return t.config.ID }
+func (t *XrayTunnel) Name() string            { return t.config.Name }
 func (t *XrayTunnel) Type() config.TunnelType { return config.TunnelXray }
 
 func (t *XrayTunnel) Status() Status {
@@ -59,7 +59,7 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		"listen":   "127.0.0.1",
 		"protocol": "socks",
 		"settings": map[string]interface{}{
-			"udp": true,
+			"udp":  true,
 			"auth": "noauth",
 		},
 	}
@@ -70,7 +70,7 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		"log": map[string]interface{}{
 			"loglevel": "warning",
 		},
-		"inbounds": []interface{}{inbound},
+		"inbounds":  []interface{}{inbound},
 		"outbounds": []interface{}{outbound},
 		"routing": map[string]interface{}{
 			"domainStrategy": t.config.Routing.DomainStrategy,
@@ -89,7 +89,7 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 
 func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 	streamSettings := map[string]interface{}{
-		"network": t.config.Transport.Network,
+		"network":  t.config.Transport.Network,
 		"security": t.config.Transport.Security,
 	}
 
@@ -104,19 +104,19 @@ func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 
 	if t.config.Transport.Security == "tls" {
 		streamSettings["tlsSettings"] = map[string]interface{}{
-			"serverName":       t.config.Server.SNI,
-			"allowInsecure":    false,
-			"fingerprint":      t.config.Transport.Fingerprint,
-			"alpn":             t.config.Transport.ALPN,
+			"serverName":    t.config.Server.SNI,
+			"allowInsecure": false,
+			"fingerprint":   t.config.Transport.Fingerprint,
+			"alpn":          t.config.Transport.ALPN,
 		}
 	}
 
 	if t.config.Transport.Security == "reality" {
 		streamSettings["realitySettings"] = map[string]interface{}{
-			"serverName":     t.config.Server.SNI,
-			"publicKey":      t.config.Server.PublicKey,
-			"shortId":        t.config.Server.ShortID,
-			"fingerprint":    t.config.Transport.Fingerprint,
+			"serverName":  t.config.Server.SNI,
+			"publicKey":   t.config.Server.PublicKey,
+			"shortId":     t.config.Server.ShortID,
+			"fingerprint": t.config.Transport.Fingerprint,
 		}
 	}
 
@@ -127,8 +127,8 @@ func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 				"port":    t.config.Server.Port,
 				"users": []map[string]interface{}{
 					{
-						"id":       t.config.Auth.UUID,
-						"flow":     t.config.Auth.Flow,
+						"id":         t.config.Auth.UUID,
+						"flow":       t.config.Auth.Flow,
 						"encryption": "none",
 					},
 				},

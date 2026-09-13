@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"gopkg.in/yaml.v3"
 	"vpn-app/internal/api"
 	"vpn-app/internal/config"
 	"vpn-app/internal/core"
-	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -118,4 +118,50 @@ func main() {
 	}
 
 	vpnCore.Stop(ctx)
+}
+
+func getDefaultConfigPath(dataDir string) string {
+	if dataDir != "" {
+		return filepath.Join(dataDir, "config.yaml")
+	}
+	homeDir, _ := os.UserHomeDir()
+	return filepath.Join(homeDir, ".vpn-app", "config.yaml")
+}
+
+type Exporter struct {
+	configManager *config.Manager
+	password      string
+}
+
+type Importer struct {
+	configManager *config.Manager
+	password      string
+}
+
+func NewExporter(cm *config.Manager, password string) *Exporter {
+	return &Exporter{configManager: cm, password: password}
+}
+
+func NewImporter(cm *config.Manager, password string) *Importer {
+	return &Importer{configManager: cm, password: password}
+}
+
+func (e *Exporter) ExportToFile(path string) error {
+	data, err := e.configManager.Export()
+	if err != nil {
+		return err
+	}
+	content, err := yaml.Marshal(data)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, content, 0644)
+}
+
+func (i *Importer) ImportFromFile(path string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return i.configManager.ImportYAML(content)
 }

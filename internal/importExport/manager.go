@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"vpn-app/internal/config"
 	"gopkg.in/yaml.v3"
+	"vpn-app/internal/config"
 )
 
 type Exporter struct {

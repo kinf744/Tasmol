@@ -15,10 +15,10 @@ import (
 )
 
 type Manager struct {
-	config *Config
-	viper  *viper.Viper
-	path   string
-	watcher *fsnotify.Watcher
+	config    *Config
+	viper     *viper.Viper
+	path      string
+	watcher   *fsnotify.Watcher
 	callbacks []func(*Config)
 }
 
@@ -71,29 +71,29 @@ func (m *Manager) defaultConfig() *Config {
 
 	return &Config{
 		App: AppConfig{
-			Name:    "VPN App",
-			Version: "1.0.0",
-			WebPort: 8080,
-			WebHost: "0.0.0.0",
+			Name:     "VPN App",
+			Version:  "1.0.0",
+			WebPort:  8080,
+			WebHost:  "0.0.0.0",
 			LogLevel: "info",
-			DataDir: dataDir,
-			BinDir:  binDir,
+			DataDir:  dataDir,
+			BinDir:   binDir,
 		},
 		Tunnels: []TunnelConfig{},
 		Network: NetworkConfig{
-			Interface: "tun0",
-			MTU:       1500,
-			DNS:       []string{"1.1.1.1", "8.8.8.8"},
+			Interface:  "tun0",
+			MTU:        1500,
+			DNS:        []string{"1.1.1.1", "8.8.8.8"},
 			ExcludeIPs: []string{"127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
 		},
 		Features: FeaturesConfig{
-			KillSwitch:         true,
-			SplitTunneling:     false,
-			DNSLeakProtection:  true,
-			AutoReconnect:      true,
-			ReconnectInterval:  5,
-			MaxRetries:         3,
-			Obfuscation:        false,
+			KillSwitch:        true,
+			SplitTunneling:    false,
+			DNSLeakProtection: true,
+			AutoReconnect:     true,
+			ReconnectInterval: 5,
+			MaxRetries:        3,
+			Obfuscation:       false,
 		},
 		UDPGW: UDPGWConfig{
 			Enabled:    true,
@@ -142,7 +142,7 @@ func (m *Manager) watch() error {
 					m.load()
 					m.notifyCallbacks()
 				}
-			case err, ok := <-w.Errors:
+			case _, ok := <-w.Errors:
 				if !ok {
 					return
 				}
@@ -177,12 +177,12 @@ func (m *Manager) GetTunnel(id string) *TunnelConfig {
 	return nil
 }
 
-func (m *Manager) AddTunnel(tunnel TunnelConfig) error {
+func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 	tunnel.ID = generateID()
 	tunnel.CreatedAt = time.Now()
 	tunnel.UpdatedAt = time.Now()
 
-	if tunnel.Type == config.TunnelZivpn {
+	if tunnel.Type == TunnelZivpn {
 		if tunnel.Transport.Network == "" {
 			tunnel.Transport.Network = "udp"
 		}

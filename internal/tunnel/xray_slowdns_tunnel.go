@@ -14,31 +14,31 @@ import (
 )
 
 type XraySlowDNSTunnel struct {
-	mu           sync.RWMutex
-	config       *config.TunnelConfig
-	status       Status
-	stats        Stats
-	xrayCmd      *exec.Cmd
-	slowdnscmd   *exec.Cmd
-	cancel       context.CancelFunc
-	startTime    time.Time
-	configPath   string
-	localPort    int
-	dnsServer    string
+	mu         sync.RWMutex
+	config     *config.TunnelConfig
+	status     Status
+	stats      Stats
+	xrayCmd    *exec.Cmd
+	slowdnscmd *exec.Cmd
+	cancel     context.CancelFunc
+	startTime  time.Time
+	configPath string
+	localPort  int
+	dnsServer  string
 }
 
 func NewXraySlowDNSTunnel(cfg *config.TunnelConfig) *XraySlowDNSTunnel {
 	return &XraySlowDNSTunnel{
-		config:     cfg,
-		status:     StatusStopped,
-		stats:      Stats{},
-		localPort:  10808,
-		dnsServer:  "8.8.8.8",
+		config:    cfg,
+		status:    StatusStopped,
+		stats:     Stats{},
+		localPort: 10808,
+		dnsServer: "8.8.8.8",
 	}
 }
 
-func (t *XraySlowDNSTunnel) ID() string        { return t.config.ID }
-func (t *XraySlowDNSTunnel) Name() string      { return t.config.Name }
+func (t *XraySlowDNSTunnel) ID() string              { return t.config.ID }
+func (t *XraySlowDNSTunnel) Name() string            { return t.config.Name }
 func (t *XraySlowDNSTunnel) Type() config.TunnelType { return config.TunnelXraySlowDNS }
 
 func (t *XraySlowDNSTunnel) Status() Status {
@@ -64,7 +64,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		"listen":   "127.0.0.1",
 		"protocol": "socks",
 		"settings": map[string]interface{}{
-			"udp": true,
+			"udp":  true,
 			"auth": "noauth",
 		},
 	}
@@ -78,7 +78,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		"log": map[string]interface{}{
 			"loglevel": "warning",
 		},
-		"inbounds": []interface{}{inbound},
+		"inbounds":  []interface{}{inbound},
 		"outbounds": []interface{}{outbound},
 		"routing": map[string]interface{}{
 			"domainStrategy": t.config.Routing.DomainStrategy,

@@ -11,12 +11,12 @@ import (
 )
 
 type SSHTunnel struct {
-	mu       sync.RWMutex
-	config   *config.TunnelConfig
-	status   Status
-	stats    Stats
-	cmd      *exec.Cmd
-	cancel   context.CancelFunc
+	mu        sync.RWMutex
+	config    *config.TunnelConfig
+	status    Status
+	stats     Stats
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
 	startTime time.Time
 }
 
@@ -28,9 +28,9 @@ func NewSSHTunnel(cfg *config.TunnelConfig) *SSHTunnel {
 	}
 }
 
-func (t *SSHTunnel) ID() string        { return t.config.ID }
-func (t *SSHTunnel) Name() string      { return t.config.Name }
-func (t *Tunnel) Type() config.TunnelType { return config.TunnelSSH }
+func (t *SSHTunnel) ID() string              { return t.config.ID }
+func (t *SSHTunnel) Name() string            { return t.config.Name }
+func (t *SSHTunnel) Type() config.TunnelType { return config.TunnelSSH }
 
 func (t *SSHTunnel) Status() Status {
 	t.mu.RLock()

@@ -9,11 +9,11 @@ import (
 )
 
 type manager struct {
-	mu           sync.RWMutex
-	tunnels      map[string]Tunnel
-	statusCb     func(Tunnel, Status)
-	statsCb      func(Tunnel, Stats)
-	udpgw        UDPGW
+	mu       sync.RWMutex
+	tunnels  map[string]Tunnel
+	statusCb func(Tunnel, Status)
+	statsCb  func(Tunnel, Stats)
+	udpgw    UDPGW
 }
 
 func NewManager(udpgwConfig config.UDPGWConfig) Manager {

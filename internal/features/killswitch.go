@@ -2,6 +2,7 @@ package features
 
 import (
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -10,14 +11,14 @@ import (
 )
 
 type KillSwitch struct {
-	mu           sync.RWMutex
-	enabled      bool
+	mu             sync.RWMutex
+	enabled        bool
 	originalRoutes []netlink.Route
 	originalRules  []netlink.Rule
-	interfaceName string
-	vpnGateway    string
-	monitoring   bool
-	stopChan     chan struct{}
+	interfaceName  string
+	vpnGateway     string
+	monitoring     bool
+	stopChan       chan struct{}
 }
 
 func NewKillSwitch(interfaceName, vpnGateway string) *KillSwitch {
