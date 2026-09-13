@@ -7,7 +7,7 @@ require (
 	github.com/gorilla/websocket v1.5.1
 	github.com/creack/pty v1.1.24
 	github.com/vishvananda/netlink v1.2.1-beta.2
-	github.com/songgao/water v0.0.0-20240730173850-2b4b6d7c09d8
+	github.com/songgao/water v0.0.0-20200317203138-2b4b6d7c09d8
 	golang.org/x/crypto v0.23.0
 	golang.org/x/net v0.24.0
 	golang.org/x/sys v0.20.0
