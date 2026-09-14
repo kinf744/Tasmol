@@ -267,8 +267,8 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	Tracef("[zivpn] basePort=%d ranges=%v ip=%q password=%q", basePort, ranges, ip, password)
 
 	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
-	workDir := os.TempDir()
-	homeDir := os.TempDir()
+	workDir := TmpDir
+	homeDir := TmpDir
 
 	procs := make([]*uzProc, 0, len(ranges))
 	for i, rng := range ranges {

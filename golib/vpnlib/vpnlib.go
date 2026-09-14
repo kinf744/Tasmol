@@ -80,6 +80,10 @@ type startParams struct {
 	// LogDir is the device Download directory; a real-time activity file
 	// "kighmu.txt" is written there for diagnostics.
 	LogDir string `json:"log_dir"`
+	// TmpDir is a writable app-private directory (Android cache dir) for
+	// temp tunnel configs. Android has no /tmp and the process CWD is
+	// read-only, so os.MkdirTemp("") fails there.
+	TmpDir string `json:"tmp_dir"`
 }
 
 // Controller owns the whole mobile VPN session.
@@ -188,6 +192,7 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
+	tunnel.TmpDir = p.TmpDir
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
@@ -211,6 +216,7 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
+	tunnel.TmpDir = p.TmpDir
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.cfgMgr = cfgMgr

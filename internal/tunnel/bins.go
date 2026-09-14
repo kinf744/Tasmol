@@ -32,6 +32,11 @@ var BinNames map[string]string
 // cannot rely on an openssh binary, so mobile mode enables this.
 var NativeSSH bool
 
+// TmpDir is a writable app-private directory (Android cache dir) for
+// temp tunnel configs. Android has no /tmp and the process CWD is
+// read-only, so os.MkdirTemp("") fails there.
+var TmpDir string
+
 // LogFunc is an optional sink for verbose tunnel activity. vpnlib wires it
 // to a file (Download/kighmu.txt) so connection failures can be diagnosed in
 // real time. nil = logging disabled.

@@ -157,7 +157,13 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		return err
 	}
 
-	tmpDir, _ := os.MkdirTemp("", "xray-*")
+	tmpDir, err := os.MkdirTemp(TmpDir, "xray-*")
+	if err != nil {
+		Tracef("[xray] ERROR mktemp in %s: %v", TmpDir, err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
 		Tracef("[xray] ERROR write config: %v", err)

@@ -187,7 +187,14 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 
-	tmpDir, err := os.MkdirTemp("", "xray-slowdns-*")
+	tmpDir, err := os.MkdirTemp(TmpDir, "xray-slowdns-*")
+	if err != nil {
+		Tracef("[xray-slowdns] ERROR mktemp in %s: %v", TmpDir, err)
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	if err != nil {
 		Tracef("[xray-slowdns] ERROR mktemp: %v", err)
 		t.slowdnscmd.Process.Kill()

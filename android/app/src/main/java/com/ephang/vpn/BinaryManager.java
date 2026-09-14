@@ -200,6 +200,9 @@ public class BinaryManager {
         String selCsv = VPNApplication.getInstance().getSelectedCsv();
         int selCount = selCsv.isEmpty() ? 0 : selCsv.split(",").length;
         p.put("round_robin", selCount >= 2 ? selCsv : "");
+        // Writable app-private temp dir (cache dir) for xray configs.
+        // Android has no /tmp and CWD is read-only.
+        p.put("tmp_dir", ctx.getCacheDir().getAbsolutePath());
         // Diagnostic log file in the public Download folder.
         p.put("log_dir", downloadDir());
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
