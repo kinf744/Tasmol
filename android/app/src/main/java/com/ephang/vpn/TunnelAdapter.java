@@ -14,18 +14,24 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** RecyclerView adapter for the server list. */
+/** RecyclerView adapter for NPV-style config cards. */
 public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
     public interface Listener {
         void onTap(JSONObject tunnel);
-        void onLongPress(JSONObject tunnel);
+
+        void onShare(JSONObject tunnel);
+
+        void onEdit(JSONObject tunnel);
+
+        void onDelete(JSONObject tunnel);
     }
 
     private final List<JSONObject> items = new ArrayList<>();
     private final Listener listener;
     private String activeId = "";
     private final java.util.Map<String, String> liveStatus = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> pingMs = new java.util.HashMap<>();
 
     public TunnelAdapter(Listener listener) {
         this.listener = listener;
@@ -44,6 +50,13 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
                 if (o != null) {
                     items.add(o);
                 }
+            }
+        }
+        pingMs.clear();
+        for (JSONObject o : items) {
+            long ms = VPNApplication.getInstance().getTunnelPing(o.optString("id", ""));
+            if (ms >= 0) {
+                pingMs.put(o.optString("id", ""), ms);
             }
         }
         notifyDataSetChanged();
@@ -65,38 +78,22 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         String type = t.optString("type", "");
         JSONObject server = t.optJSONObject("server");
         String host = server != null ? server.optString("host", "") : "";
-        int port = server != null ? server.optInt("port", 0) : 0;
-        String range = server != null ? server.optString("port_range", "") : "";
+        int port = server != null ? PingUtil.dialPort(server) : 0;
 
         h.name.setText(name);
-        String addr = host;
-        if (!range.isEmpty()) {
-            addr += ":" + range;
-        } else if (port != 0) {
-            addr += ":" + port;
-        }
-        h.detail.setText(addr);
+        h.detail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
         h.type.setText(prettyType(type));
 
+        Long ms = pingMs.get(id);
+        h.ping.setText(ms != null ? ms + " ms" : "");
+
         boolean isActive = id.equals(activeId);
-        h.active.setVisibility(isActive ? View.VISIBLE : View.GONE);
+        h.card.setBackgroundResource(isActive ? R.drawable.card_bg_active : R.drawable.card_bg);
 
-        String live = liveStatus.get(id);
-        int dot;
-        if ("running".equals(live)) {
-            dot = R.drawable.circle_connect;
-        } else if ("error".equals(live)) {
-            dot = R.drawable.circle_disconnect;
-        } else {
-            dot = R.drawable.circle_idle;
-        }
-        h.dot.setBackgroundResource(dot);
-
-        h.itemView.setOnClickListener(v -> listener.onTap(t));
-        h.itemView.setOnLongClickListener(v -> {
-            listener.onLongPress(t);
-            return true;
-        });
+        h.card.setOnClickListener(v -> listener.onTap(t));
+        h.share.setOnClickListener(v -> listener.onShare(t));
+        h.edit.setOnClickListener(v -> listener.onEdit(t));
+        h.delete.setOnClickListener(v -> listener.onDelete(t));
     }
 
     @Override
@@ -105,30 +102,42 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
     }
 
     static class Holder extends RecyclerView.ViewHolder {
-        final View dot;
+        final View card;
         final TextView name;
         final TextView detail;
         final TextView type;
-        final TextView active;
+        final TextView ping;
+        final View share;
+        final View edit;
+        final View delete;
 
         Holder(View v) {
             super(v);
-            dot = v.findViewById(R.id.item_dot);
+            card = v;
             name = v.findViewById(R.id.item_name);
             detail = v.findViewById(R.id.item_detail);
             type = v.findViewById(R.id.item_type);
-            active = v.findViewById(R.id.item_active);
+            ping = v.findViewById(R.id.item_ping);
+            share = v.findViewById(R.id.item_share);
+            edit = v.findViewById(R.id.item_edit);
+            delete = v.findViewById(R.id.item_delete);
         }
     }
 
     public static String prettyType(String type) {
         switch (type) {
-            case "ssh": return "SSH";
-            case "ssh_slowdns": return "SSH + SlowDNS";
-            case "xray": return "Xray";
-            case "xray_slowdns": return "Xray + SlowDNS";
-            case "zivpn": return "Zivpn UDP";
-            default: return type;
+            case "ssh":
+                return "ssh";
+            case "ssh_slowdns":
+                return "ssh_slowdns";
+            case "xray":
+                return "xray";
+            case "xray_slowdns":
+                return "xray_slowdns";
+            case "zivpn":
+                return "zivpn";
+            default:
+                return type;
         }
     }
 }

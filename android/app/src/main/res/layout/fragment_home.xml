@@ -2,145 +2,291 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:padding="20dp">
+    android:background="@color/npv_bg"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_horizontal"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:padding="20dp">
 
-        <TextView
-            android:id="@+id/home_app_title"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Ephang VPN"
-            android:textSize="26sp"
-            android:textStyle="bold" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:letterSpacing="0.35"
+                    android:text="EPHANG VPN"
+                    android:textColor="@color/npv_green"
+                    android:textSize="22sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:id="@+id/home_version"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="v1.0.0 (1)"
+                    android:textColor="@color/npv_grey"
+                    android:textSize="12sp"
+                    android:typeface="monospace" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
+
+            <ImageButton
+                android:id="@+id/home_premium"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/card_bg"
+                android:contentDescription="More"
+                android:padding="8dp"
+                android:src="@drawable/ic_trophy" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:layout_width="230dp"
+            android:layout_height="230dp"
+            android:layout_marginTop="26dp">
+
+            <View
+                android:id="@+id/home_ring"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/ring_power_off" />
+
+            <ImageButton
+                android:id="@+id/home_connect_btn"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@android:color/transparent"
+                android:contentDescription="Connect or disconnect"
+                android:padding="80dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_power" />
+        </FrameLayout>
 
         <TextView
             android:id="@+id/home_status"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Disconnected"
-            android:textSize="15sp" />
-
-        <ImageButton
-            android:id="@+id/home_connect_btn"
-            android:layout_width="170dp"
-            android:layout_height="170dp"
             android:layout_marginTop="22dp"
-            android:background="@drawable/circle_idle"
-            android:contentDescription="Connect or disconnect"
-            android:scaleType="center"
-            android:src="@android:drawable/ic_media_play" />
-
-        <TextView
-            android:id="@+id/home_tap_hint"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="TAP TO CONNECT"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/home_server"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="No server selected"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/home_server_detail"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="13sp" />
+            android:text="[ NOT CONNECTED ]"
+            android:textColor="@color/npv_dim"
+            android:textSize="17sp"
+            android:typeface="monospace" />
 
         <LinearLayout
+            android:id="@+id/home_config_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:orientation="horizontal"
-            android:weightSum="3">
+            android:layout_marginTop="24dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:letterSpacing="0.2"
+                android:text="ACTIVE CONFIGURATION"
+                android:textColor="@color/npv_grey"
+                android:textSize="13sp"
+                android:typeface="monospace" />
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
+                android:layout_marginTop="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:src="@drawable/ic_file" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/home_server"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="No server selected"
+                        android:textColor="@color/npv_text"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:id="@+id/home_server_detail"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text=""
+                        android:textColor="@color/npv_grey"
+                        android:textSize="13sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
 
                 <TextView
+                    android:id="@+id/home_server_type"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Duration"
-                    android:textSize="12sp" />
+                    android:text=""
+                    android:textColor="@color/npv_grey"
+                    android:textSize="13sp"
+                    android:typeface="monospace" />
 
-                <TextView
-                    android:id="@+id/home_uptime"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="--:--:--"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="8dp"
+                    android:src="@drawable/ic_chev_right" />
             </LinearLayout>
+
+            <Button
+                android:id="@+id/home_ping"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:background="@android:color/transparent"
+                android:text="PING"
+                android:textColor="@color/npv_cyan"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="12dp"
+                android:background="@color/npv_border" />
 
             <LinearLayout
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal"
+                android:weightSum="2">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="Download"
-                    android:textSize="12sp" />
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
 
-                <TextView
-                    android:id="@+id/home_down"
-                    android:layout_width="wrap_content"
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.15"
+                        android:text="DOWNLINK"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="12sp"
+                        android:typeface="monospace" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_arrow_down2" />
+
+                        <TextView
+                            android:id="@+id/home_down"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="0 B"
+                            android:textColor="@color/npv_green"
+                            android:textSize="18sp"
+                            android:typeface="monospace" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="0 B"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.15"
+                        android:text="UPLINK"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="12sp"
+                        android:typeface="monospace" />
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:src="@drawable/ic_arrow_up2" />
+
+                        <TextView
+                            android:id="@+id/home_up"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:text="0 B"
+                            android:textColor="@color/npv_yellow"
+                            android:textSize="18sp"
+                            android:typeface="monospace" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="0dp"
+            <TextView
+                android:id="@+id/home_uptime"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Upload"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/home_up"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0 B"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="10dp"
+                android:text="--:--:--"
+                android:textColor="@color/npv_dim"
+                android:textSize="12sp"
+                android:typeface="monospace" />
         </LinearLayout>
-
-        <Button
-            android:id="@+id/home_change_server"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Choose server" />
     </LinearLayout>
 </ScrollView>

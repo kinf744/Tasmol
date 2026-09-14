@@ -1,5 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- NPV Tunnel palette -->
+    <color name="npv_bg">#000000</color>
+    <color name="npv_card">#0E0E0E</color>
+    <color name="npv_border">#2A2A2A</color>
+    <color name="npv_green">#00E676</color>
+    <color name="npv_green_dim">#0A3D28</color>
+    <color name="npv_teal_pill">#114E44</color>
+    <color name="npv_cyan">#4DD0E1</color>
+    <color name="npv_yellow">#FFC107</color>
+    <color name="npv_text">#FFFFFF</color>
+    <color name="npv_grey">#9E9E9E</color>
+    <color name="npv_dim">#616161</color>
     <color name="primary">#3B82F6</color>
     <color name="primary_dark">#2563EB</color>
     <color name="primary_light">#60A5FA</color>

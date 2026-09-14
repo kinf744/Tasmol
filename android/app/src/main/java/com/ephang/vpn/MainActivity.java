@@ -60,12 +60,12 @@ public class MainActivity extends AppCompatActivity {
             int id = item.getItemId();
             if (id == R.id.nav_home) {
                 showTab(new HomeFragment(), "home");
-            } else if (id == R.id.nav_servers) {
-                showTab(new ServersFragment(), "servers");
-            } else if (id == R.id.nav_tools) {
-                showTab(new ToolsFragment(), "tools");
-            } else if (id == R.id.nav_settings) {
-                showTab(new SettingsFragment(), "settings");
+            } else if (id == R.id.nav_configs) {
+                showTab(new ConfigsFragment(), "configs");
+            } else if (id == R.id.nav_logs) {
+                showTab(new LogsFragment(), "logs");
+            } else if (id == R.id.nav_more) {
+                showTab(new MoreFragment(), "more");
             } else {
                 return false;
             }
@@ -104,6 +104,14 @@ public class MainActivity extends AppCompatActivity {
         } else {
             super.onBackPressed();
         }
+    }
+
+    public void goToConfigs() {
+        bottomNav.setSelectedItemId(R.id.nav_configs);
+    }
+
+    public void goToMore() {
+        bottomNav.setSelectedItemId(R.id.nav_more);
     }
 
     // --- VPN connect flow (shared by Home tab and dialogs) ---
@@ -157,7 +165,7 @@ public class MainActivity extends AppCompatActivity {
             new AlertDialog.Builder(this)
                     .setTitle("No server")
                     .setMessage("No server is configured yet. Open the Servers tab and tap + to add one.")
-                    .setPositiveButton("Open Servers", (d, w) -> bottomNav.setSelectedItemId(R.id.nav_servers))
+                    .setPositiveButton("Open Configs", (d, w) -> bottomNav.setSelectedItemId(R.id.nav_configs))
                     .setNegativeButton("Cancel", null)
                     .show();
             return;
