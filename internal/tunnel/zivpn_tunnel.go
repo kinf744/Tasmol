@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -106,8 +107,66 @@ func (t *ZivpnTunnel) authPassword() string {
 	return "zi"
 }
 
-// portRanges returns the configured ranges (comma-separated supported).
-func (t *ZivpnTunnel) portRanges() []string {
+// maxUzRanges caps uz_core processes per zivpn profile (one per range).
+const maxUzRanges = 16
+
+// normalizePortRanges parses the port field into clean "A-B" ranges:
+// "6000-7750,7751-9500" (multi-range, one uz_core process each),
+// "6000-19999" (single range) or "5667" (single port). Spaces are
+// tolerated, reversed bounds are swapped, duplicates dropped. It errors
+// when nothing usable remains, so a typo fails fast with a clear message
+// instead of spawning uz_core with a garbage server string.
+func normalizePortRanges(pr string) ([]string, error) {
+	var out []string
+	seen := make(map[string]bool)
+	for _, r := range strings.Split(pr, ",") {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		var a, b int
+		if strings.Contains(r, "-") {
+			parts := strings.SplitN(r, "-", 2)
+			var err error
+			a, err = strconv.Atoi(strings.TrimSpace(parts[0]))
+			if err != nil {
+				continue
+			}
+			b, err = strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err != nil {
+				continue
+			}
+		} else {
+			p, err := strconv.Atoi(r)
+			if err != nil {
+				continue
+			}
+			a, b = p, p
+		}
+		if a < 1 || b < 1 || a > 65535 || b > 65535 {
+			continue
+		}
+		if a > b {
+			a, b = b, a
+		}
+		norm := fmt.Sprintf("%d-%d", a, b)
+		if !seen[norm] {
+			seen[norm] = true
+			out = append(out, norm)
+		}
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("no valid port range in %q (use 6000-19999 or 6000-7750,7751-9500)", pr)
+	}
+	if len(out) > maxUzRanges {
+		return nil, fmt.Errorf("too many port ranges (%d, max %d)", len(out), maxUzRanges)
+	}
+	return out, nil
+}
+
+// portRanges returns the configured ranges (comma-separated supported,
+// one uz_core process per range, unified by the round-robin balancer).
+func (t *ZivpnTunnel) portRanges() ([]string, error) {
 	pr := strings.TrimSpace(t.config.Server.PortRange)
 	if pr == "" && t.config.Server.Port != 0 {
 		pr = fmt.Sprintf("%d-%d", t.config.Server.Port, t.config.Server.Port)
@@ -115,16 +174,7 @@ func (t *ZivpnTunnel) portRanges() []string {
 	if pr == "" {
 		pr = DefaultZivpnPortRange
 	}
-	var out []string
-	for _, r := range strings.Split(pr, ",") {
-		if r = strings.TrimSpace(r); r != "" {
-			out = append(out, r)
-		}
-	}
-	if len(out) == 0 {
-		out = []string{DefaultZivpnPortRange}
-	}
-	return out
+	return normalizePortRanges(pr)
 }
 
 // resolveServerIP resolves the server hostname to an IP, falling back to
@@ -205,7 +255,13 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	bin := LookupBin(BinDir, BinZivpn)
 	Tracef("[zivpn] resolved binary=%q", bin)
 	basePort := t.socksPort()
-	ranges := t.portRanges()
+	ranges, err := t.portRanges()
+	if err != nil {
+		Tracef("[zivpn] ERROR: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	ip := t.resolveServerIP()
 	password := t.authPassword()
 	Tracef("[zivpn] basePort=%d ranges=%v ip=%q password=%q", basePort, ranges, ip, password)

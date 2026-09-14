@@ -106,14 +106,14 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Port range(s) (ex: 6000-19999, comma-separated OK)"
+                android:text="Port range(s), comma-separated OK (ex: 6000-7750,7751-9500)"
                 android:visibility="gone" />
 
             <EditText
                 android:id="@+id/ed_port_range"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="6000-19999"
+                android:hint="6000-7750,7751-9500"
                 android:visibility="gone" />
         </LinearLayout>
 
