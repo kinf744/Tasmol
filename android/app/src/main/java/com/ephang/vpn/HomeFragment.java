@@ -97,6 +97,8 @@ public class HomeFragment extends Fragment {
             statusText.setText("[ CONNECTED ]");
 
             String activeId = st.optString("active_tunnel", "");
+            org.json.JSONArray rr = st.optJSONArray("round_robin");
+            final int rrCount = rr != null ? rr.length() : 0;
             uptimeText.setText(formatDuration(st.optLong("uptime", 0)));
             downText.setText(formatBytes(st.optLong("bytes_down", 0)));
             upText.setText(formatBytes(st.optLong("bytes_up", 0)));
@@ -107,10 +109,14 @@ public class HomeFragment extends Fragment {
                     JSONObject t = tunnels.getJSONObject(i);
                     if (t.optString("id", "").equals(activeId)) {
                         serverText.setText(t.optString("name", "Server"));
-                        serverType.setText(TunnelAdapter.prettyType(t.optString("type", "")));
+                        String type = TunnelAdapter.prettyType(t.optString("type", ""));
+                        serverType.setText(rrCount >= 2 ? type + "  •  RR(" + rrCount + ")" : type);
                         break;
                     }
                 }
+            }
+            if (rrCount >= 2) {
+                serverDetail.setText("round-robin over " + rrCount + " profiles");
             }
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);

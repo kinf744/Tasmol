@@ -89,6 +89,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         boolean isActive = id.equals(activeId);
         h.card.setBackgroundResource(isActive ? R.drawable.card_bg_active : R.drawable.card_bg);
+        h.rr.setVisibility(VPNApplication.getInstance().isInRoundRobin(id) ? View.VISIBLE : View.GONE);
 
         h.card.setOnClickListener(v -> listener.onTap(t));
         h.share.setOnClickListener(v -> listener.onShare(t));
@@ -107,6 +108,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final TextView detail;
         final TextView type;
         final TextView ping;
+        final TextView rr;
         final View share;
         final View edit;
         final View delete;
@@ -118,6 +120,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             detail = v.findViewById(R.id.item_detail);
             type = v.findViewById(R.id.item_type);
             ping = v.findViewById(R.id.item_ping);
+            rr = v.findViewById(R.id.item_rr);
             share = v.findViewById(R.id.item_share);
             edit = v.findViewById(R.id.item_edit);
             delete = v.findViewById(R.id.item_delete);

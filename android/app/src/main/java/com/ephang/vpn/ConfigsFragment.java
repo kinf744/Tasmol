@@ -265,9 +265,16 @@ public class ConfigsFragment extends Fragment {
         String id = tunnel.optString("id", "");
         String name = tunnel.optString("name", "Server");
         boolean isActive = id.equals(VPNApplication.getInstance().getActiveTunnelId());
-        String[] options = isActive
-                ? new String[]{"Connect", "Ping", "Edit"}
-                : new String[]{"Set active", "Connect", "Ping", "Edit"};
+        boolean inRR = VPNApplication.getInstance().isInRoundRobin(id);
+        java.util.List<String> opts = new java.util.ArrayList<>();
+        if (!isActive) {
+            opts.add("Set active");
+        }
+        opts.add("Connect");
+        opts.add("Ping");
+        opts.add(inRR ? "Remove from round-robin" : "Add to round-robin");
+        opts.add("Edit");
+        String[] options = opts.toArray(new String[0]);
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(name)
                 .setItems(options, (d, which) -> {
@@ -290,6 +297,20 @@ public class ConfigsFragment extends Fragment {
                         case "Ping":
                             pingOne(tunnel);
                             break;
+                        case "Add to round-robin":
+                        case "Remove from round-robin": {
+                            java.util.LinkedHashSet<String> set =
+                                    VPNApplication.getInstance().toggleRoundRobin(id);
+                            if (set.size() >= 2) {
+                                toast("Round-robin: " + set.size() + " profiles (restart VPN to apply)");
+                            } else if (set.isEmpty()) {
+                                toast("Round-robin cleared (single mode)");
+                            } else {
+                                toast("1 profile in set (need 2+ for round-robin)");
+                            }
+                            reload();
+                            break;
+                        }
                         case "Edit": {
                             Intent i = new Intent(getContext(), TunnelEditorActivity.class);
                             i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, id);

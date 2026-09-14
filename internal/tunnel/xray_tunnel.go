@@ -177,8 +177,8 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start Xray: %w", err)
 	}
 	Tracef("[xray] process started pid=%d", t.cmd.Process.Pid)
-	go pipeLinesToLog(stdout, "[xray][out]")
-	go pipeLinesToLog(stderr, "[xray][err]")
+	go PipeLinesToLog(stdout, "[xray][out]")
+	go PipeLinesToLog(stderr, "[xray][err]")
 
 	// Wait until the local SOCKS inbound answers instead of assuming ready.
 	socksAddr := fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", DefaultXrayPort))

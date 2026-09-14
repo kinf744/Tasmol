@@ -86,6 +86,26 @@ public class MoreFragment extends Fragment {
         String activeId = app.getActiveTunnelId();
         active.setText("Active server: " + (activeId == null || activeId.isEmpty() ? "none" : activeId));
 
+        TextView rrStatus = new TextView(getContext());
+        rrStatus.setTextColor(0xFF9E9E9E);
+        rrStatus.setTypeface(android.graphics.Typeface.MONOSPACE);
+        ((ViewGroup) active.getParent()).addView(rrStatus,
+                new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        Runnable refreshRR = () -> {
+            String csv = app.getRoundRobinIds();
+            int n = csv.isEmpty() ? 0 : csv.split(",").length;
+            rrStatus.setText(n >= 2 ? "Round-robin: " + n + " profiles" : "Round-robin: off (single mode)");
+        };
+        refreshRR.run();
+        Button clearRR = new Button(getContext());
+        clearRR.setText("Clear round-robin");
+        clearRR.setOnClickListener(view -> {
+            app.setRoundRobinIds("");
+            refreshRR.run();
+            toast("Round-robin cleared");
+        });
+        ((ViewGroup) active.getParent()).addView(clearRR);
+
         TextView version = v.findViewById(R.id.more_version);
         String gov = "";
         try {

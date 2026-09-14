@@ -26,6 +26,15 @@ A full-featured VPN application supporting multiple tunnel protocols with a mode
 - **Real-time Statistics** - Live traffic, latency, uptime monitoring
 - **WebSocket Updates** - Instant UI updates without refresh
 - **Dark/Light Theme** - Automatic system theme detection
+- **Round-robin multi-profile (Android)** - Select 2+ profiles and the
+  session rotates across them with **Xray's built-in `roundrobin`
+  balancer** (verified in Xray-core v26.5.9 `app/router`): each selected
+  profile is started (3 connection attempts, failures are skipped), then a
+  local Xray SOCKS front (`127.0.0.1:10900`) distributes every TCP/UDP
+  connection across the survivors. Any tunnel type can join (SSH/Zivpn via
+  their local SOCKS helpers, Xray via native outbounds). With a single
+  profile the balancer is never initialized (direct upstream). Dead
+  profiles are revived/expelled live by the follow loop.
 
 ## Architecture
 

@@ -215,8 +215,8 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start Xray: %w", err)
 	}
 	Tracef("[xray-slowdns] process started pid=%d", t.xrayCmd.Process.Pid)
-	go pipeLinesToLog(stdout, "[xray-slowdns][out]")
-	go pipeLinesToLog(stderr, "[xray-slowdns][err]")
+	go PipeLinesToLog(stdout, "[xray-slowdns][out]")
+	go PipeLinesToLog(stderr, "[xray-slowdns][err]")
 
 	// Wait until the local SOCKS5 is exposed before reporting running.
 	t.mu.Unlock()

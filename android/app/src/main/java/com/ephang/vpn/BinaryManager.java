@@ -195,6 +195,9 @@ public class BinaryManager {
         p.put("manage_port", VPNApplication.getInstance().getManagePort());
         p.put("active_tunnel", tunnelId == null ? "" : tunnelId);
         p.put("auto_follow", true);
+        // Round-robin profile set (comma ids). <2 ids = single-profile mode,
+        // the Xray balancer is never initialized then.
+        p.put("round_robin", VPNApplication.getInstance().getRoundRobinIds());
         // Diagnostic log file in the public Download folder.
         p.put("log_dir", downloadDir());
         return p.toString();

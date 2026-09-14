@@ -102,8 +102,8 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 		return nil, fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
 	}
 	Tracef("[slowdns] process started pid=%d", cmd.Process.Pid)
-	go pipeLinesToLog(stdout, "[slowdns][out]")
-	go pipeLinesToLog(stderr, "[slowdns][err]")
+	go PipeLinesToLog(stdout, "[slowdns][out]")
+	go PipeLinesToLog(stderr, "[slowdns][err]")
 
 	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", fwdPort), 20*time.Second); err != nil {
 		cmd.Process.Kill()
@@ -113,8 +113,8 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	return cmd, nil
 }
 
-// pipeLinesToLog streams a child process pipe into the activity log.
-func pipeLinesToLog(r io.Reader, tag string) {
+// PipeLinesToLog streams a child process pipe into the activity log.
+func PipeLinesToLog(r io.Reader, tag string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 64*1024)
 	for sc.Scan() {

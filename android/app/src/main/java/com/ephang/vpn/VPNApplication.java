@@ -54,6 +54,47 @@ public class VPNApplication extends Application {
         prefs.edit().putString("active_tunnel_id", id == null ? "" : id).apply();
     }
 
+    /** Round-robin profile set as comma-separated ids (2+ = RR mode). */
+    public String getRoundRobinIds() {
+        return prefs.getString("round_robin_ids", "");
+    }
+
+    public void setRoundRobinIds(String csv) {
+        prefs.edit().putString("round_robin_ids", csv == null ? "" : csv).apply();
+    }
+
+    /** Toggle one id in the round-robin set. Returns the new set. */
+    public java.util.LinkedHashSet<String> toggleRoundRobin(String id) {
+        java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
+        for (String part : getRoundRobinIds().split(",")) {
+            part = part.trim();
+            if (!part.isEmpty()) {
+                set.add(part);
+            }
+        }
+        if (!set.remove(id)) {
+            set.add(id);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String s : set) {
+            if (sb.length() > 0) {
+                sb.append(',');
+            }
+            sb.append(s);
+        }
+        setRoundRobinIds(sb.toString());
+        return set;
+    }
+
+    public boolean isInRoundRobin(String id) {
+        for (String part : getRoundRobinIds().split(",")) {
+            if (part.trim().equals(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void setTunnelPing(String id, long ms) {
         prefs.edit().putLong("ping_" + id, ms)
                 .putLong("last_ping_time", System.currentTimeMillis()).apply();

@@ -93,5 +93,17 @@
             android:textColor="@color/npv_grey"
             android:textSize="11sp"
             android:typeface="monospace" />
+
+        <TextView
+            android:id="@+id/item_rr"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text="RR"
+            android:textColor="@color/npv_green"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:typeface="monospace"
+            android:visibility="gone" />
     </LinearLayout>
 </LinearLayout>

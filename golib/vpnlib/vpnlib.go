@@ -31,6 +31,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"sync"
@@ -66,6 +67,10 @@ type startParams struct {
 	ManagePort   int               `json:"manage_port"`
 	ActiveTunnel string            `json:"active_tunnel"`
 	AutoFollow   bool              `json:"auto_follow"`
+	// RoundRobin is the comma-separated id list of the profiles sharing
+	// the session through Xray's built-in roundrobin balancer. Empty (or a
+	// single id) means single-profile mode: no balancer is initialized.
+	RoundRobin string `json:"round_robin"`
 	// LogDir is the device Download directory; a real-time activity file
 	// "kighmu.txt" is written there for diagnostics.
 	LogDir string `json:"log_dir"`
@@ -89,6 +94,14 @@ type Controller struct {
 	tun    *t2tunnel.Tunnel
 	dialer *swapDialer
 
+	// Balancer-front state (round-robin mode only): an Xray child process
+	// exposing SOCKS, rotating across the selected profiles with Xray's
+	// built-in "roundrobin" strategy.
+	front      *exec.Cmd
+	frontCfg   string
+	frontAlive bool
+	rrIDs      []string
+
 	tunFd      int
 	mtu        int
 	configPath string
@@ -96,6 +109,7 @@ type Controller struct {
 	autoFollow bool
 	startTime  time.Time
 	logFile    *os.File
+	rrLastTry  map[string]time.Time
 }
 
 // NewController creates a Controller. It must be called once.
@@ -211,11 +225,26 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("no tunnel configured: add one first"))
 	}
 
-	// Helpers (ssh / dnstt / xray / zivpn processes exposing local SOCKS)
-	// then the in-process data plane dialing the active SOCKS.
-	if err := c.ensureHelpersLocked(c.activeID); err != nil {
-		c.cleanupLocked()
-		return errJSON(err)
+	// Helpers, then the data plane. With 2+ selected profiles the session
+	// runs in round-robin mode (Xray's built-in balancer); otherwise the
+	// data plane dials the single active SOCKS directly (no balancer).
+	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
+	if len(c.rrIDs) >= 2 {
+		tunnel.Tracef("[rr] round-robin mode with %d profiles: %v", len(c.rrIDs), c.rrIDs)
+		if err := c.ensureHelpersNLocked(c.rrIDs); err != nil {
+			c.cleanupLocked()
+			return errJSON(err)
+		}
+		if err := c.startBalancerFrontLocked(); err != nil {
+			c.cleanupLocked()
+			return errJSON(err)
+		}
+	} else {
+		c.rrIDs = nil
+		if err := c.ensureHelpersLocked(c.activeID); err != nil {
+			c.cleanupLocked()
+			return errJSON(err)
+		}
 	}
 	if err := c.startDataplaneLocked(); err != nil {
 		c.cleanupLocked()
@@ -258,6 +287,7 @@ func (c *Controller) cleanupLocked() {
 	if c.cancel != nil {
 		c.cancel()
 	}
+	c.killFrontLocked()
 	if c.stack != nil {
 		c.stack.Close()
 		c.stack.Wait()
@@ -269,6 +299,7 @@ func (c *Controller) cleanupLocked() {
 	}
 	c.tun = nil
 	c.dialer = nil
+	c.rrIDs = nil
 	if c.vpn != nil {
 		_ = c.vpn.Stop(context.Background())
 		c.vpn = nil
@@ -305,15 +336,174 @@ func (c *Controller) ensureHelpersLocked(id string) error {
 	return nil
 }
 
+// parseRoundRobin parses the comma-separated round-robin id list, keeping
+// only ids that exist in the config. Round-robin mode requires 2+.
+func parseRoundRobin(csv string, cfgMgr *config.Manager) []string {
+	var out []string
+	seen := map[string]bool{}
+	known := map[string]bool{}
+	for _, tc := range cfgMgr.Get().Tunnels {
+		known[tc.ID] = true
+	}
+	for _, part := range strings.Split(csv, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" || seen[id] || !known[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+// ensureHelperRetryLocked starts one helper with up to 3 attempts.
+func (c *Controller) ensureHelperRetryLocked(id string) error {
+	t, ok := c.vpn.GetTunnelManager().Get(id)
+	if !ok {
+		return fmt.Errorf("tunnel not found: %s", id)
+	}
+	if t.Status() == tunnel.StatusRunning {
+		return nil
+	}
+	var err error
+	for attempt := 1; attempt <= 3; attempt++ {
+		tunnel.Tracef("[rr] starting %s (attempt %d/3)", t.Name(), attempt)
+		if err = t.Start(c.ctx); err == nil {
+			return nil
+		}
+		_ = t.Stop(context.Background())
+		tunnel.Tracef("[rr] %s attempt %d failed: %v", t.Name(), attempt, err)
+		time.Sleep(500 * time.Millisecond)
+	}
+	return fmt.Errorf("tunnel %s failed after 3 attempts: %w", t.Name(), err)
+}
+
+// ensureHelpersNLocked starts every selected helper (3 tries each). Profiles
+// failing 3 times are dropped from the rotation; an error is returned only
+// when fewer than 2 profiles survive.
+func (c *Controller) ensureHelpersNLocked(ids []string) error {
+	var okIDs []string
+	var lastErr error
+	for _, id := range ids {
+		if err := c.ensureHelperRetryLocked(id); err != nil {
+			tunnel.Tracef("[rr] dropping profile %s: %v", id, err)
+			lastErr = err
+			continue
+		}
+		okIDs = append(okIDs, id)
+	}
+	if len(okIDs) < 2 {
+		if lastErr == nil {
+			lastErr = fmt.Errorf("fewer than 2 profiles usable")
+		}
+		return lastErr
+	}
+	c.rrIDs = okIDs
+	return nil
+}
+
+// startBalancerFrontLocked spawns the Xray SOCKS front rotating across the
+// profiles with Xray's built-in "roundrobin" strategy (caller holds c.mu).
+func (c *Controller) startBalancerFrontLocked() error {
+	var profiles []*config.TunnelConfig
+	for _, id := range c.rrIDs {
+		t, ok := c.vpn.GetTunnelManager().Get(id)
+		if !ok {
+			return fmt.Errorf("round-robin tunnel gone: %s", id)
+		}
+		profiles = append(profiles, t.Config())
+	}
+	raw, err := tunnel.BuildBalancerFront(profiles, tunnel.DefaultFrontPort)
+	if err != nil {
+		return err
+	}
+
+	cfgPath := filepath.Join(filepath.Dir(c.configPath), "front-rr.json")
+	if err := os.WriteFile(cfgPath, raw, 0600); err != nil {
+		return fmt.Errorf("write front config: %w", err)
+	}
+
+	bin := tunnel.LookupBin(tunnel.BinDir, tunnel.BinXray)
+	tunnel.Tracef("[rr-front] binary=%q profiles=%d", bin, len(profiles))
+	cmd := exec.Command(bin, "run", "-c", cfgPath)
+	if tunnel.BinDir != "" {
+		cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+tunnel.BinDir)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		os.Remove(cfgPath)
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		os.Remove(cfgPath)
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		os.Remove(cfgPath)
+		return fmt.Errorf("round-robin front start: %w", err)
+	}
+	tunnel.Tracef("[rr-front] process started pid=%d", cmd.Process.Pid)
+
+	c.front = cmd
+	c.frontCfg = cfgPath
+	c.frontAlive = true
+	go tunnel.PipeLinesToLog(stdout, "[rr-front][out]")
+	go tunnel.PipeLinesToLog(stderr, "[rr-front][err]")
+	go c.watchFront(cmd)
+
+	frontAddr := fmt.Sprintf("127.0.0.1:%d", tunnel.DefaultFrontPort)
+	if err := waitTCP(frontAddr, 15*time.Second); err != nil {
+		c.killFrontLocked()
+		return fmt.Errorf("round-robin front not ready: %w", err)
+	}
+	tunnel.Tracef("[rr-front] SOCKS %s ready", frontAddr)
+	return nil
+}
+
+func (c *Controller) killFrontLocked() {
+	if c.front != nil && c.front.Process != nil {
+		_ = c.front.Process.Kill()
+		_, _ = c.front.Process.Wait()
+	}
+	c.front = nil
+	c.frontAlive = false
+	if c.frontCfg != "" {
+		os.Remove(c.frontCfg)
+		c.frontCfg = ""
+	}
+}
+
+// watchFront flips frontAlive off when the child exits.
+func (c *Controller) watchFront(cmd *exec.Cmd) {
+	err := cmd.Wait()
+	tunnel.Tracef("[rr-front] process exited: %v", err)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.front == cmd {
+		c.frontAlive = false
+	}
+}
+
+// rebuildBalancerFrontLocked restarts the front around the given profiles.
+func (c *Controller) rebuildBalancerFrontLocked(ids []string) error {
+	c.killFrontLocked()
+	c.rrIDs = ids
+	return c.startBalancerFrontLocked()
+}
+
 // startDataplaneLocked builds the in-process gVisor stack over the Android
 // TUN fd, upstreaming at the active tunnel's local SOCKS5 (caller holds
 // c.mu).
 func (c *Controller) startDataplaneLocked() error {
-	t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
-	if !ok {
-		return fmt.Errorf("active tunnel gone: %s", c.activeID)
+	socksAddr := fmt.Sprintf("127.0.0.1:%d", tunnel.DefaultFrontPort)
+	if len(c.rrIDs) < 2 {
+		t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
+		if !ok {
+			return fmt.Errorf("active tunnel gone: %s", c.activeID)
+		}
+		socksAddr = tunnel.SocksAddr(t.Config())
 	}
-	socksAddr := tunnel.SocksAddr(t.Config())
 	tunnel.Tracef("[dataplane] tunFd=%d mtu=%d upstream=%s", c.tunFd, c.mtu, socksAddr)
 
 	dev, err := fdbased.Open(strconv.Itoa(c.tunFd), uint32(c.mtu), 0)
@@ -372,6 +562,63 @@ func (c *Controller) switchUpstreamLocked() error {
 	return nil
 }
 
+// followRoundRobinLocked revives dead helpers (one attempt per minute each)
+// and rebuilds the front whenever the alive set changes.
+func (c *Controller) followRoundRobinLocked() {
+	if c.rrLastTry == nil {
+		c.rrLastTry = make(map[string]time.Time)
+	}
+	var alive []string
+	now := time.Now()
+	for _, id := range c.rrIDs {
+		t, ok := c.vpn.GetTunnelManager().Get(id)
+		if !ok {
+			continue
+		}
+		if t.Status() != tunnel.StatusRunning {
+			if last, tried := c.rrLastTry[id]; !tried || now.Sub(last) > time.Minute {
+				c.rrLastTry[id] = now
+				tunnel.Tracef("[rr] revive attempt for %s", t.Name())
+				if err := t.Start(c.ctx); err != nil {
+					tunnel.Tracef("[rr] revive %s failed: %v", t.Name(), err)
+					continue
+				}
+			} else {
+				continue
+			}
+		}
+		if t.Status() == tunnel.StatusRunning {
+			alive = append(alive, id)
+		}
+	}
+	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs)) {
+		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
+		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
+			tunnel.Tracef("[rr] rebuild failed: %v", err)
+		}
+		return
+	}
+	if len(alive) < 2 && c.frontAlive {
+		tunnel.Tracef("[rr] degraded: %d/2+ profiles alive", len(alive))
+	}
+}
+
+func sameIDSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	m := make(map[string]bool, len(a))
+	for _, id := range a {
+		m[id] = true
+	}
+	for _, id := range b {
+		if !m[id] {
+			return false
+		}
+	}
+	return true
+}
+
 // followLoop migrates the data plane to any running tunnel when the active
 // one dies (client asked with auto_follow).
 func (c *Controller) followLoop() {
@@ -385,6 +632,11 @@ func (c *Controller) followLoop() {
 		case <-ticker.C:
 			c.mu.Lock()
 			if !c.running || c.dialer == nil {
+				c.mu.Unlock()
+				continue
+			}
+			if len(c.rrIDs) >= 2 {
+				c.followRoundRobinLocked()
 				c.mu.Unlock()
 				continue
 			}
@@ -409,7 +661,8 @@ func (c *Controller) followLoop() {
 }
 
 // SetActiveTunnel switches the data plane to the tunnel: helpers are
-// ensured, then the upstream is switched.
+// ensured, then the upstream is switched. It leaves round-robin mode
+// (the balancer front is stopped) since a single explicit tunnel wins.
 func (c *Controller) SetActiveTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -419,6 +672,11 @@ func (c *Controller) SetActiveTunnel(id string) string {
 	}
 	if _, ok := c.vpn.GetTunnelManager().Get(id); !ok {
 		return errJSON(fmt.Errorf("tunnel not found: %s", id))
+	}
+	if len(c.rrIDs) >= 2 {
+		tunnel.Tracef("[rr] leaving round-robin mode for single tunnel %s", id)
+		c.killFrontLocked()
+		c.rrIDs = nil
 	}
 	if err := c.ensureHelpersLocked(id); err != nil {
 		return errJSON(err)
@@ -638,6 +896,8 @@ func (c *Controller) GetStatus() string {
 	snap := t2stat.DefaultManager.Snapshot()
 	out["active_tunnel"] = c.activeID
 	out["dataplane_running"] = c.dialer != nil
+	out["round_robin"] = c.rrIDs
+	out["front_running"] = c.frontAlive
 	out["uptime"] = int64(time.Since(c.startTime).Seconds())
 	out["bytes_up"] = snap.UploadTotal
 	out["bytes_down"] = snap.DownloadTotal
