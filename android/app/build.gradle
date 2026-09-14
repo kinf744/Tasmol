@@ -21,9 +21,11 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources true
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // No minify/shrink: the tunnel binaries (lib_*.so) are executed
+            // via ProcessBuilder/exec, not loaded via System.loadLibrary, so
+            // resource stripping would drop them from the APK.
+            minifyEnabled false
+            shrinkResources false
             signingConfig signingConfigs.debug
         }
         debug {
