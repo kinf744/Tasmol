@@ -184,12 +184,30 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	if BinDir != "" {
 		t.xrayCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
 	}
+	Tracef("[xray-slowdns] binary=%q", t.xrayCmd.Path)
+	stdout, err := t.xrayCmd.StdoutPipe()
+	if err != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	stderr, err := t.xrayCmd.StderrPipe()
+	if err != nil {
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	if err := t.xrayCmd.Start(); err != nil {
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("Xray start failed: %v", err))
 		return fmt.Errorf("failed to start Xray: %w", err)
 	}
+	Tracef("[xray-slowdns] process started pid=%d", t.xrayCmd.Process.Pid)
+	go pipeLinesToLog(stdout, "[xray-slowdns][out]")
+	go pipeLinesToLog(stderr, "[xray-slowdns][err]")
 
 	// Wait until the local SOCKS5 is exposed before reporting running.
 	t.mu.Unlock()
@@ -256,6 +274,7 @@ func (t *XraySlowDNSTunnel) Restart(ctx context.Context) error {
 func (t *XraySlowDNSTunnel) monitorProcesses() {
 	xrayErr := t.xrayCmd.Wait()
 	slowdnsErr := t.slowdnscmd.Wait()
+	Tracef("[xray-slowdns] exited xray=%v slowdns=%v", xrayErr, slowdnsErr)
 
 	t.mu.Lock()
 	defer t.mu.Unlock()

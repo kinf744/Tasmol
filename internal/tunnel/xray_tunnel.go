@@ -1,9 +1,11 @@
 package tunnel
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -156,12 +158,45 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	if BinDir != "" {
 		t.cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
 	}
+	Tracef("[xray] binary=%q config=%s", t.cmd.Path, configContent)
+
+	stdout, err := t.cmd.StdoutPipe()
+	if err != nil {
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	stderr, err := t.cmd.StderrPipe()
+	if err != nil {
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 
 	if err := t.cmd.Start(); err != nil {
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start Xray: %w", err)
 	}
+	Tracef("[xray] process started pid=%d", t.cmd.Process.Pid)
+	go pipeLinesToLog(stdout, "[xray][out]")
+	go pipeLinesToLog(stderr, "[xray][err]")
+
+	// Wait until the local SOCKS inbound answers instead of assuming ready.
+	socksAddr := fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", DefaultXrayPort))
+	t.mu.Unlock()
+	readyErr := waitForTCP(socksAddr, 15*time.Second)
+	t.mu.Lock()
+	if readyErr != nil {
+		Tracef("[xray] SOCKS %s NOT ready: %v", socksAddr, readyErr)
+		if t.cmd.Process != nil {
+			t.cmd.Process.Kill()
+		}
+		t.status = StatusError
+		t.setError(fmt.Sprintf("xray SOCKS not ready: %v", readyErr))
+		return fmt.Errorf("xray socks not ready: %w", readyErr)
+	}
+	Tracef("[xray] SOCKS %s ready", socksAddr)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
@@ -169,6 +204,15 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	go t.monitorProcess()
 
 	return nil
+}
+
+// pipeLinesToLog streams a child process pipe into the activity log.
+func pipeLinesToLog(r io.Reader, tag string) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 64*1024)
+	for sc.Scan() {
+		Tracef("%s %s", tag, sc.Text())
+	}
 }
 
 func (t *XrayTunnel) Stop(ctx context.Context) error {
@@ -209,6 +253,7 @@ func (t *XrayTunnel) Restart(ctx context.Context) error {
 
 func (t *XrayTunnel) monitorProcess() {
 	err := t.cmd.Wait()
+	Tracef("[xray] process exited: %v", err)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 

@@ -18,7 +18,7 @@
             android:letterSpacing="0.35"
             android:text="EPHANG VPN"
             android:textColor="@color/npv_green"
-            android:textSize="20sp"
+            android:textSize="17sp"
             android:textStyle="bold"
             android:typeface="monospace" />
 

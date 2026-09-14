@@ -329,17 +329,26 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 	}
 
 	done := make(chan struct{}, 2)
+	started := time.Now()
 	go func() {
-		io.Copy(upstream, client)
+		n, err := io.Copy(upstream, client)
+		Tracef("[zivpn][lb] relay c->uz:%d bytes=%d err=%v", up.uzPort, n, err)
 		done <- struct{}{}
 	}()
 	go func() {
-		io.Copy(client, upstream)
+		n, err := io.Copy(client, upstream)
+		Tracef("[zivpn][lb] relay uz:%d->c bytes=%d err=%v", up.uzPort, n, err)
 		done <- struct{}{}
 	}()
 	<-done
+	// Half-close dance instead of a brutal full close, so neither side
+	// observes an RST while data may still be in flight.
+	closeWrite(client)
+	closeWrite(upstream)
+	<-done
 	client.Close()
 	upstream.Close()
+	Tracef("[zivpn][lb] relay done in %s", time.Since(started).Truncate(time.Millisecond))
 }
 
 // watchOutput logs every uz process output line (maximal detail).
@@ -401,7 +410,8 @@ func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
 func (t *ZivpnTunnel) monitorProcs() {
 	for _, up := range t.procs {
 		if up.cmd != nil {
-			_ = up.cmd.Wait()
+			err := up.cmd.Wait()
+			Tracef("[zivpn][mon:%s] process exited: %v", up.rng, err)
 		}
 	}
 	t.mu.Lock()

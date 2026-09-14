@@ -13,7 +13,7 @@
         android:letterSpacing="0.35"
         android:text="EPHANG VPN"
         android:textColor="@color/npv_green"
-        android:textSize="20sp"
+        android:textSize="17sp"
         android:textStyle="bold"
         android:typeface="monospace" />
 
@@ -47,7 +47,7 @@
                 android:letterSpacing="0.2"
                 android:text="LAST PING"
                 android:textColor="@color/npv_grey"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:typeface="monospace" />
 
             <TextView
@@ -56,7 +56,7 @@
                 android:layout_height="wrap_content"
                 android:text="--"
                 android:textColor="@color/npv_text"
-                android:textSize="16sp"
+                android:textSize="14sp"
                 android:typeface="monospace" />
         </LinearLayout>
 
@@ -187,7 +187,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
+        android:layout_margin="12dp"
         android:background="@drawable/toolbar_bg"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -196,7 +196,7 @@
         <ImageButton
             android:id="@+id/bar_connect"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:contentDescription="Connect"
@@ -205,7 +205,7 @@
         <ImageButton
             android:id="@+id/bar_sort"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:contentDescription="Sort"
@@ -214,7 +214,7 @@
         <ImageButton
             android:id="@+id/bar_refresh"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:contentDescription="Refresh"
@@ -223,7 +223,7 @@
         <ImageButton
             android:id="@+id/bar_search"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:contentDescription="Search"
@@ -232,7 +232,7 @@
         <ImageButton
             android:id="@+id/bar_filter"
             android:layout_width="0dp"
-            android:layout_height="48dp"
+            android:layout_height="44dp"
             android:layout_weight="1"
             android:background="@android:color/transparent"
             android:contentDescription="Filter"

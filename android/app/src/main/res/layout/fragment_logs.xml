@@ -25,7 +25,7 @@
                 android:letterSpacing="0.35"
                 android:text="EPHANG VPN"
                 android:textColor="@color/npv_green"
-                android:textSize="20sp"
+                android:textSize="17sp"
                 android:textStyle="bold"
                 android:typeface="monospace" />
 
@@ -63,7 +63,7 @@
             android:paddingBottom="16dp"
             android:text="No events yet."
             android:textColor="@color/npv_text"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:typeface="monospace" />
     </ScrollView>
 </LinearLayout>

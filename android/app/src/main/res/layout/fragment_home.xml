@@ -35,7 +35,7 @@
                     android:letterSpacing="0.35"
                     android:text="EPHANG VPN"
                     android:textColor="@color/npv_green"
-                    android:textSize="22sp"
+                    android:textSize="18sp"
                     android:textStyle="bold"
                     android:typeface="monospace" />
 
@@ -45,7 +45,7 @@
                     android:layout_height="wrap_content"
                     android:text="v1.0.0 (1)"
                     android:textColor="@color/npv_grey"
-                    android:textSize="12sp"
+                    android:textSize="10sp"
                     android:typeface="monospace" />
             </LinearLayout>
 
@@ -65,9 +65,9 @@
         </LinearLayout>
 
         <FrameLayout
-            android:layout_width="230dp"
-            android:layout_height="230dp"
-            android:layout_marginTop="26dp">
+            android:layout_width="170dp"
+            android:layout_height="170dp"
+            android:layout_marginTop="20dp">
 
             <View
                 android:id="@+id/home_ring"
@@ -81,7 +81,7 @@
                 android:layout_height="match_parent"
                 android:background="@android:color/transparent"
                 android:contentDescription="Connect or disconnect"
-                android:padding="80dp"
+                android:padding="58dp"
                 android:scaleType="fitCenter"
                 android:src="@drawable/ic_power" />
         </FrameLayout>
@@ -93,17 +93,17 @@
             android:layout_marginTop="22dp"
             android:text="[ NOT CONNECTED ]"
             android:textColor="@color/npv_dim"
-            android:textSize="17sp"
+            android:textSize="14sp"
             android:typeface="monospace" />
 
         <LinearLayout
             android:id="@+id/home_config_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
+            android:layout_marginTop="18dp"
             android:background="@drawable/card_bg"
             android:orientation="vertical"
-            android:padding="18dp">
+            android:padding="14dp">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -112,7 +112,7 @@
                 android:letterSpacing="0.2"
                 android:text="ACTIVE CONFIGURATION"
                 android:textColor="@color/npv_grey"
-                android:textSize="13sp"
+                android:textSize="11sp"
                 android:typeface="monospace" />
 
             <LinearLayout
@@ -138,9 +138,9 @@
                         android:id="@+id/home_server"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="No server selected"
-                        android:textColor="@color/npv_text"
-                        android:textSize="17sp"
+                    android:text="No server selected"
+                    android:textColor="@color/npv_text"
+                    android:textSize="15sp"
                         android:textStyle="bold"
                         android:typeface="monospace" />
 
@@ -150,7 +150,7 @@
                         android:layout_height="wrap_content"
                         android:text=""
                         android:textColor="@color/npv_grey"
-                        android:textSize="13sp"
+                        android:textSize="12sp"
                         android:typeface="monospace" />
                 </LinearLayout>
 
@@ -160,7 +160,7 @@
                     android:layout_height="wrap_content"
                     android:text=""
                     android:textColor="@color/npv_grey"
-                    android:textSize="13sp"
+                    android:textSize="11sp"
                     android:typeface="monospace" />
 
                 <ImageView
@@ -179,7 +179,7 @@
                 android:background="@android:color/transparent"
                 android:text="PING"
                 android:textColor="@color/npv_cyan"
-                android:textSize="16sp"
+                android:textSize="14sp"
                 android:textStyle="bold"
                 android:typeface="monospace" />
 
@@ -231,7 +231,7 @@
                             android:layout_marginStart="8dp"
                             android:text="0 B"
                             android:textColor="@color/npv_green"
-                            android:textSize="18sp"
+                            android:textSize="16sp"
                             android:typeface="monospace" />
                     </LinearLayout>
                 </LinearLayout>
@@ -271,7 +271,7 @@
                             android:layout_marginStart="8dp"
                             android:text="0 B"
                             android:textColor="@color/npv_yellow"
-                            android:textSize="18sp"
+                            android:textSize="16sp"
                             android:typeface="monospace" />
                     </LinearLayout>
                 </LinearLayout>

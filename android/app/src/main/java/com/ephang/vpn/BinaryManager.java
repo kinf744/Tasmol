@@ -209,32 +209,25 @@ public class BinaryManager {
         return d.getAbsolutePath();
     }
 
-    /** Light tunnel list (id/name/type) parsed from config.yaml for the picker. */
+    /** Tunnel list (id/name/type) via the Go parser (reliable, offline). */
     public static List<Map<String, String>> listTunnels(Context ctx) {
         List<Map<String, String>> out = new ArrayList<>();
         try {
             ensureReady(ctx);
-            String text = new String(Files.readAllBytes(configPath(ctx).toPath()), StandardCharsets.UTF_8);
-            // Minimal YAML scan: split on "- name:" entries. Full parsing
-            // happens in Go once the service runs.
-            String[] lines = text.split("\n");
-            Map<String, String> cur = null;
-            for (String raw : lines) {
-                String line = raw.trim();
-                if (line.startsWith("- name:") || line.startsWith("- name :")) {
-                    if (cur != null && cur.containsKey("name")) {
-                        out.add(cur);
-                    }
-                    cur = new HashMap<>();
-                    cur.put("name", unquote(line.substring(line.indexOf(':') + 1).trim()));
-                } else if (cur != null && line.startsWith("type:")) {
-                    cur.put("type", unquote(line.substring(5).trim()));
-                } else if (cur != null && (line.startsWith("id:") || line.startsWith("ID:"))) {
-                    cur.put("id", unquote(line.substring(3).trim()));
+            String cfgPath = configPath(ctx).getAbsolutePath();
+            org.json.JSONArray arr = new org.json.JSONArray(VpnlibHelper.listTunnels(cfgPath));
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject t = arr.optJSONObject(i);
+                if (t == null) {
+                    continue;
                 }
-            }
-            if (cur != null && cur.containsKey("name")) {
-                out.add(cur);
+                Map<String, String> m = new HashMap<>();
+                m.put("id", t.optString("id", ""));
+                m.put("name", t.optString("name", ""));
+                m.put("type", t.optString("type", ""));
+                if (!m.get("id").isEmpty()) {
+                    out.add(m);
+                }
             }
         } catch (Exception e) {
             Log.e(TAG, "listTunnels failed", e);

@@ -2,6 +2,7 @@ package tunnel
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -119,6 +120,36 @@ func SocksPort(cfg *config.TunnelConfig) int {
 // mobile data plane (Xray front upstream) and by SOCKS-aware clients.
 func SocksAddr(cfg *config.TunnelConfig) string {
 	return fmt.Sprintf("127.0.0.1:%d", SocksPort(cfg))
+}
+
+// relayTCP bidirectionally copies between a and b, half-closing each
+// direction independently. A plain full-close on first EOF would RST a peer
+// that may still deliver data (notably the uz SOCKS server, which logs
+// "connection reset by peer" otherwise).
+func relayTCP(a, b net.Conn) {
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = io.Copy(b, a)
+		closeWrite(b)
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = io.Copy(a, b)
+		closeWrite(a)
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+	a.Close()
+	b.Close()
+}
+
+func closeWrite(c net.Conn) {
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.CloseWrite()
+		return
+	}
+	c.Close()
 }
 
 // waitForTCP polls addr until a TCP connection succeeds or timeout elapses.

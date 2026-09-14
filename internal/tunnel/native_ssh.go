@@ -275,16 +275,7 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 		return
 	}
 
-	done := make(chan struct{}, 2)
-	go func() {
-		io.Copy(remote, conn)
-		done <- struct{}{}
-	}()
-	go func() {
-		io.Copy(conn, remote)
-		done <- struct{}{}
-	}()
-	<-done
+	relayTCP(conn, remote)
 }
 
 // ---------------------------------------------------------------------------
