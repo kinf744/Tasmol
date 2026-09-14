@@ -191,6 +191,8 @@ func (c *Controller) Start(paramsJSON string) string {
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
+	tunnel.Tracef("[session] start tunFd=%d mtu=%d active=%q round_robin=%q binDir=%q nativeSSH=%v managePort=%d",
+		p.TunFd, p.MTU, p.ActiveTunnel, p.RoundRobin, p.BinDir, p.NativeSSH, p.ManagePort)
 
 	cfgMgr, err := config.NewManager(p.ConfigPath)
 	if err != nil {
@@ -240,6 +242,11 @@ func (c *Controller) Start(paramsJSON string) string {
 	// runs in round-robin mode (Xray's built-in balancer); otherwise the
 	// data plane dials the single active SOCKS directly (no balancer).
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
+	if len(c.rrIDs) >= 2 {
+		tunnel.Tracef("[session] mode=round-robin profiles=%v", c.rrIDs)
+	} else {
+		tunnel.Tracef("[session] mode=single active=%q", c.activeID)
+	}
 	if len(c.rrIDs) >= 2 {
 		tunnel.Tracef("[rr] round-robin mode with %d profiles: %v", len(c.rrIDs), c.rrIDs)
 		if err := c.ensureHelpersNLocked(c.rrIDs); err != nil {
@@ -366,12 +373,18 @@ func (c *Controller) cleanupLocked() {
 func (c *Controller) ensureHelpersLocked(id string) error {
 	t, ok := c.vpn.GetTunnelManager().Get(id)
 	if !ok {
+		tunnel.Tracef("[session] helper id=%s not found in config", id)
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
 	if t.Status() != tunnel.StatusRunning {
+		tunnel.Tracef("[session] starting helper %q (type=%s id=%s)", t.Name(), t.Type(), t.ID())
 		if err := t.Start(c.ctx); err != nil {
+			tunnel.Tracef("[session] helper %q FAILED: %v", t.Name(), err)
 			return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
 		}
+		tunnel.Tracef("[session] helper %q running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+	} else {
+		tunnel.Tracef("[session] helper %q already running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 	}
 	return nil
 }
@@ -576,7 +589,7 @@ func (c *Controller) startDataplaneLocked() error {
 	c.stack = st
 	c.tun = tun
 	c.dialer = d
-	tunnel.Tracef("[dataplane] gVisor stack up")
+	tunnel.Tracef("[dataplane] gVisor stack up, session RUNNING")
 	return nil
 }
 

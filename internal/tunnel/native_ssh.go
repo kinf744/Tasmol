@@ -27,23 +27,33 @@ import (
 // cfg.SSH.Proxy ("ip:port") is set, SSH is reached through an HTTP CONNECT
 // hop carrying cfg.SSH.Payload (see dialViaProxy).
 func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
+	hasPass := cfg.Auth.Password != ""
+	hasKey := strings.TrimSpace(cfg.Auth.PrivateKey) != ""
+	hasPhrase := cfg.Auth.Passphrase != ""
+	Tracef("[ssh] dial begin addr=%s user=%q passwordSet=%v keySet=%v passphraseSet=%v proxy=%q payloadLen=%d",
+		addr, cfg.Auth.Username, hasPass, hasKey, hasPhrase,
+		cfg.SSH.Proxy, len(cfg.SSH.Payload))
 	auth := make([]ssh.AuthMethod, 0, 2)
-	if cfg.Auth.Password != "" {
+	if hasPass {
 		auth = append(auth, ssh.Password(cfg.Auth.Password))
 	}
-	if cfg.Auth.PrivateKey != "" {
+	if hasKey {
 		var signer ssh.Signer
 		var err error
-		if cfg.Auth.Passphrase != "" {
+		if hasPhrase {
 			signer, err = ssh.ParsePrivateKeyWithPassphrase([]byte(cfg.Auth.PrivateKey), []byte(cfg.Auth.Passphrase))
 		} else {
 			signer, err = ssh.ParsePrivateKey([]byte(cfg.Auth.PrivateKey))
 		}
 		if err == nil {
 			auth = append(auth, ssh.PublicKeys(signer))
+			Tracef("[ssh] private key parsed OK")
+		} else {
+			Tracef("[ssh] ERROR private key unparsable: %v", err)
 		}
 	}
 	if len(auth) == 0 {
+		Tracef("[ssh] ERROR: no usable auth method")
 		return nil, fmt.Errorf("ssh: no auth method (need auth.password or auth.private_key)")
 	}
 
@@ -55,18 +65,29 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	}
 
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
+		Tracef("[ssh] hop via HTTP proxy %s", cfg.SSH.Proxy)
 		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
 		if err != nil {
+			Tracef("[ssh] ERROR proxy hop: %v", err)
 			return nil, fmt.Errorf("ssh proxy hop: %w", err)
 		}
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
+			Tracef("[ssh] ERROR handshake via proxy: %v", err)
 			conn.Close()
 			return nil, err
 		}
+		Tracef("[ssh] handshake OK via proxy")
 		return ssh.NewClient(c, chans, reqs), nil
 	}
-	return ssh.Dial("tcp", addr, sshCfg)
+	Tracef("[ssh] direct dial %s ...", addr)
+	client, err := ssh.Dial("tcp", addr, sshCfg)
+	if err != nil {
+		Tracef("[ssh] ERROR direct dial/handshake: %v", err)
+		return nil, err
+	}
+	Tracef("[ssh] handshake OK")
+	return client, nil
 }
 
 // renderPayload expands a payload template: [crlf]/[lf]/[host]/[port] tokens
@@ -90,17 +111,21 @@ func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 // dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
 // request (with the optional custom payload) towards addr.
 func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
+	Tracef("[ssh] proxy hop: proxy=%s target=%s payloadLen=%d", proxyAddr, addr, len(payloadTpl))
 	proxyHost, _, err := splitProxyAddr(proxyAddr)
 	if err != nil {
+		Tracef("[ssh] ERROR bad proxy addr: %v", err)
 		return nil, err
 	}
 	host, port, err := splitProxyAddr(addr)
 	if err != nil {
+		Tracef("[ssh] ERROR bad target addr: %v", err)
 		return nil, err
 	}
 
 	conn, err := net.DialTimeout("tcp", proxyAddr, 15*time.Second)
 	if err != nil {
+		Tracef("[ssh] ERROR dial proxy: %v", err)
 		return nil, fmt.Errorf("dial proxy %s: %w", proxyAddr, err)
 	}
 	if err := conn.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
@@ -123,6 +148,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	req.WriteString("\r\n")
 
 	if _, err := conn.Write([]byte(req.String())); err != nil {
+		Tracef("[ssh] ERROR proxy write: %v", err)
 		conn.Close()
 		return nil, fmt.Errorf("proxy write: %w", err)
 	}
@@ -130,9 +156,11 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	reader := bufio.NewReader(conn)
 	status, err := reader.ReadString('\n')
 	if err != nil {
+		Tracef("[ssh] ERROR proxy read: %v", err)
 		conn.Close()
 		return nil, fmt.Errorf("proxy read: %w", err)
 	}
+	Tracef("[ssh] proxy status: %s", strings.TrimSpace(status))
 	if !strings.Contains(status, " 200") {
 		conn.Close()
 		return nil, fmt.Errorf("proxy refused: %s", strings.TrimSpace(status))
@@ -323,10 +351,17 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[ssh] Start() begin status=%s name=%q id=%s", t.status, t.config.Name, t.config.ID)
+
 	if t.status == StatusRunning {
+		Tracef("[ssh] already running, skip")
 		return nil
 	}
+	Tracef("[ssh] inputs host=%q port=%d user=%q socks=%s proxy=%q",
+		t.config.Server.Host, t.config.Server.Port, t.config.Auth.Username,
+		t.socksAddr(), t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
+		Tracef("[ssh] ERROR: host or username empty")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
 	}
 
@@ -339,6 +374,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	}
 	client, err := sshDial(t.config, net.JoinHostPort(t.config.Server.Host, strconv.Itoa(port)))
 	if err != nil {
+		Tracef("[ssh] ERROR sshDial: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("ssh dial failed: %w", err)
@@ -346,11 +382,13 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 
 	ln, err := net.Listen("tcp", t.socksAddr())
 	if err != nil {
+		Tracef("[ssh] ERROR socks listen %s: %v", t.socksAddr(), err)
 		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
+	Tracef("[ssh] SOCKS listening on %s", t.socksAddr())
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
@@ -359,6 +397,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
+	Tracef("[ssh] RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }
@@ -370,6 +409,7 @@ func (t *NativeSSHTunnel) Stop(ctx context.Context) error {
 	if t.status == StatusStopped {
 		return nil
 	}
+	Tracef("[ssh] Stop() name=%q", t.config.Name)
 	t.status = StatusStopping
 	if t.cancel != nil {
 		t.cancel()
@@ -394,6 +434,7 @@ func (t *NativeSSHTunnel) Restart(ctx context.Context) error {
 
 func (t *NativeSSHTunnel) monitor() {
 	t.client.Wait()
+	Tracef("[ssh] connection closed (monitor)")
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status == StatusRunning {
@@ -469,16 +510,25 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[ssh-slowdns] Start() begin status=%s name=%q id=%s", t.status, t.config.Name, t.config.ID)
+
 	if t.status == StatusRunning {
+		Tracef("[ssh-slowdns] already running, skip")
 		return nil
 	}
+	Tracef("[ssh-slowdns] inputs nsDomain=%q resolver=%q pubkeyLen=%d user=%q fwdPort=%d socks=%s",
+		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
+		t.config.Auth.Username, t.fwdPort(), t.socksAddr())
 	if t.nsDomain() == "" {
+		Tracef("[ssh-slowdns] ERROR: nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if t.config.Server.PublicKey == "" {
+		Tracef("[ssh-slowdns] ERROR: slowdns public key empty")
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 	if t.config.Auth.Username == "" {
+		Tracef("[ssh-slowdns] ERROR: ssh username empty")
 		return fmt.Errorf("ssh username is required (auth.username)")
 	}
 
@@ -488,18 +538,22 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	ctx, t.cancel = context.WithCancel(ctx)
 
 	// dnstt first (shared helper with output capture).
+	Tracef("[ssh-slowdns] phase 1/2: starting dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
 
 	if err != nil {
+		Tracef("[ssh-slowdns] ERROR dnstt phase: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	t.slowdnscmd = dnsttCmd
+	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", t.fwdPort())
 	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", t.fwdPort()))
 	if dialErr != nil {
+		Tracef("[ssh-slowdns] ERROR ssh dial: %v", dialErr)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(dialErr.Error())
@@ -508,12 +562,14 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ln, err := net.Listen("tcp", t.socksAddr())
 	if err != nil {
+		Tracef("[ssh-slowdns] ERROR socks listen %s: %v", t.socksAddr(), err)
 		sshClient.Close()
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
+	Tracef("[ssh-slowdns] SOCKS listening on %s", t.socksAddr())
 
 	t.ctx = ctx
 	t.client = sshClient
@@ -522,6 +578,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
+	Tracef("[ssh-slowdns] RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }
@@ -533,6 +590,7 @@ func (t *NativeSSHSlowDNSTunnel) Stop(ctx context.Context) error {
 	if t.status == StatusStopped {
 		return nil
 	}
+	Tracef("[ssh-slowdns] Stop() name=%q", t.config.Name)
 	t.status = StatusStopping
 	if t.cancel != nil {
 		t.cancel()
@@ -546,6 +604,7 @@ func (t *NativeSSHSlowDNSTunnel) Stop(ctx context.Context) error {
 	if t.slowdnscmd != nil && t.slowdnscmd.Process != nil {
 		t.slowdnscmd.Process.Kill()
 		t.slowdnscmd.Wait()
+		Tracef("[ssh-slowdns] slowdns reaped")
 	}
 	t.status = StatusStopped
 	return nil
@@ -566,6 +625,7 @@ func (t *NativeSSHSlowDNSTunnel) monitor() {
 	if t.slowdnscmd != nil {
 		t.slowdnscmd.Wait()
 	}
+	Tracef("[ssh-slowdns] connection closed (monitor)")
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status == StatusRunning {

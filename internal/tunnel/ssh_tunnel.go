@@ -49,6 +49,17 @@ func (t *SSHTunnel) Stats() Stats {
 
 func (t *SSHTunnel) Config() *config.TunnelConfig { return t.config }
 
+// redactSSHArgs masks "-i <key>" values (key material, not a path) for logs.
+func redactSSHArgs(args []string) []string {
+	out := append([]string(nil), args...)
+	for i := 0; i < len(out)-1; i++ {
+		if out[i] == "-i" {
+			out[i+1] = "<key-material-redacted>"
+		}
+	}
+	return out
+}
+
 func (t *SSHTunnel) buildArgs() []string {
 	args := []string{
 		"-o", "StrictHostKeyChecking=no",
@@ -79,8 +90,23 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[ssh-proc] Start() begin status=%s name=%q id=%s", t.status, t.config.Name, t.config.ID)
+
 	if t.status == StatusRunning {
+		Tracef("[ssh-proc] already running, skip")
 		return nil
+	}
+	Tracef("[ssh-proc] inputs host=%q port=%d user=%q keySet=%v passwordSet=%v socksPort=%d",
+		t.config.Server.Host, t.config.Server.Port, t.config.Auth.Username,
+		t.config.Auth.PrivateKey != "", t.config.Auth.Password != "",
+		advInt(t.config.Advanced, "socks_port", 10801))
+	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
+		Tracef("[ssh-proc] ERROR: host or username empty")
+		return fmt.Errorf("ssh: server.host and auth.username are required")
+	}
+	if t.config.Auth.PrivateKey == "" && t.config.Auth.Password != "" {
+		Tracef("[ssh-proc] WARNING: password auth with the openssh binary has no TTY: " +
+			"ssh will block on a password prompt unless key auth is used")
 	}
 
 	t.status = StatusStarting
@@ -89,14 +115,19 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	ctx, t.cancel = context.WithCancel(ctx)
 
 	args := t.buildArgs()
+	Tracef("[ssh-proc] BinDir=%q BinNames=%v", BinDir, BinNames)
+	bin := LookupBin(BinDir, BinSSH)
+	Tracef("[ssh-proc] binary=%q args=%q", bin, redactSSHArgs(args))
 
-	t.cmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), args...)
+	t.cmd = exec.CommandContext(ctx, bin, args...)
 
 	if err := t.cmd.Start(); err != nil {
+		Tracef("[ssh-proc] ERROR process start: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start SSH: %w", err)
 	}
+	Tracef("[ssh-proc] process started pid=%d, RUNNING name=%q", t.cmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
@@ -114,6 +145,7 @@ func (t *SSHTunnel) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	Tracef("[ssh-proc] Stop() name=%q", t.config.Name)
 	t.status = StatusStopping
 
 	if t.cancel != nil {
@@ -123,6 +155,7 @@ func (t *SSHTunnel) Stop(ctx context.Context) error {
 	if t.cmd != nil && t.cmd.Process != nil {
 		t.cmd.Process.Kill()
 		t.cmd.Wait()
+		Tracef("[ssh-proc] process reaped")
 	}
 
 	t.status = StatusStopped
@@ -139,6 +172,7 @@ func (t *SSHTunnel) Restart(ctx context.Context) error {
 
 func (t *SSHTunnel) monitorProcess() {
 	err := t.cmd.Wait()
+	Tracef("[ssh-proc] process exited: %v", err)
 	t.mu.Lock()
 	defer t.mu.Unlock()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -104,17 +105,26 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[ssh-slowdns-proc] Start() begin status=%s name=%q id=%s", t.status, t.config.Name, t.config.ID)
+
 	if t.status == StatusRunning {
+		Tracef("[ssh-slowdns-proc] already running, skip")
 		return nil
 	}
 
+	Tracef("[ssh-slowdns-proc] inputs nsDomain=%q resolver=%q pubkeyLen=%d user=%q fwdPort=%d socksPort=%d",
+		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
+		t.config.Auth.Username, t.fwdPort(), t.socksPort())
 	if t.nsDomain() == "" {
+		Tracef("[ssh-slowdns-proc] ERROR: nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if t.config.Server.PublicKey == "" {
+		Tracef("[ssh-slowdns-proc] ERROR: slowdns public key empty")
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 	if t.config.Auth.Username == "" {
+		Tracef("[ssh-slowdns-proc] ERROR: ssh username empty")
 		return fmt.Errorf("ssh username is required (auth.username)")
 	}
 
@@ -124,11 +134,13 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	ctx, t.cancel = context.WithCancel(ctx)
 
 	// dnstt first (shared helper with output capture), then SSH through it.
+	Tracef("[ssh-slowdns-proc] phase 1/2: starting dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
 
 	if err != nil {
+		Tracef("[ssh-slowdns-proc] ERROR dnstt phase: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -136,14 +148,19 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.slowdnscmd = dnsttCmd
 
 	sshArgs := t.buildSSHArgs()
+	Tracef("[ssh-slowdns-proc] phase 2/2: ssh binary=%q args=%q",
+		LookupBin(BinDir, BinSSH), redactSSHArgs(sshArgs))
 	t.sshCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), sshArgs...)
 
 	if err := t.sshCmd.Start(); err != nil {
+		Tracef("[ssh-slowdns-proc] ERROR ssh start: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("SSH start failed: %v", err))
 		return fmt.Errorf("failed to start SSH through SlowDNS: %w", err)
 	}
+	Tracef("[ssh-slowdns-proc] ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
+		t.sshCmd.Process.Pid, t.slowdnscmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
@@ -161,6 +178,7 @@ func (t *SSHSlowDNSTunnel) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	Tracef("[ssh-slowdns-proc] Stop() name=%q", t.config.Name)
 	t.status = StatusStopping
 
 	if t.cancel != nil {
@@ -170,11 +188,13 @@ func (t *SSHSlowDNSTunnel) Stop(ctx context.Context) error {
 	if t.sshCmd != nil && t.sshCmd.Process != nil {
 		t.sshCmd.Process.Kill()
 		t.sshCmd.Wait()
+		Tracef("[ssh-slowdns-proc] ssh reaped")
 	}
 
 	if t.slowdnscmd != nil && t.slowdnscmd.Process != nil {
 		t.slowdnscmd.Process.Kill()
 		t.slowdnscmd.Wait()
+		Tracef("[ssh-slowdns-proc] slowdns reaped")
 	}
 
 	t.status = StatusStopped
@@ -191,7 +211,9 @@ func (t *SSHSlowDNSTunnel) Restart(ctx context.Context) error {
 
 func (t *SSHSlowDNSTunnel) monitorProcesses() {
 	sshErr := t.sshCmd.Wait()
+	Tracef("[ssh-slowdns-proc] ssh exited: %v", sshErr)
 	slowdnsErr := t.slowdnscmd.Wait()
+	Tracef("[ssh-slowdns-proc] slowdns exited: %v", slowdnsErr)
 
 	t.mu.Lock()
 	defer t.mu.Unlock()

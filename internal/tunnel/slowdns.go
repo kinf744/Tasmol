@@ -78,13 +78,18 @@ func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 // its output to the activity log and blocks until the local forward port
 // answers. Call it WITHOUT holding the tunnel mutex (it may wait ~20s).
 func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*exec.Cmd, error) {
+	Tracef("[slowdns] StartDnstt begin nsDomain=%q resolver=%q pubkeyLen=%d fwdPort=%d",
+		DnsttDomain(cfg), DnsttResolver(cfg), len(strings.TrimSpace(DnsttPubKey(cfg))), fwdPort)
 	if DnsttDomain(cfg) == "" {
+		Tracef("[slowdns] ERROR: nameserver domain empty")
 		return nil, fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if DnsttPubKey(cfg) == "" {
+		Tracef("[slowdns] ERROR: public key empty")
 		return nil, fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 
+	Tracef("[slowdns] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinSlowDNS)
 	args := DnsttArgs(cfg, fwdPort)
 	Tracef("[slowdns] binary=%q args=-udp %s -pubkey %.12s... %s 127.0.0.1:%d",
@@ -92,20 +97,24 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	cmd := exec.CommandContext(ctx, bin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		Tracef("[slowdns] ERROR stdout pipe: %v", err)
 		return nil, fmt.Errorf("slowdns stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
+		Tracef("[slowdns] ERROR stderr pipe: %v", err)
 		return nil, fmt.Errorf("slowdns stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
+		Tracef("[slowdns] ERROR process start: %v", err)
 		return nil, fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
 	}
 	Tracef("[slowdns] process started pid=%d", cmd.Process.Pid)
 	go PipeLinesToLog(stdout, "[slowdns][out]")
 	go PipeLinesToLog(stderr, "[slowdns][err]")
 
-	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", fwdPort), 20*time.Second); err != nil {
+	if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", fwdPort), 20*time.Second); err != nil {
+		Tracef("[slowdns] forward NOT ready, killing pid=%d: %v", cmd.Process.Pid, err)
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("slowdns forward not ready: %w", err)
 	}

@@ -159,25 +159,37 @@ func useNativeSSH(cfg *config.TunnelConfig) bool {
 }
 
 func CreateTunnel(cfg *config.TunnelConfig) (Tunnel, error) {
+	engine := ""
 	switch cfg.Type {
 	case config.TunnelSSH:
 		if useNativeSSH(cfg) {
+			engine = "native-ssh"
+			Tracef("[tunnel] %q (id=%s type=ssh) engine=%s", cfg.Name, cfg.ID, engine)
 			return NewNativeSSHTunnel(cfg), nil
 		}
 		if strings.TrimSpace(cfg.SSH.Proxy) != "" || strings.TrimSpace(cfg.SSH.Payload) != "" {
 			return nil, fmt.Errorf("ssh proxy/payload need the native SSH engine (advanced.native_ssh=true)")
 		}
+		engine = "openssh-process"
+		Tracef("[tunnel] %q (id=%s type=ssh) engine=%s", cfg.Name, cfg.ID, engine)
 		return NewSSHTunnel(cfg), nil
 	case config.TunnelSSHSlowDNS:
 		if useNativeSSH(cfg) {
+			engine = "native-ssh+dnstt"
+			Tracef("[tunnel] %q (id=%s type=ssh_slowdns) engine=%s", cfg.Name, cfg.ID, engine)
 			return NewNativeSSHSlowDNSTunnel(cfg), nil
 		}
+		engine = "openssh-process+dnstt"
+		Tracef("[tunnel] %q (id=%s type=ssh_slowdns) engine=%s", cfg.Name, cfg.ID, engine)
 		return NewSSHSlowDNSTunnel(cfg), nil
 	case config.TunnelXray:
+		Tracef("[tunnel] %q (id=%s type=xray) engine=xray-process", cfg.Name, cfg.ID)
 		return NewXrayTunnel(cfg), nil
 	case config.TunnelXraySlowDNS:
+		Tracef("[tunnel] %q (id=%s type=xray_slowdns) engine=xray-process+dnstt", cfg.Name, cfg.ID)
 		return NewXraySlowDNSTunnel(cfg), nil
 	case config.TunnelZivpn:
+		Tracef("[tunnel] %q (id=%s type=zivpn) engine=uz_core", cfg.Name, cfg.ID)
 		return NewZivpnTunnel(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown tunnel type: %s", cfg.Type)

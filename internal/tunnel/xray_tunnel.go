@@ -125,12 +125,25 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[xray] Start() begin status=%s name=%q id=%s", t.status, t.config.Name, t.config.ID)
+
 	if t.status == StatusRunning {
+		Tracef("[xray] already running, skip")
 		return nil
 	}
 
-	if t.config.Auth.UUID == "" && !HasOutboundJSON(t.config) {
+	hasUUID := t.config.Auth.UUID != ""
+	hasJSON := HasOutboundJSON(t.config)
+	Tracef("[xray] inputs uuidSet=%v outboundJSON=%v host=%q port=%d socksPort=%d",
+		hasUUID, hasJSON, t.config.Server.Host, t.config.Server.Port,
+		advInt(t.config.Advanced, "socks_port", DefaultXrayPort))
+	if t.config.Auth.UUID == "" && !hasJSON {
+		Tracef("[xray] ERROR: no uuid and no outbound_json")
 		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
+	}
+	if t.config.Server.Host == "" && !hasJSON {
+		Tracef("[xray] ERROR: server host empty")
+		return fmt.Errorf("xray server host is required (server.host)")
 	}
 
 	t.status = StatusStarting
@@ -138,6 +151,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	configContent, err := t.generateConfig()
 	if err != nil {
+		Tracef("[xray] ERROR generateConfig: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -146,13 +160,18 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	tmpDir, _ := os.MkdirTemp("", "xray-*")
 	t.configPath = filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
+		Tracef("[xray] ERROR write config: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
+	Tracef("[xray] config written to %s", t.configPath)
 
 	ctx, t.cancel = context.WithCancel(ctx)
-	t.cmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
+	Tracef("[xray] BinDir=%q BinNames=%v", BinDir, BinNames)
+	bin := LookupBin(BinDir, BinXray)
+	Tracef("[xray] resolved binary=%q", bin)
+	t.cmd = exec.CommandContext(ctx, bin, "run", "-config", t.configPath)
 	if BinDir != "" {
 		t.cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
 	}
@@ -160,18 +179,21 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	stdout, err := t.cmd.StdoutPipe()
 	if err != nil {
+		Tracef("[xray] ERROR stdout pipe: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	stderr, err := t.cmd.StderrPipe()
 	if err != nil {
+		Tracef("[xray] ERROR stderr pipe: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 
 	if err := t.cmd.Start(); err != nil {
+		Tracef("[xray] ERROR process start: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start Xray: %w", err)
@@ -182,8 +204,9 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	// Wait until the local SOCKS inbound answers instead of assuming ready.
 	socksAddr := fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", DefaultXrayPort))
+	Tracef("[xray] waiting for SOCKS %s ...", socksAddr)
 	t.mu.Unlock()
-	readyErr := waitForTCP(socksAddr, 15*time.Second)
+	readyErr := waitForTCPctx(ctx, socksAddr, 15*time.Second)
 	t.mu.Lock()
 	if readyErr != nil {
 		Tracef("[xray] SOCKS %s NOT ready: %v", socksAddr, readyErr)
@@ -198,6 +221,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
+	Tracef("[xray] RUNNING name=%q", t.config.Name)
 
 	go t.monitorProcess()
 
@@ -212,6 +236,7 @@ func (t *XrayTunnel) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	Tracef("[xray] Stop() name=%q", t.config.Name)
 	t.status = StatusStopping
 
 	if t.cancel != nil {
@@ -221,11 +246,13 @@ func (t *XrayTunnel) Stop(ctx context.Context) error {
 	if t.cmd != nil && t.cmd.Process != nil {
 		t.cmd.Process.Kill()
 		t.cmd.Wait()
+		Tracef("[xray] process reaped")
 	}
 
 	if t.configPath != "" {
 		os.Remove(t.configPath)
 		os.Remove(filepath.Dir(t.configPath))
+		Tracef("[xray] temp config removed")
 	}
 
 	t.status = StatusStopped
