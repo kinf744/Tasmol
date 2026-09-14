@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -35,7 +36,9 @@ func SupportedTransports() []string {
 
 // buildStreamSettings builds Xray streamSettings for every supported
 // transport (tcp/ws/grpc/xhttp/httpupgrade) and security (none/tls/reality).
-func buildStreamSettings(cfg *config.TunnelConfig) map[string]interface{} {
+// If dialAddr is an IP literal, allowInsecure is forced true because TLS
+// certs are almost never valid for raw IPs (SAN = domain names).
+func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]interface{} {
 	ss := map[string]interface{}{
 		"network":  cfg.Transport.Network,
 		"security": cfg.Transport.Security,
@@ -81,9 +84,15 @@ func buildStreamSettings(cfg *config.TunnelConfig) map[string]interface{} {
 	}
 
 	if cfg.Transport.Security == "tls" {
+		allowInsecure := false
+		if dialAddr != "" {
+			if ip := net.ParseIP(dialAddr); ip != nil {
+				allowInsecure = true
+			}
+		}
 		ss["tlsSettings"] = map[string]interface{}{
 			"serverName":    cfg.Server.SNI,
-			"allowInsecure": false,
+			"allowInsecure": allowInsecure,
 			"fingerprint":   cfg.Transport.Fingerprint,
 			"alpn":          cfg.Transport.ALPN,
 		}
@@ -121,7 +130,7 @@ func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 				},
 			},
 		},
-		"streamSettings": buildStreamSettings(cfg),
+		"streamSettings": buildStreamSettings(cfg, addr),
 	}
 }
 
@@ -135,7 +144,7 @@ func BuildTrojanOutbound(cfg *config.TunnelConfig, addr string, port int) map[st
 				{"address": addr, "port": port, "password": cfg.Auth.Password},
 			},
 		},
-		"streamSettings": buildStreamSettings(cfg),
+		"streamSettings": buildStreamSettings(cfg, addr),
 	}
 }
 
@@ -146,8 +155,8 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 		method = "aes-256-gcm"
 	}
 	return map[string]interface{}{
-		"protocol": "shadowsocks",
-		"tag":      "proxy",
+		"protocol":       "shadowsocks",
+		"tag":            "proxy",
 		"settings": map[string]interface{}{
 			"servers": []map[string]interface{}{
 				{
@@ -156,6 +165,7 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 				},
 			},
 		},
+		"streamSettings": buildStreamSettings(cfg, addr),
 	}
 }
 
