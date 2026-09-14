@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	"vpn-app/internal/config"
@@ -116,9 +117,53 @@ func SocksPort(cfg *config.TunnelConfig) int {
 	}
 }
 
+// liveSocks maps tunnel ID -> actual local SOCKS endpoint of the RUNNING
+// session. Sessions bind fresh random ports per start, so a previous
+// session's listener — still draining or leaked by a wedged teardown — can
+// never collide with a reconnect. Consumers (data plane, RR front, ping)
+// must resolve through SocksAddr/SocksPortLive, never the static default.
+var liveSocks sync.Map // string -> string
+
+// SetLiveSocksAddr publishes the live SOCKS endpoint of a running session.
+func SetLiveSocksAddr(id, addr string) { liveSocks.Store(id, addr) }
+
+// ClearLiveSocksAddr removes the live endpoint (session stopped).
+func ClearLiveSocksAddr(id string) { liveSocks.Delete(id) }
+
+// LiveSocksAddr returns the published live endpoint, or "" if none.
+func LiveSocksAddr(id string) string {
+	v, ok := liveSocks.Load(id)
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
+}
+
+// SocksPortLive returns the live SOCKS port of a running session, falling
+// back to the static configured/default port when the tunnel is stopped.
+func SocksPortLive(cfg *config.TunnelConfig) int {
+	if cfg != nil {
+		if live := LiveSocksAddr(cfg.ID); live != "" {
+			if h, p, err := net.SplitHostPort(live); err == nil && h != "" {
+				if port, perr := strconv.Atoi(p); perr == nil && port > 0 {
+					return port
+				}
+			}
+		}
+	}
+	return SocksPort(cfg)
+}
+
 // SocksAddr returns the local SOCKS5 endpoint a tunnel exposes, used by the
 // mobile data plane (Xray front upstream) and by SOCKS-aware clients.
+// It resolves to the LIVE session port when the tunnel runs.
 func SocksAddr(cfg *config.TunnelConfig) string {
+	if cfg != nil {
+		if live := LiveSocksAddr(cfg.ID); live != "" {
+			return live
+		}
+	}
 	return fmt.Sprintf("127.0.0.1:%d", SocksPort(cfg))
 }
 

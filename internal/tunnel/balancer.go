@@ -84,7 +84,7 @@ func balancerOutbound(tc *config.TunnelConfig, tag string) (map[string]interface
 			"protocol": "socks",
 			"settings": map[string]interface{}{
 				"servers": []map[string]interface{}{
-					{"address": "127.0.0.1", "port": SocksPort(tc)},
+					{"address": "127.0.0.1", "port": SocksPortLive(tc)},
 				},
 			},
 		}

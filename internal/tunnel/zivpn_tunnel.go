@@ -45,9 +45,10 @@ type ZivpnTunnel struct {
 	cancel    context.CancelFunc
 	startTime time.Time
 
-	procs []*uzProc
-	lbLn  net.Listener
-	lbIdx atomic.Uint32
+	procs  []*uzProc
+	lbLn   net.Listener
+	lbPort int
+	lbIdx  atomic.Uint32
 }
 
 type uzProc struct {
@@ -194,17 +195,20 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	t.status = StatusStarting
 	t.setError("")
+	// Drop any stale live-port entry immediately: a previous session's
+	// dead port must never be dialed while this start is in flight.
+	ClearLiveSocksAddr(t.config.ID)
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
 	Tracef("[zivpn] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinZivpn)
 	Tracef("[zivpn] resolved binary=%q", bin)
-	lbPort := t.socksPort()
+	basePort := t.socksPort()
 	ranges := t.portRanges()
 	ip := t.resolveServerIP()
 	password := t.authPassword()
-	Tracef("[zivpn] lbPort=%d ranges=%v ip=%q password=%q", lbPort, ranges, ip, password)
+	Tracef("[zivpn] basePort=%d ranges=%v ip=%q password=%q", basePort, ranges, ip, password)
 
 	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := os.TempDir()
@@ -217,7 +221,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		uzPort, err := pickFreePort()
 		if err != nil {
 			Tracef("[zivpn][%d] pickFreePort failed, fallback: %v", i, err)
-			uzPort = lbPort + 1 + i
+			uzPort = basePort + 1 + i
 		}
 		// A previous session may still be releasing a port on an
 		// immediate reconnect: wait for it instead of failing.
@@ -280,23 +284,44 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		up.started = true
 	}
 
-	// Round-robin balancer unifying the uz SOCKS endpoints.
-	if err := waitPortFree(lbPort, 4*time.Second); err != nil {
-		Tracef("[zivpn] balancer %v", err)
+	// Round-robin balancer unifying the uz SOCKS endpoints. The LB port is
+	// fresh per session (never the fixed default): a previous session's
+	// listener — still draining after a slow teardown, or leaked by a
+	// wedged one — can never block a reconnect. On collision, repick a
+	// new random port instead of failing the session.
+	var ln net.Listener
+	lbPort := 0
+	for attempt := 1; attempt <= 3; attempt++ {
+		p, err := pickFreePort()
+		if err != nil {
+			Tracef("[zivpn] pickFreePort for LB failed: %v", err)
+			p = basePort + attempt
+		}
+		if err := waitPortFree(p, 2*time.Second); err != nil {
+			Tracef("[zivpn] LB port %d busy, repicking (attempt %d/3)", p, attempt)
+			continue
+		}
+		ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))
+		if err != nil {
+			Tracef("[zivpn] LB listen %d failed: %v (attempt %d/3)", p, err, attempt)
+			continue
+		}
+		lbPort = p
+		break
+	}
+	if ln == nil {
+		err := fmt.Errorf("zivpn balancer: no free port after 3 attempts")
+		Tracef("[zivpn] %v", err)
 		t.killProcsLocked(procs)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", lbPort))
-	if err != nil {
-		t.killProcsLocked(procs)
-		t.status = StatusError
-		t.setError(err.Error())
-		return fmt.Errorf("zivpn balancer listen: %w", err)
-	}
+	Tracef("[zivpn] LB listening on 127.0.0.1:%d", lbPort)
 	t.procs = procs
 	t.lbLn = ln
+	t.lbPort = lbPort
+	SetLiveSocksAddr(t.config.ID, fmt.Sprintf("127.0.0.1:%d", lbPort))
 	go t.serveBalancer(ctx, ln)
 
 	// Balancer readiness probe.
@@ -305,6 +330,8 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		ln.Close()
 		t.lbLn = nil
 		t.procs = nil
+		t.lbPort = 0
+		ClearLiveSocksAddr(t.config.ID)
 		t.status = StatusError
 		t.setError(fmt.Sprintf("zivpn balancer not ready: %v", err))
 		return fmt.Errorf("zivpn balancer not ready: %w", err)
@@ -520,6 +547,8 @@ func (t *ZivpnTunnel) Stop(ctx context.Context) error {
 		t.lbLn.Close()
 		t.lbLn = nil
 	}
+	t.lbPort = 0
+	ClearLiveSocksAddr(t.config.ID)
 	t.killProcsLocked(t.procs)
 	t.procs = nil
 

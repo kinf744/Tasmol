@@ -610,6 +610,7 @@ func (c *Controller) followRoundRobinLocked() {
 	}
 	var alive []string
 	now := time.Now()
+	revived := false
 	for _, id := range c.rrIDs {
 		t, ok := c.vpn.GetTunnelManager().Get(id)
 		if !ok {
@@ -623,6 +624,9 @@ func (c *Controller) followRoundRobinLocked() {
 					tunnel.Tracef("[rr] revive %s failed: %v", t.Name(), err)
 					continue
 				}
+				// A revived member rebinds fresh ports: the front's
+				// member list is stale and must be rebuilt below.
+				revived = true
 			} else {
 				continue
 			}
@@ -631,7 +635,7 @@ func (c *Controller) followRoundRobinLocked() {
 			alive = append(alive, id)
 		}
 	}
-	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs)) {
+	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs) || revived) {
 		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
 		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
 			tunnel.Tracef("[rr] rebuild failed: %v", err)
