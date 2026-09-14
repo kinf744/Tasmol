@@ -222,7 +222,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             JSONArray arr = new JSONArray(raw);
             boolean found = false;
-            boolean found = false;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
                 if (!id.equals(t.optString("id", ""))) {
