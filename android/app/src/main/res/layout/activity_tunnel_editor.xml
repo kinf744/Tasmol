@@ -153,7 +153,7 @@
                 android:id="@+id/ed_password"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textPassword" />
+                android:inputType="text" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -229,7 +229,7 @@
                 android:id="@+id/ed_xpass"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textPassword" />
+                android:inputType="text" />
 
             <TextView
                 android:layout_width="wrap_content"
@@ -314,7 +314,7 @@
                 android:id="@+id/ed_zpass"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="textPassword" />
+                android:inputType="text" />
 
             <LinearLayout
                 android:id="@+id/row_obfs"

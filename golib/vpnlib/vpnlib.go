@@ -632,6 +632,30 @@ func sameIDSet(a, b []string) bool {
 
 // followLoop migrates the data plane to any running tunnel when the active
 // one dies (client asked with auto_follow).
+// throttledRestartLocked restarts a dead helper (one attempt per minute).
+// Returns true when the tunnel runs again. Caller holds c.mu.
+func (c *Controller) throttledRestartLocked(t tunnel.Tunnel) bool {
+	if c.rrLastTry == nil {
+		c.rrLastTry = make(map[string]time.Time)
+	}
+	if last, tried := c.rrLastTry[t.ID()]; tried && time.Since(last) < time.Minute {
+		return false
+	}
+	c.rrLastTry[t.ID()] = time.Now()
+	tunnel.Tracef("[dataplane] restarting dead tunnel %s", t.Name())
+	_ = t.Stop(context.Background())
+	if err := t.Start(c.ctx); err != nil {
+		tunnel.Tracef("[dataplane] restart %s failed: %v", t.Name(), err)
+		return false
+	}
+	if err := c.switchUpstreamLocked(); err != nil {
+		tunnel.Tracef("[dataplane] re-point upstream failed: %v", err)
+		return false
+	}
+	tunnel.Tracef("[dataplane] restarted %s", t.Name())
+	return true
+}
+
 func (c *Controller) followLoop() {
 	defer c.wg.Done()
 	ticker := time.NewTicker(5 * time.Second)
@@ -656,6 +680,15 @@ func (c *Controller) followLoop() {
 				activeAlive = t.Status() == tunnel.StatusRunning
 			}
 			if !activeAlive {
+				// First: try restarting the active tunnel itself (throttled),
+				// so a transient helper death self-heals instead of forcing
+				// a force-close/reopen cycle.
+				if t, ok := c.vpn.GetTunnelManager().Get(c.activeID); ok {
+					if c.throttledRestartLocked(t) {
+						c.mu.Unlock()
+						continue
+					}
+				}
 				for _, cand := range c.vpn.GetTunnelManager().GetRunning() {
 					c.activeID = cand.ID()
 					if err := c.ensureHelpersLocked(c.activeID); err == nil {

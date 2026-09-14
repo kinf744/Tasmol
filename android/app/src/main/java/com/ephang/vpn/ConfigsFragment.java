@@ -82,10 +82,24 @@ public class ConfigsFragment extends Fragment {
         list.setAdapter(adapter);
 
         v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
+        // Connection happens from Home only: tapping the active card shows
+        // its actions without connecting.
         activeCard.setOnClickListener(view -> {
             String id = VPNApplication.getInstance().getActiveTunnelId();
-            if (id != null && !id.isEmpty() && getActivity() instanceof MainActivity) {
-                ((MainActivity) getActivity()).connectTunnel(id);
+            if (id == null || id.isEmpty()) {
+                return;
+            }
+            try {
+                String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
+                JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject t = arr.getJSONObject(i);
+                    if (id.equals(t.optString("id", ""))) {
+                        tapTunnel(t);
+                        break;
+                    }
+                }
+            } catch (Exception ignored) {
             }
         });
         v.findViewById(R.id.configs_group_toggle).setOnClickListener(view -> {
@@ -96,14 +110,8 @@ public class ConfigsFragment extends Fragment {
         v.findViewById(R.id.configs_group_menu).setOnClickListener(view -> showSortMenu());
 
         v.findViewById(R.id.configs_refresh).setOnClickListener(view -> reload());
-        v.findViewById(R.id.bar_connect).setOnClickListener(view -> {
-            String id = VPNApplication.getInstance().getActiveTunnelId();
-            if ((id == null || id.isEmpty()) && getActivity() instanceof MainActivity) {
-                ((MainActivity) getActivity()).pickTunnelAndConnect();
-            } else if (getActivity() instanceof MainActivity) {
-                ((MainActivity) getActivity()).connectTunnel(id);
-            }
-        });
+        // No connect button on this screen: connection happens from Home only.
+        v.findViewById(R.id.bar_connect).setVisibility(View.GONE);
         v.findViewById(R.id.bar_sort).setOnClickListener(view -> {
             sortByType = !sortByType;
             reload();
@@ -270,7 +278,6 @@ public class ConfigsFragment extends Fragment {
         if (!isActive) {
             opts.add("Set active");
         }
-        opts.add("Connect");
         opts.add("Ping");
         opts.add(inRR ? "Remove from round-robin" : "Add to round-robin");
         opts.add("Edit");
@@ -285,14 +292,8 @@ public class ConfigsFragment extends Fragment {
                             if (TasVpnService.isRunning()) {
                                 TasVpnService.setActiveTunnel(id);
                             }
-                            toast("Active server set");
+                            toast("Active server set - connect from Home");
                             reload();
-                            break;
-                        case "Connect":
-                            VPNApplication.getInstance().setActiveTunnelId(id);
-                            if (getActivity() instanceof MainActivity) {
-                                ((MainActivity) getActivity()).connectTunnel(id);
-                            }
                             break;
                         case "Ping":
                             pingOne(tunnel);

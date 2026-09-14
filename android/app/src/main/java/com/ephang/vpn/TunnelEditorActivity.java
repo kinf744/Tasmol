@@ -182,9 +182,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
         // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
         boolean showXrayAuth = type.equals("xray_slowdns");
-        // Transport only matters for Xray-family tunnels (zivpn obfs is
-        // hardcoded in the backend, ssh uses none).
-        boolean showTransport = isXray;
+        // No visible transport section: Xray works from link/JSON only.
+        boolean showTransport = false;
 
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
         secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
@@ -208,7 +207,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private void loadTunnel(String id) {
         try {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
-            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
+            String raw = VpnlibHelper.listTunnels(cfgPath).trim();
+            if (raw.startsWith("{")) {
+                // Error object, not a list: never present an empty form that
+                // could overwrite the real profile on save.
+                String msg = raw;
+                try {
+                    msg = new JSONObject(raw).optString("error", raw);
+                } catch (Exception ignored) {
+                }
+                toast("Load failed: " + msg);
+                finish();
+                return;
+            }
+            JSONArray arr = new JSONArray(raw);
+            boolean found = false;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
                 if (!id.equals(t.optString("id", ""))) {
@@ -260,10 +273,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edLink.setText(adv.optString("link", ""));
                     edOutboundJson.setText(adv.optString("outbound_json", ""));
                 }
+                found = true;
                 break;
             }
         } catch (Exception e) {
             toast("Load failed: " + e.getMessage());
+            finish();
+            return;
+        }
+        if (!found) {
+            toast("Profile not found");
+            finish();
+            return;
         }
         refreshSections();
     }

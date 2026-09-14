@@ -33,6 +33,7 @@ type TunnelRequest struct {
 	Priority  int                    `json:"priority"`
 	Server    config.ServerConfig    `json:"server" binding:"required"`
 	Auth      config.AuthConfig      `json:"auth" binding:"required"`
+	SSH       config.SSHConfig       `json:"ssh"`
 	Transport config.TransportConfig `json:"transport"`
 	Routing   config.RoutingConfig   `json:"routing"`
 	Advanced  map[string]interface{} `json:"advanced"`
@@ -232,6 +233,7 @@ func (s *Server) createTunnelHandler(c *gin.Context) {
 		Priority:  req.Priority,
 		Server:    req.Server,
 		Auth:      req.Auth,
+		SSH:       req.SSH,
 		Transport: req.Transport,
 		Routing:   req.Routing,
 		Advanced:  req.Advanced,
@@ -317,6 +319,7 @@ func (s *Server) updateTunnelHandler(c *gin.Context) {
 		Priority:  req.Priority,
 		Server:    req.Server,
 		Auth:      req.Auth,
+		SSH:       req.SSH,
 		Transport: req.Transport,
 		Routing:   req.Routing,
 		Advanced:  req.Advanced,

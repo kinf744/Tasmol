@@ -84,6 +84,9 @@ public class TasVpnService extends VpnService {
         return controller != null;
     }
 
+    private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
+            new java.util.concurrent.atomic.AtomicInteger(0);
+
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) {
@@ -91,6 +94,9 @@ public class TasVpnService extends VpnService {
         }
         String action = intent.getAction();
         if (ACTION_DISCONNECT.equals(action)) {
+            // Invalidate any in-flight connect so a late background thread
+            // can never publish a zombie session (stuck VPN key).
+            sessionGen.incrementAndGet();
             stopSession();
             stopSelf();
             return START_NOT_STICKY;
@@ -115,10 +121,12 @@ public class TasVpnService extends VpnService {
         // don't call startForeground() in time.
         startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
         final String requestedId = tunnelId;
-        new Thread(() -> startSessionBackground(requestedId), "ephang-connect").start();
+        final int gen = sessionGen.incrementAndGet();
+        new Thread(() -> startSessionBackground(gen, requestedId), "ephang-connect").start();
     }
 
-    private void startSessionBackground(String tunnelId) {
+    private void startSessionBackground(int gen, String tunnelId) {
+        Object ctrl = null;
         try {
             // Ensure bundled official binaries + config are staged.
             BinaryManager.ensureReady(this);
@@ -131,6 +139,9 @@ public class TasVpnService extends VpnService {
             }
             if (tunnelId == null || tunnelId.isEmpty()) {
                 throw new IllegalStateException("no tunnel configured: add one in the app first");
+            }
+            if (isSuperseded(gen)) {
+                return;
             }
 
             Builder builder = new Builder()
@@ -152,7 +163,7 @@ public class TasVpnService extends VpnService {
             String params = BinaryManager.buildStartParams(this, tunnelId, fd);
             Log.i(TAG, "starting data plane, active=" + tunnelId);
 
-            Object ctrl = Vpnlib.newController();
+            ctrl = Vpnlib.newController();
             String err = invokeStart(ctrl, params);
             if (err != null && !err.isEmpty()) {
                 try {
@@ -163,7 +174,23 @@ public class TasVpnService extends VpnService {
                 throw new IllegalStateException("data plane: " + err);
             }
 
+            if (isSuperseded(gen)) {
+                // A disconnect (or newer connect) arrived while starting:
+                // tear down instead of publishing a zombie session.
+                try {
+                    invokeStop(ctrl);
+                } catch (Exception ignored) {
+                }
+                try {
+                    tunFd.close();
+                } catch (Exception ignored) {
+                }
+                tunFd = null;
+                return;
+            }
+
             controller = ctrl;
+            ctrl = null;
             activeTunnelId = tunnelId;
             VPNApplication.getInstance().setActiveTunnelId(tunnelId);
 
@@ -172,15 +199,30 @@ public class TasVpnService extends VpnService {
             logEvent("connected (" + tunnelId + ")");
         } catch (Exception e) {
             Log.e(TAG, "startSession failed", e);
-            lastError = e.getMessage();
-            logEvent("connect failed: " + e.getMessage());
-            controller = null;
-            activeTunnelId = null;
-            stopSelf();
+            if (!isSuperseded(gen)) {
+                lastError = e.getMessage();
+                logEvent("connect failed: " + e.getMessage());
+                stopSelf();
+            }
+        } finally {
+            if (ctrl != null) {
+                // Never leak an unpublished controller.
+                try {
+                    invokeStop(ctrl);
+                } catch (Exception ignored) {
+                }
+            }
         }
     }
 
+    /** True when a newer start/stop request superseded this generation. */
+    private boolean isSuperseded(int gen) {
+        return gen != sessionGen.get();
+    }
+
     private void stopSession() {
+        // Invalidate any in-flight connect first.
+        sessionGen.incrementAndGet();
         // Heavy teardown (process kills, stack drain) runs off the main
         // thread to avoid ANR dialogs.
         new Thread(() -> {
