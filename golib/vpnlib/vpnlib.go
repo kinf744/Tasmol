@@ -181,6 +181,13 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("core: %w", err))
 	}
 
+	// RE-apply mobile binary layout AFTER constructing the core: the core
+	// resets tunnel.BinDir from config.yaml, which may lack the mobile
+	// filesDir/bin path. These params are authoritative on Android.
+	tunnel.BinDir = p.BinDir
+	tunnel.BinNames = p.BinNames
+	tunnel.NativeSSH = p.NativeSSH
+
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.cfgMgr = cfgMgr
 	c.vpn = vpn
