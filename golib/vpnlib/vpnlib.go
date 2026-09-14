@@ -283,15 +283,43 @@ func (c *Controller) Start(paramsJSON string) string {
 }
 
 // Stop tears the session down. Returns "" on success.
+// Every teardown step is time-bounded: a wedged helper, a stuck
+// tun2socks drain or a blocked follow tick must never hang Stop
+// forever (that left the Android service — and its VPN key icon —
+// stuck with no way to disconnect).
 func (c *Controller) Stop() string {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	if !c.running {
+		c.mu.Unlock()
 		return ""
 	}
+	// Signal loops to bail out, then release the mutex BEFORE waiting:
+	// followLoop needs c.mu to finish its tick, and its tick may run
+	// blocking restarts — waiting while holding the mutex deadlocks.
+	c.running = false
+	if c.cancel != nil {
+		c.cancel()
+	}
+	c.mu.Unlock()
+
+	waitBounded(c.wg.Wait, 10*time.Second, "followLoop exit")
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.cleanupLocked()
 	return ""
+}
+
+// waitBounded runs wait but gives up after d, logging the timeout.
+// Used so teardown always makes progress even when something wedges.
+func waitBounded(wait func(), d time.Duration, what string) {
+	done := make(chan struct{})
+	go func() { wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(d):
+		tunnel.Tracef("[dataplane] teardown: %s did not finish in %v, continuing anyway", what, d)
+	}
 }
 
 func (c *Controller) cleanupLocked() {
@@ -301,7 +329,8 @@ func (c *Controller) cleanupLocked() {
 	c.killFrontLocked()
 	if c.stack != nil {
 		c.stack.Close()
-		c.stack.Wait()
+		st := c.stack
+		waitBounded(st.Wait, 5*time.Second, "tun2socks drain")
 		c.stack = nil
 	}
 	if c.dev != nil {
@@ -312,7 +341,8 @@ func (c *Controller) cleanupLocked() {
 	c.dialer = nil
 	c.rrIDs = nil
 	if c.vpn != nil {
-		_ = c.vpn.Stop(context.Background())
+		v := c.vpn
+		waitBounded(func() { _ = v.Stop(context.Background()) }, 10*time.Second, "tunnels stop")
 		c.vpn = nil
 	}
 	if c.cfgMgr != nil {
@@ -327,7 +357,6 @@ func (c *Controller) cleanupLocked() {
 		c.logFile = nil
 	}
 	tunnel.LogFunc = nil
-	c.wg.Wait()
 }
 
 // ensureHelpersLocked starts the helper process of the active tunnel.

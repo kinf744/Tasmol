@@ -37,6 +37,10 @@ public class TasVpnService extends VpnService {
     private static volatile Object controller = null;
     private static volatile String activeTunnelId = null;
     private static volatile String lastError = null;
+    // True while a session is being established (connecting / reconnecting).
+    // The Home tab shows a red CONNECTING status while this is set.
+    private static volatile boolean starting = false;
+    private static volatile int startGen = -1;
 
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
     private static final int MAX_LOG_LINES = 200;
@@ -84,6 +88,10 @@ public class TasVpnService extends VpnService {
         return controller != null;
     }
 
+    public static boolean isStarting() {
+        return starting;
+    }
+
     private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
             new java.util.concurrent.atomic.AtomicInteger(0);
 
@@ -122,6 +130,8 @@ public class TasVpnService extends VpnService {
         startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
         final String requestedId = tunnelId;
         final int gen = sessionGen.incrementAndGet();
+        starting = true;
+        startGen = gen;
         new Thread(() -> startSessionBackground(gen, requestedId), "ephang-connect").start();
     }
 
@@ -202,6 +212,7 @@ public class TasVpnService extends VpnService {
             if (!isSuperseded(gen)) {
                 lastError = e.getMessage();
                 logEvent("connect failed: " + e.getMessage());
+                stopForeground(true);
                 stopSelf();
             }
         } finally {
@@ -212,6 +223,14 @@ public class TasVpnService extends VpnService {
                 } catch (Exception ignored) {
                 }
             }
+            clearStarting(gen);
+        }
+    }
+
+    /** Clear the connecting flag, but only if no newer session took over. */
+    private static void clearStarting(int gen) {
+        if (sessionGen.get() == gen) {
+            starting = false;
         }
     }
 
@@ -223,12 +242,30 @@ public class TasVpnService extends VpnService {
     private void stopSession() {
         // Invalidate any in-flight connect first.
         sessionGen.incrementAndGet();
+        starting = false;
         // Heavy teardown (process kills, stack drain) runs off the main
         // thread to avoid ANR dialogs.
         new Thread(() -> {
             try {
                 if (controller != null) {
-                    invokeStop(controller);
+                    // Bounded: a wedged data-plane stop must never hang
+                    // this thread forever (that left the VPN key stuck).
+                    // The Go side is time-bounded too; this is belt & braces.
+                    final Object ctrl = controller;
+                    java.util.concurrent.ExecutorService exec =
+                            java.util.concurrent.Executors.newSingleThreadExecutor();
+                    java.util.concurrent.Future<?> f =
+                            exec.submit(() -> invokeStop(ctrl));
+                    exec.shutdown();
+                    try {
+                        f.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                    } catch (java.util.concurrent.TimeoutException te) {
+                        Log.e(TAG, "controller stop timed out, forcing cleanup");
+                        logEvent("stop hung - forcing cleanup");
+                        f.cancel(true);
+                    } catch (Exception e) {
+                        Log.e(TAG, "controller stop failed", e);
+                    }
                 }
             } catch (Exception e) {
                 Log.e(TAG, "controller stop failed", e);
@@ -322,11 +359,16 @@ public class TasVpnService extends VpnService {
         Intent intent = new Intent(this, MainActivity.class);
         PendingIntent pi = PendingIntent.getActivity(
                 this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+        Intent disc = new Intent(this, TasVpnService.class);
+        disc.setAction(ACTION_DISCONNECT);
+        PendingIntent discPi = PendingIntent.getService(
+                this, 1, disc, PendingIntent.FLAG_IMMUTABLE);
         return new NotificationCompat.Builder(this, CHANNEL_ID)
                 .setContentTitle("Ephang VPN")
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_vpn)
                 .setContentIntent(pi)
+                .addAction(0, "Disconnect", discPi)
                 .setOngoing(true)
                 .build();
     }

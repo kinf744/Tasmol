@@ -137,6 +137,69 @@ public class MainActivity extends AppCompatActivity {
         intent.setAction(TasVpnService.ACTION_DISCONNECT);
         startService(intent);
         showToast("Disconnecting...");
+        // Watchdog: if the service is still alive after 7s (wedged
+        // teardown, stuck VPN key), offer the nuclear option.
+        handler.postDelayed(this::checkDisconnectStuck, 7000);
+    }
+
+    private boolean stuckDialogShowing = false;
+
+    /** If a disconnect left the service alive, propose a nuclear cleanup. */
+    private void checkDisconnectStuck() {
+        if (!TasVpnService.isRunning() && !TasVpnService.isStarting()) {
+            return;
+        }
+        if (stuckDialogShowing || isFinishing()) {
+            return;
+        }
+        stuckDialogShowing = true;
+        new AlertDialog.Builder(this)
+                .setTitle("VPN stuck")
+                .setMessage("The VPN service did not stop (key icon may still show). "
+                        + "Force-close the app to kill every tunnel process and "
+                        + "release the VPN? Unsaved edits in open forms will be lost.")
+                .setPositiveButton("FORCE CLOSE", (d, w) -> {
+                    stuckDialogShowing = false;
+                    forceKillProcess();
+                })
+                .setNegativeButton("Keep waiting", (d, w) -> {
+                    stuckDialogShowing = false;
+                    handler.postDelayed(this::checkDisconnectStuck, 7000);
+                })
+                .setCancelable(false)
+                .show();
+    }
+
+    /**
+     * Nuclear disconnect: ask the service to stop, then — whether it
+     * cooperates or not — kill our own process. Dying takes every child
+     * (xray, zivpn, dnstt, ssh), thread and socket with us, and Android
+     * always revokes the VPN (key icon) of a dead service. Guaranteed
+     * cleanup for the "error + refuses to disconnect" case.
+     */
+    public void nuclearDisconnect() {
+        try {
+            Intent intent = new Intent(this, TasVpnService.class);
+            intent.setAction(TasVpnService.ACTION_DISCONNECT);
+            startService(intent);
+        } catch (Exception ignored) {
+        }
+        showToast("Nuclear disconnect: killing all VPN processes...");
+        handler.postDelayed(() -> {
+            if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+                forceKillProcess();
+            }
+        }, 4000);
+    }
+
+    /** Kill our own process: children die, system revokes the VPN key. */
+    public void forceKillProcess() {
+        try {
+            finishAffinity();
+        } catch (Exception ignored) {
+        }
+        android.os.Process.killProcess(android.os.Process.myPid());
+        System.exit(10);
     }
 
     /** Restart the service so edited configs take effect. */

@@ -5,6 +5,7 @@
     <color name="npv_card">#0E0E0E</color>
     <color name="npv_border">#2A2A2A</color>
     <color name="npv_green">#00E676</color>
+    <color name="npv_red">#FF5252</color>
     <color name="npv_green_dim">#0A3D28</color>
     <color name="npv_teal_pill">#114E44</color>
     <color name="npv_cyan">#4DD0E1</color>

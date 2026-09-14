@@ -53,6 +53,25 @@ public class HomeFragment extends Fragment {
                 ((MainActivity) getActivity()).toggleVpn();
             }
         });
+        // Long-press the power button: nuclear disconnect. Kills every
+        // tunnel process and the app itself so a stuck VPN key is always
+        // released, even when the service refuses to stop.
+        connectBtn.setOnLongClickListener(view -> {
+            if (getActivity() instanceof MainActivity) {
+                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setTitle("Nuclear disconnect?")
+                        .setMessage("Force-close the app and kill ALL tunnel "
+                                + "processes (xray, zivpn, slowdns, ssh)? "
+                                + "Use this when the VPN refuses to disconnect "
+                                + "and the key icon stays stuck.")
+                        .setPositiveButton("NUCLEAR", (d, w) ->
+                                ((MainActivity) getActivity()).nuclearDisconnect())
+                        .setNegativeButton("Cancel", null)
+                        .show();
+                return true;
+            }
+            return false;
+        });
         v.findViewById(R.id.home_config_card).setOnClickListener(view -> {
             if (getActivity() instanceof MainActivity) {
                 ((MainActivity) getActivity()).goToConfigs();
@@ -73,11 +92,25 @@ public class HomeFragment extends Fragment {
         if (connectBtn == null || getActivity() == null) {
             return;
         }
+        int green = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_green);
+        int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
+        int grey = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_grey);
         boolean running = TasVpnService.isRunning();
         if (!running) {
             String err = TasVpnService.getLastError();
+            // Launching / (re)connecting: stay on CONNECTING in red.
+            if (TasVpnService.isStarting()) {
+                ring.setBackgroundResource(R.drawable.ring_power_off);
+                statusText.setText("[ CONNECTING ]");
+                statusText.setTextColor(red);
+                uptimeText.setText("--:--:--");
+                downText.setText("0 B");
+                upText.setText("0 B");
+                return;
+            }
             ring.setBackgroundResource(R.drawable.ring_power_off);
             statusText.setText(err != null ? "[ ERROR ]" : "[ NOT CONNECTED ]");
+            statusText.setTextColor(err != null ? red : grey);
             uptimeText.setText("--:--:--");
             downText.setText("0 B");
             upText.setText("0 B");
@@ -90,11 +123,13 @@ public class HomeFragment extends Fragment {
             boolean ctrlRunning = st.optBoolean("running", false);
             if (!ctrlRunning) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
-                statusText.setText("[ STARTING ]");
+                statusText.setText("[ CONNECTING ]");
+                statusText.setTextColor(red);
                 return;
             }
             ring.setBackgroundResource(R.drawable.ring_power_on);
             statusText.setText("[ CONNECTED ]");
+            statusText.setTextColor(green);
 
             String activeId = st.optString("active_tunnel", "");
             org.json.JSONArray rr = st.optJSONArray("round_robin");
@@ -121,6 +156,11 @@ public class HomeFragment extends Fragment {
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);
             statusText.setText("[ CONNECTED ]");
+            try {
+                statusText.setTextColor(androidx.core.content.ContextCompat.getColor(
+                        requireContext(), R.color.npv_green));
+            } catch (Exception ignored) {
+            }
         }
     }
 
