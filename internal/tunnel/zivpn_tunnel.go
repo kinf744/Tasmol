@@ -142,7 +142,21 @@ func (t *ZivpnTunnel) resolveServerIP() string {
 	return host
 }
 
-// buildUzConfig renders the inline client JSON for one range.
+// pickFreePort asks the kernel for a free loopback TCP port (bind :0),
+// so every session gets fresh uz listener ports: no stale-port clashes on
+// immediate reconnect, no collision between parallel tunnels.
+func pickFreePort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+	addr, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("not a tcp addr")
+	}
+	return addr.Port, nil
+}
 func buildUzConfig(ip, portRange, password, obfs string, uzPort int) (string, error) {
 	doc := map[string]interface{}{
 		"server":                fmt.Sprintf("%s:%s", ip, portRange),
@@ -198,8 +212,14 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	procs := make([]*uzProc, 0, len(ranges))
 	for i, rng := range ranges {
-		uzPort := lbPort + 1 + i
-		// A previous session may still be releasing this port on an
+		// Fresh random listener port per session: a previous session's
+		// sockets can never collide, even on immediate reconnect.
+		uzPort, err := pickFreePort()
+		if err != nil {
+			Tracef("[zivpn][%d] pickFreePort failed, fallback: %v", i, err)
+			uzPort = lbPort + 1 + i
+		}
+		// A previous session may still be releasing a port on an
 		// immediate reconnect: wait for it instead of failing.
 		if err := waitPortFree(uzPort, 4*time.Second); err != nil {
 			Tracef("[zivpn][%d] %v", i, err)

@@ -294,7 +294,9 @@ with the flat client JSON the binary expects:
 ```
 
 A round-robin TCP balancer unifies the uz SOCKS endpoints on the tunnel
-SOCKS port (default `:10810`, `Advanced["socks_port"]` override).
+SOCKS port (default `:10810`, `Advanced["socks_port"]` override). Each
+session picks fresh random loopback ports for the uz listeners, so an
+immediate reconnect can never collide with a previous session's sockets.
 
 ```yaml
 tunnels:
