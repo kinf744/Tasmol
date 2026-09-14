@@ -61,6 +61,9 @@ type startParams struct {
 	ManagePort   int               `json:"manage_port"`
 	ActiveTunnel string            `json:"active_tunnel"`
 	AutoFollow   bool              `json:"auto_follow"`
+	// LogDir is the device Download directory; a real-time activity file
+	// "kighmu.txt" is written there for diagnostics.
+	LogDir string `json:"log_dir"`
 }
 
 // Controller owns the whole mobile VPN session.
@@ -86,6 +89,7 @@ type Controller struct {
 	activeID   string
 	autoFollow bool
 	startTime  time.Time
+	logFile    *os.File
 }
 
 type dnsttProc struct {
@@ -106,6 +110,28 @@ func MobileVersion() string {
 func errJSON(err error) string {
 	b, _ := json.Marshal(map[string]string{"error": err.Error()})
 	return string(b)
+}
+
+// makeFileLogger returns a tunnel.LogFunc writing timestamped lines to
+// <logDir>/kighmu.txt (created/truncated on each Start). Returns nil if
+// logDir is empty or unwritable, so logging is always safe.
+func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) {
+	if logDir == "" {
+		return nil
+	}
+	path := filepath.Join(logDir, "kighmu.txt")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return nil
+	}
+	c.logFile = f
+	var mu sync.Mutex
+	return func(format string, args ...interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		fmt.Fprintf(f, "%s  %s\n", time.Now().Format("15:04:05.000"),
+			fmt.Sprintf(format, args...))
+	}
 }
 
 // Start boots the management core, the helpers of the active tunnel and the
@@ -140,6 +166,9 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
+
+	// Real-time activity file for diagnosing tunnel failures.
+	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
 
 	cfgMgr, err := config.NewManager(p.ConfigPath)
 	if err != nil {
@@ -238,6 +267,11 @@ func (c *Controller) cleanupLocked() {
 	c.apiSrv = nil
 	c.running = false
 	c.activeID = ""
+	if c.logFile != nil {
+		_ = c.logFile.Close()
+		c.logFile = nil
+	}
+	tunnel.LogFunc = nil
 	c.wg.Wait()
 }
 

@@ -29,6 +29,19 @@ var BinNames map[string]string
 // cannot rely on an openssh binary, so mobile mode enables this.
 var NativeSSH bool
 
+// LogFunc is an optional sink for verbose tunnel activity. vpnlib wires it
+// to a file (Download/kighmu.txt) so connection failures can be diagnosed in
+// real time. nil = logging disabled.
+var LogFunc func(format string, args ...interface{})
+
+// Tracef appends a timestamped line to the tunnel activity log.
+func Tracef(format string, args ...interface{}) {
+	if LogFunc == nil {
+		return
+	}
+	LogFunc(format, args...)
+}
+
 // Binary names as stored in bin/armv7/ of the repository.
 const (
 	BinSSH     = "ssh"

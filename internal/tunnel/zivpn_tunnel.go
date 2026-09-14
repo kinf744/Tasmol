@@ -167,10 +167,14 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
+	Tracef("[zivpn] Start() begin status=%s name=%q", t.status, t.config.Name)
+
 	if t.status == StatusRunning {
+		Tracef("[zivpn] already running, skip")
 		return nil
 	}
 	if strings.TrimSpace(t.config.Server.Host) == "" {
+		Tracef("[zivpn] ERROR: server host empty")
 		return fmt.Errorf("zivpn server host is required (server.host)")
 	}
 
@@ -179,11 +183,14 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
+	Tracef("[zivpn] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinZivpn)
+	Tracef("[zivpn] resolved binary=%q", bin)
 	lbPort := t.socksPort()
 	ranges := t.portRanges()
 	ip := t.resolveServerIP()
 	password := t.authPassword()
+	Tracef("[zivpn] lbPort=%d ranges=%v ip=%q password=%q", lbPort, ranges, ip, password)
 
 	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := os.TempDir()
@@ -194,11 +201,14 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		uzPort := lbPort + 1 + i
 		cfgJSON, err := buildUzConfig(ip, rng, password, DefaultZivpnObfsPassword, uzPort)
 		if err != nil {
+			Tracef("[zivpn] buildUzConfig error: %v", err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(err.Error())
 			return err
 		}
+		Tracef("[zivpn][%d] cfgJSON=%s", i, cfgJSON)
+		Tracef("[zivpn][%d] cmd=%q -s %q --config ...", i, bin, DefaultZivpnObfsPassword)
 
 		cmd := exec.CommandContext(ctx, bin, "-s", DefaultZivpnObfsPassword, "--config", cfgJSON)
 		cmd.Dir = workDir
@@ -217,11 +227,13 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		cmd.Stdout = nil
 
 		if err := cmd.Start(); err != nil {
+			Tracef("[zivpn][%d] exec start ERROR: %v", i, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(fmt.Sprintf("zivpn start failed: %v", err))
 			return fmt.Errorf("failed to start zivpn (uz_core): %w", err)
 		}
+		Tracef("[zivpn][%d] process started pid=%d", i, cmd.Process.Pid)
 
 		up := &uzProc{cmd: cmd, uzPort: uzPort, rng: rng, stderr: stderr}
 		procs = append(procs, up)
@@ -229,11 +241,13 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 		// Readiness: uz exposes its SOCKS port (5s budget, like reference).
 		if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
+			Tracef("[zivpn][%d] SOCKS %d NOT ready: %v", i, uzPort, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
 			return fmt.Errorf("zivpn range %s not ready: %w", rng, err)
 		}
+		Tracef("[zivpn][%d] SOCKS %d ready", i, uzPort)
 		up.started = true
 	}
 
@@ -326,9 +340,9 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 	upstream.Close()
 }
 
-// watchOutput scans a uz process stream for error keywords.
+// watchOutput logs every uz process output line (maximal detail).
 func (t *ZivpnTunnel) watchOutput(up *uzProc) {
-	buf := make([]byte, 0, 4096)
+	buf := make([]byte, 0, 8192)
 	tmp := make([]byte, 1024)
 	for {
 		n, err := up.stderr.Read(tmp)
@@ -337,21 +351,29 @@ func (t *ZivpnTunnel) watchOutput(up *uzProc) {
 			for {
 				i := indexNewline(buf)
 				if i < 0 {
+					if len(buf) > 65536 {
+						buf = buf[len(buf)-4096:]
+					}
 					break
 				}
-				line := strings.ToLower(string(buf[:i]))
+				line := strings.TrimSpace(string(buf[:i]))
 				buf = buf[i+1:]
-				if strings.Contains(line, "error") || strings.Contains(line, "fail") ||
-					strings.Contains(line, "exception") || strings.Contains(line, "refused") {
-					t.mu.Lock()
-					if t.status == StatusRunning {
-						t.setError(fmt.Sprintf("zivpn [%s]: %s", up.rng, strings.TrimSpace(line)))
+				if line != "" {
+					Tracef("[zivpn][out:%s] %s", up.rng, line)
+					lower := strings.ToLower(line)
+					if strings.Contains(lower, "error") || strings.Contains(lower, "fail") ||
+						strings.Contains(lower, "exception") || strings.Contains(lower, "refused") {
+						t.mu.Lock()
+						if t.status == StatusRunning {
+							t.setError(fmt.Sprintf("zivpn [%s]: %s", up.rng, line))
+						}
+						t.mu.Unlock()
 					}
-					t.mu.Unlock()
 				}
 			}
 		}
 		if err != nil {
+			Tracef("[zivpn][out:%s] stream closed: %v", up.rng, err)
 			return
 		}
 	}

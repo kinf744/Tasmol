@@ -2,6 +2,7 @@ package com.ephang.vpn;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.os.Environment;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -188,7 +189,18 @@ public class BinaryManager {
         p.put("manage_port", VPNApplication.getInstance().getManagePort());
         p.put("active_tunnel", tunnelId == null ? "" : tunnelId);
         p.put("auto_follow", true);
+        // Diagnostic log file in the public Download folder.
+        p.put("log_dir", downloadDir());
         return p.toString();
+    }
+
+    /** Public Download directory (where kighmu.txt is written). */
+    public static String downloadDir() {
+        File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+        if (d == null) {
+            return "";
+        }
+        return d.getAbsolutePath();
     }
 
     /** Light tunnel list (id/name/type) parsed from config.yaml for the picker. */
