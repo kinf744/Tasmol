@@ -205,6 +205,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     }
 
     private void loadTunnel(String id) {
+        boolean found = false;
         try {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
             String raw = VpnlibHelper.listTunnels(cfgPath).trim();
@@ -221,7 +222,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 return;
             }
             JSONArray arr = new JSONArray(raw);
-            boolean found = false;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
                 if (!id.equals(t.optString("id", ""))) {
