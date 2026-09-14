@@ -167,7 +167,7 @@ public class HomeFragment extends Fragment {
     private void showSelectedServer() {
         try {
             String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
-            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
             java.util.LinkedHashSet<String> selected =
                     VPNApplication.getInstance().getSelectedIds();
             if (selected.isEmpty()) {
