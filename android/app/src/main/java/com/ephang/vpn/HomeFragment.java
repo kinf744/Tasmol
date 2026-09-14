@@ -167,18 +167,38 @@ public class HomeFragment extends Fragment {
     private void showSelectedServer() {
         try {
             String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
-            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
-            String active = VPNApplication.getInstance().getActiveTunnelId();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            java.util.LinkedHashSet<String> selected =
+                    VPNApplication.getInstance().getSelectedIds();
+            if (selected.isEmpty()) {
+                serverText.setText("No server selected");
+                serverDetail.setText("Pick profiles in Configs");
+                serverType.setText("");
+                return;
+            }
+            if (selected.size() >= 2) {
+                StringBuilder names = new StringBuilder();
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject t = arr.getJSONObject(i);
+                    if (selected.contains(t.optString("id", ""))) {
+                        if (names.length() > 0) {
+                            names.append("  •  ");
+                        }
+                        names.append(t.optString("name", "Server"));
+                    }
+                }
+                serverText.setText(selected.size() + " profiles");
+                serverDetail.setText(names.toString());
+                serverType.setText("round-robin");
+                return;
+            }
+            String active = selected.iterator().next();
             JSONObject pick = null;
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
-                if (active != null && !active.isEmpty()) {
-                    if (t.optString("id", "").equals(active)) {
-                        pick = t;
-                        break;
-                    }
-                } else if (pick == null) {
+                if (t.optString("id", "").equals(active)) {
                     pick = t;
+                    break;
                 }
             }
             if (pick == null) {

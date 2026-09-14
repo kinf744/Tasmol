@@ -92,17 +92,17 @@ public class MoreFragment extends Fragment {
         ((ViewGroup) active.getParent()).addView(rrStatus,
                 new ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         Runnable refreshRR = () -> {
-            String csv = app.getRoundRobinIds();
-            int n = csv.isEmpty() ? 0 : csv.split(",").length;
+            int n = app.getSelectedIds().size();
             rrStatus.setText(n >= 2 ? "Round-robin: " + n + " profiles" : "Round-robin: off (single mode)");
         };
         refreshRR.run();
         Button clearRR = new Button(getContext());
-        clearRR.setText("Clear round-robin");
+        clearRR.setText("Clear selection");
         clearRR.setOnClickListener(view -> {
-            app.setRoundRobinIds("");
+            app.setSelectedIds(null);
+            app.setActiveTunnelId("");
             refreshRR.run();
-            toast("Round-robin cleared");
+            toast("Selection cleared");
         });
         ((ViewGroup) active.getParent()).addView(clearRR);
 

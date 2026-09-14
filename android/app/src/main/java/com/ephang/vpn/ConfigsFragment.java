@@ -59,7 +59,14 @@ public class ConfigsFragment extends Fragment {
         adapter = new TunnelAdapter(new TunnelAdapter.Listener() {
             @Override
             public void onTap(JSONObject tunnel) {
-                tapTunnel(tunnel);
+                // Tap = select / deselect (green frame). No round-robin
+                // menu: every selected profile connects from Home.
+                toggleSelect(tunnel);
+            }
+
+            @Override
+            public void onActions(JSONObject tunnel) {
+                showActions(tunnel);
             }
 
             @Override
@@ -82,26 +89,10 @@ public class ConfigsFragment extends Fragment {
         list.setAdapter(adapter);
 
         v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
-        // Connection happens from Home only: tapping the active card shows
-        // its actions without connecting.
-        activeCard.setOnClickListener(view -> {
-            String id = VPNApplication.getInstance().getActiveTunnelId();
-            if (id == null || id.isEmpty()) {
-                return;
-            }
-            try {
-                String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
-                JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject t = arr.getJSONObject(i);
-                    if (id.equals(t.optString("id", ""))) {
-                        tapTunnel(t);
-                        break;
-                    }
-                }
-            } catch (Exception ignored) {
-            }
-        });
+        // Connection happens from Home only: tapping the header card
+        // explains selection instead of connecting.
+        activeCard.setOnClickListener(view ->
+                toast("Tap profiles below to select them (green = will connect)"));
         v.findViewById(R.id.configs_group_toggle).setOnClickListener(view -> {
             groupExpanded = !groupExpanded;
             list.setVisibility(groupExpanded ? View.VISIBLE : View.GONE);
@@ -142,7 +133,20 @@ public class ConfigsFragment extends Fragment {
         try {
             lastPingText.setText(VPNApplication.getInstance().getLastPingDate());
             JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
-            String active = VPNApplication.getInstance().getActiveTunnelId();
+
+            // Prune selections pointing at deleted profiles.
+            java.util.Set<String> existing = new java.util.HashSet<>();
+            for (int i = 0; i < arr.length(); i++) {
+                existing.add(arr.getJSONObject(i).optString("id", ""));
+            }
+            java.util.LinkedHashSet<String> selected =
+                    VPNApplication.getInstance().getSelectedIds();
+            selected.retainAll(existing);
+            VPNApplication.getInstance().setSelectedIds(selected);
+            // Keep the single-active pointer on the first selected profile
+            // (Home display, restart flow).
+            String first = selected.isEmpty() ? "" : selected.iterator().next();
+            VPNApplication.getInstance().setActiveTunnelId(first);
 
             List<JSONObject> items = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
@@ -160,39 +164,56 @@ public class ConfigsFragment extends Fragment {
             } else {
                 Collections.sort(items, (a, b) -> a.optString("name", "").compareToIgnoreCase(b.optString("name", "")));
             }
-            // Active first.
-            for (int i = 0; i < items.size(); i++) {
-                if (items.get(i).optString("id", "").equals(active)) {
+            // Selected first.
+            for (int i = items.size() - 1; i >= 0; i--) {
+                if (selected.contains(items.get(i).optString("id", ""))) {
                     JSONObject top = items.remove(i);
                     items.add(0, top);
-                    break;
                 }
             }
 
             savedTitle.setText("Saved  (" + arr.length() + ")");
 
-            JSONObject pick = null;
-            for (int i = 0; i < items.size(); i++) {
-                if (items.get(i).optString("id", "").equals(active)) {
-                    pick = items.get(i);
-                    break;
+            activeCard.setVisibility(View.VISIBLE);
+            if (selected.isEmpty()) {
+                activeName.setText("No server selected");
+                activeDetail.setText("Tap profiles below to select them");
+                activeType.setText("");
+                activeCard.setBackgroundResource(R.drawable.card_bg);
+            } else if (selected.size() == 1) {
+                JSONObject pick = null;
+                for (int i = 0; i < items.size(); i++) {
+                    if (items.get(i).optString("id", "").equals(first)) {
+                        pick = items.get(i);
+                        break;
+                    }
                 }
-            }
-            if (pick == null && !items.isEmpty()) {
-                pick = items.get(0);
-            }
-            if (pick != null) {
-                activeCard.setVisibility(View.VISIBLE);
-                activeName.setText(pick.optString("name", "Server"));
-                JSONObject server = pick.optJSONObject("server");
-                String host = server != null ? server.optString("host", "") : "";
-                int port = server != null ? PingUtil.dialPort(server) : 0;
-                activeDetail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
-                activeType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
-                activeCard.setBackgroundResource(
-                        pick.optString("id", "").equals(active) ? R.drawable.card_bg_active : R.drawable.card_bg);
+                if (pick == null && !items.isEmpty()) {
+                    pick = items.get(0);
+                }
+                if (pick != null) {
+                    activeName.setText(pick.optString("name", "Server"));
+                    JSONObject server = pick.optJSONObject("server");
+                    String host = server != null ? server.optString("host", "") : "";
+                    int port = server != null ? PingUtil.dialPort(server) : 0;
+                    activeDetail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
+                    activeType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
+                }
+                activeCard.setBackgroundResource(R.drawable.card_bg_active);
             } else {
-                activeCard.setVisibility(View.GONE);
+                activeName.setText(selected.size() + " profiles selected");
+                StringBuilder names = new StringBuilder();
+                for (JSONObject o : items) {
+                    if (selected.contains(o.optString("id", ""))) {
+                        if (names.length() > 0) {
+                            names.append("  •  ");
+                        }
+                        names.append(o.optString("name", "Server"));
+                    }
+                }
+                activeDetail.setText(names.toString());
+                activeType.setText("round-robin");
+                activeCard.setBackgroundResource(R.drawable.card_bg_active);
             }
 
             JSONArray live = new JSONArray();
@@ -214,7 +235,7 @@ public class ConfigsFragment extends Fragment {
             for (JSONObject o : items) {
                 shown.put(o);
             }
-            adapter.setItems(shown, active, liveMap);
+            adapter.setItems(shown, selected, liveMap);
         } catch (Exception e) {
             Toast.makeText(getContext(), "Load failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
         }
@@ -237,15 +258,19 @@ public class ConfigsFragment extends Fragment {
         JSONObject target = null;
         try {
             JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
-            String active = VPNApplication.getInstance().getActiveTunnelId();
+            java.util.LinkedHashSet<String> selected =
+                    VPNApplication.getInstance().getSelectedIds();
+            String first = selected.isEmpty() ? "" : selected.iterator().next();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
-                if ((active != null && !active.isEmpty() && !t.optString("id", "").equals(active))
-                        || (active == null || active.isEmpty()) && i > 0) {
-                    continue;
+                if (!first.isEmpty()) {
+                    if (t.optString("id", "").equals(first)) {
+                        target = t;
+                        break;
+                    }
+                } else if (target == null) {
+                    target = t;
                 }
-                target = t;
-                break;
             }
         } catch (Exception ignored) {
         }
@@ -269,55 +294,50 @@ public class ConfigsFragment extends Fragment {
         });
     }
 
-    private void tapTunnel(JSONObject tunnel) {
+    /** Tap a card: toggle its selection (green frame = will connect). */
+    private void toggleSelect(JSONObject tunnel) {
+        String id = tunnel.optString("id", "");
+        if (id.isEmpty()) {
+            return;
+        }
+        java.util.LinkedHashSet<String> set =
+                VPNApplication.getInstance().toggleSelected(id);
+        String first = set.isEmpty() ? "" : set.iterator().next();
+        VPNApplication.getInstance().setActiveTunnelId(first);
+        if (set.isEmpty()) {
+            toast("Deselected - no profile will connect");
+        } else if (set.size() == 1) {
+            toast("Selected: " + tunnel.optString("name", "Server"));
+        } else {
+            toast("Selected " + set.size() + " profiles (round-robin)");
+        }
+        reload();
+    }
+
+    /** Long-press a card: Ping / Share / Edit / Delete (no connect here). */
+    private void showActions(JSONObject tunnel) {
         String id = tunnel.optString("id", "");
         String name = tunnel.optString("name", "Server");
-        boolean isActive = id.equals(VPNApplication.getInstance().getActiveTunnelId());
-        boolean inRR = VPNApplication.getInstance().isInRoundRobin(id);
-        java.util.List<String> opts = new java.util.ArrayList<>();
-        if (!isActive) {
-            opts.add("Set active");
-        }
-        opts.add("Ping");
-        opts.add(inRR ? "Remove from round-robin" : "Add to round-robin");
-        opts.add("Edit");
-        String[] options = opts.toArray(new String[0]);
+        String[] options = {"Ping", "Share", "Edit", "Delete"};
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(name)
                 .setItems(options, (d, which) -> {
-                    String action = options[which];
-                    switch (action) {
-                        case "Set active":
-                            VPNApplication.getInstance().setActiveTunnelId(id);
-                            if (TasVpnService.isRunning()) {
-                                TasVpnService.setActiveTunnel(id);
-                            }
-                            toast("Active server set - connect from Home");
-                            reload();
-                            break;
+                    switch (options[which]) {
                         case "Ping":
                             pingOne(tunnel);
                             break;
-                        case "Add to round-robin":
-                        case "Remove from round-robin": {
-                            java.util.LinkedHashSet<String> set =
-                                    VPNApplication.getInstance().toggleRoundRobin(id);
-                            if (set.size() >= 2) {
-                                toast("Round-robin: " + set.size() + " profiles (restart VPN to apply)");
-                            } else if (set.isEmpty()) {
-                                toast("Round-robin cleared (single mode)");
-                            } else {
-                                toast("1 profile in set (need 2+ for round-robin)");
-                            }
-                            reload();
+                        case "Share":
+                            shareTunnel(tunnel);
                             break;
-                        }
                         case "Edit": {
                             Intent i = new Intent(getContext(), TunnelEditorActivity.class);
                             i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, id);
                             startActivity(i);
                             break;
                         }
+                        case "Delete":
+                            confirmDelete(id, name);
+                            break;
                     }
                 })
                 .setNegativeButton("Cancel", null)
@@ -330,10 +350,6 @@ public class ConfigsFragment extends Fragment {
         i.putExtra(Intent.EXTRA_TEXT, tunnel.toString());
         i.putExtra(Intent.EXTRA_SUBJECT, tunnel.optString("name", "Server"));
         startActivity(Intent.createChooser(i, "Share via"));
-    }
-
-    private void showActions(JSONObject tunnel) {
-        tapTunnel(tunnel);
     }
 
     private void pingOne(JSONObject tunnel) {
@@ -362,8 +378,14 @@ public class ConfigsFragment extends Fragment {
                     if (err != null && !err.isEmpty()) {
                         toast("Delete failed");
                     } else {
+                        java.util.LinkedHashSet<String> sel =
+                                VPNApplication.getInstance().getSelectedIds();
+                        if (sel.remove(id)) {
+                            VPNApplication.getInstance().setSelectedIds(sel);
+                        }
                         if (id.equals(VPNApplication.getInstance().getActiveTunnelId())) {
-                            VPNApplication.getInstance().setActiveTunnelId("");
+                            String first = sel.isEmpty() ? "" : sel.iterator().next();
+                            VPNApplication.getInstance().setActiveTunnelId(first);
                         }
                         toast("Deleted");
                         reload();

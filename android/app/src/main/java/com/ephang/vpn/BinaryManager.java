@@ -195,9 +195,11 @@ public class BinaryManager {
         p.put("manage_port", VPNApplication.getInstance().getManagePort());
         p.put("active_tunnel", tunnelId == null ? "" : tunnelId);
         p.put("auto_follow", true);
-        // Round-robin profile set (comma ids). <2 ids = single-profile mode,
-        // the Xray balancer is never initialized then.
-        p.put("round_robin", VPNApplication.getInstance().getRoundRobinIds());
+        // Selected profile set (comma ids). <2 ids = single-profile mode,
+        // 2+ = round-robin: Home connects ALL of them at once.
+        String selCsv = VPNApplication.getInstance().getSelectedCsv();
+        int selCount = selCsv.isEmpty() ? 0 : selCsv.split(",").length;
+        p.put("round_robin", selCount >= 2 ? selCsv : "");
         // Diagnostic log file in the public Download folder.
         p.put("log_dir", downloadDir());
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS

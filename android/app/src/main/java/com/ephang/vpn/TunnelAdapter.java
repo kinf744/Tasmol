@@ -20,6 +20,8 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
     public interface Listener {
         void onTap(JSONObject tunnel);
 
+        void onActions(JSONObject tunnel);
+
         void onShare(JSONObject tunnel);
 
         void onEdit(JSONObject tunnel);
@@ -29,7 +31,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
     private final List<JSONObject> items = new ArrayList<>();
     private final Listener listener;
-    private String activeId = "";
+    private final java.util.Set<String> selectedIds = new java.util.HashSet<>();
     private final java.util.Map<String, String> liveStatus = new java.util.HashMap<>();
     private final java.util.Map<String, Long> pingMs = new java.util.HashMap<>();
 
@@ -37,9 +39,13 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         this.listener = listener;
     }
 
-    public void setItems(JSONArray arr, String activeId, java.util.Map<String, String> liveStatus) {
+    public void setItems(JSONArray arr, java.util.Set<String> selectedIds,
+                         java.util.Map<String, String> liveStatus) {
         items.clear();
-        this.activeId = activeId == null ? "" : activeId;
+        this.selectedIds.clear();
+        if (selectedIds != null) {
+            this.selectedIds.addAll(selectedIds);
+        }
         this.liveStatus.clear();
         if (liveStatus != null) {
             this.liveStatus.putAll(liveStatus);
@@ -87,11 +93,16 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         Long ms = pingMs.get(id);
         h.ping.setText(ms != null ? ms + " ms" : "");
 
-        boolean isActive = id.equals(activeId);
-        h.card.setBackgroundResource(isActive ? R.drawable.card_bg_active : R.drawable.card_bg);
-        h.rr.setVisibility(VPNApplication.getInstance().isInRoundRobin(id) ? View.VISIBLE : View.GONE);
+        boolean isSelected = selectedIds.contains(id);
+        h.card.setBackgroundResource(isSelected ? R.drawable.card_bg_active : R.drawable.card_bg);
+        // Selection frame says it all: no separate round-robin badge.
+        h.rr.setVisibility(View.GONE);
 
         h.card.setOnClickListener(v -> listener.onTap(t));
+        h.card.setOnLongClickListener(v -> {
+            listener.onActions(t);
+            return true;
+        });
         h.share.setOnClickListener(v -> listener.onShare(t));
         h.edit.setOnClickListener(v -> listener.onEdit(t));
         h.delete.setOnClickListener(v -> listener.onDelete(t));

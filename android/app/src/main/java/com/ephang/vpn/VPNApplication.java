@@ -54,27 +54,58 @@ public class VPNApplication extends Application {
         prefs.edit().putString("active_tunnel_id", id == null ? "" : id).apply();
     }
 
-    /** Round-robin profile set as comma-separated ids (2+ = RR mode). */
-    public String getRoundRobinIds() {
-        return prefs.getString("round_robin_ids", "");
-    }
-
-    public void setRoundRobinIds(String csv) {
-        prefs.edit().putString("round_robin_ids", csv == null ? "" : csv).apply();
-    }
-
-    /** Toggle one id in the round-robin set. Returns the new set. */
-    public java.util.LinkedHashSet<String> toggleRoundRobin(String id) {
+    /** Selected profiles (multi-select). 1 selected = single mode,
+     *  2+ = round-robin mode: Home connects ALL of them at once. */
+    public java.util.LinkedHashSet<String> getSelectedIds() {
+        String csv = prefs.getString("selected_ids", null);
+        if (csv == null) {
+            // One-time migration from the old round-robin key.
+            csv = prefs.getString("round_robin_ids", "");
+            prefs.edit().putString("selected_ids", csv).remove("round_robin_ids").apply();
+        }
         java.util.LinkedHashSet<String> set = new java.util.LinkedHashSet<>();
-        for (String part : getRoundRobinIds().split(",")) {
+        for (String part : csv.split(",")) {
             part = part.trim();
             if (!part.isEmpty()) {
                 set.add(part);
             }
         }
+        return set;
+    }
+
+    public void setSelectedIds(java.util.Collection<String> ids) {
+        StringBuilder sb = new StringBuilder();
+        if (ids != null) {
+            for (String s : ids) {
+                if (s == null || s.trim().isEmpty()) {
+                    continue;
+                }
+                if (sb.length() > 0) {
+                    sb.append(',');
+                }
+                sb.append(s.trim());
+            }
+        }
+        prefs.edit().putString("selected_ids", sb.toString()).apply();
+    }
+
+    /** Toggle one id in the selection. Returns the new set. */
+    public java.util.LinkedHashSet<String> toggleSelected(String id) {
+        java.util.LinkedHashSet<String> set = getSelectedIds();
         if (!set.remove(id)) {
             set.add(id);
         }
+        setSelectedIds(set);
+        return set;
+    }
+
+    public boolean isSelected(String id) {
+        return id != null && getSelectedIds().contains(id);
+    }
+
+    /** Selection as comma-separated ids (for the Go round_robin param). */
+    public String getSelectedCsv() {
+        java.util.LinkedHashSet<String> set = getSelectedIds();
         StringBuilder sb = new StringBuilder();
         for (String s : set) {
             if (sb.length() > 0) {
@@ -82,17 +113,7 @@ public class VPNApplication extends Application {
             }
             sb.append(s);
         }
-        setRoundRobinIds(sb.toString());
-        return set;
-    }
-
-    public boolean isInRoundRobin(String id) {
-        for (String part : getRoundRobinIds().split(",")) {
-            if (part.trim().equals(id)) {
-                return true;
-            }
-        }
-        return false;
+        return sb.toString();
     }
 
     public void setTunnelPing(String id, long ms) {

@@ -16,9 +16,6 @@ import androidx.fragment.app.Fragment;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
-import java.util.List;
-import java.util.Map;
-
 /**
  * Ephang VPN - modern native home (no browser/WebView dependency, fully
  * offline-capable). Bottom tabs: Home / Servers / Tools / Settings.
@@ -218,44 +215,25 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void pickTunnelAndConnect() {
-        List<Map<String, String>> tunnels;
-        try {
-            tunnels = BinaryManager.listTunnels(this);
-        } catch (Exception e) {
-            tunnels = null;
-        }
-        if (tunnels == null || tunnels.isEmpty()) {
+        java.util.LinkedHashSet<String> selected = app.getSelectedIds();
+        if (selected.isEmpty()) {
             new AlertDialog.Builder(this)
-                    .setTitle("No server")
-                    .setMessage("No server is configured yet. Open the Servers tab and tap + to add one.")
+                    .setTitle("No server selected")
+                    .setMessage("Tap one or more profiles in Configs to select them "
+                            + "(green frame), then connect. 2+ selected = round-robin.")
                     .setPositiveButton("Open Configs", (d, w) -> bottomNav.setSelectedItemId(R.id.nav_configs))
                     .setNegativeButton("Cancel", null)
                     .show();
             return;
         }
-        if (tunnels.size() == 1 && tunnels.get(0).containsKey("id")) {
-            requestVpnPermission(tunnels.get(0).get("id"));
-            return;
+        // Home connects ALL selected profiles at once (single mode for 1,
+        // round-robin for 2+).
+        String first = selected.iterator().next();
+        app.setActiveTunnelId(first);
+        if (selected.size() >= 2) {
+            showToast("Connecting " + selected.size() + " profiles (round-robin)...");
         }
-        final List<Map<String, String>> tunnelList = tunnels;
-        String[] names = new String[tunnelList.size()];
-        for (int i = 0; i < tunnelList.size(); i++) {
-            String name = tunnelList.get(i).get("name");
-            String type = tunnelList.get(i).get("type");
-            names[i] = (name != null ? name : "server") + (type != null ? " (" + type + ")" : "");
-        }
-        new AlertDialog.Builder(this)
-                .setTitle("Choose server")
-                .setItems(names, (d, which) -> {
-                    String id = tunnelList.get(which).get("id");
-                    if (id == null || id.isEmpty()) {
-                        showToast("Server has no id");
-                        return;
-                    }
-                    requestVpnPermission(id);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        requestVpnPermission(first);
     }
 
     private void requestVpnPermission(String tunnelId) {
