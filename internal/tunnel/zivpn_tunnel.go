@@ -308,6 +308,7 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 	t.mu.RUnlock()
 
 	if len(procs) == 0 {
+		Tracef("[zivpn][lb] no upstreams, dropping client")
 		client.Close()
 		return
 	}
@@ -316,6 +317,7 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 
 	upstream, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", up.uzPort), 5*time.Second)
 	if err != nil {
+		Tracef("[zivpn][lb] upstream 127.0.0.1:%d dial failed: %v", up.uzPort, err)
 		client.Close()
 		return
 	}

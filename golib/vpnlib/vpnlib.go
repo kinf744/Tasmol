@@ -26,9 +26,11 @@
 package vpnlib
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -448,6 +450,8 @@ func (c *Controller) startFrontLocked() error {
 	}
 
 	bin := tunnel.LookupBin(tunnel.BinDir, tunnel.BinXray)
+	tunnel.Tracef("[front] binary=%q config=%q", bin, cfgPath)
+	tunnel.Tracef("[front] config=%s", string(raw))
 	cmd := exec.Command(bin, "run", "-c", cfgPath)
 	cmd.Env = append(os.Environ(),
 		"XRAY_TUN_FD="+frontChildFd,
@@ -457,14 +461,28 @@ func (c *Controller) startFrontLocked() error {
 	// ExtraFiles[0] is inherited by the child as fd 3.
 	cmd.ExtraFiles = []*os.File{tunFile}
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		os.Remove(cfgPath)
+		return fmt.Errorf("xray front stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		os.Remove(cfgPath)
+		return fmt.Errorf("xray front stderr pipe: %w", err)
+	}
+
 	if err := cmd.Start(); err != nil {
 		os.Remove(cfgPath)
 		return fmt.Errorf("xray front start: %w", err)
 	}
+	tunnel.Tracef("[front] process started pid=%d", cmd.Process.Pid)
 
 	c.front = cmd
 	c.frontCfg = cfgPath
 	c.frontAlive = true
+	go pipeToLog(stdout, "[xray][out]")
+	go pipeToLog(stderr, "[xray][err]")
 	go c.watchFront(cmd)
 
 	// Brief grace period: a broken config kills the child immediately.
@@ -491,7 +509,8 @@ func (c *Controller) frontProcessAlive() bool {
 
 // watchFront flips frontAlive off when the child exits.
 func (c *Controller) watchFront(cmd *exec.Cmd) {
-	_ = cmd.Wait()
+	err := cmd.Wait()
+	tunnel.Tracef("[front] process exited: %v", err)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.front == cmd {
@@ -875,6 +894,15 @@ func ListTunnels(configPath string) string {
 	}
 	b, _ := json.Marshal(out)
 	return string(b)
+}
+
+// pipeToLog streams a child process pipe into the activity log.
+func pipeToLog(r io.Reader, tag string) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 64*1024)
+	for sc.Scan() {
+		tunnel.Tracef("%s %s", tag, sc.Text())
+	}
 }
 
 func waitTCP(addr string, timeout time.Duration) error {
