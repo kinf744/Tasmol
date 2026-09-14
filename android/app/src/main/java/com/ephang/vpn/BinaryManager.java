@@ -176,12 +176,18 @@ public class BinaryManager {
         JSONObject p = new JSONObject();
         p.put("config_path", configPath(ctx).getAbsolutePath());
 
-        // ensureReady() copies the .so binaries from nativeLibraryDir (and
-        // its ABI subdirs) into filesDir/bin with plain names (zivpn, xray,
-        // slowdns). Executing from filesDir/bin is deterministic across
-        // Android versions (incl. Android Go 32-bit devices).
-        p.put("bin_dir", binDir(ctx).getAbsolutePath());
-        p.put("bin_names", new JSONObject());
+        // Execute the shipped .so binaries straight from the native library
+        // dir (like the reference app). They were extracted there by the
+        // PackageManager with an SELinux context that allows execution,
+        // unlike filesDir copies on hardened devices (itel/Transsion).
+        // bin_names maps the logical name to the on-disk .so name.
+        String nativeDir = ctx.getApplicationInfo().nativeLibraryDir;
+        p.put("bin_dir", nativeDir);
+        JSONObject names = new JSONObject();
+        names.put("zivpn", "lib_zivpn.so");
+        names.put("xray", "lib_xray.so");
+        names.put("slowdns", "lib_slowdns.so");
+        p.put("bin_names", names);
 
         p.put("native_ssh", true);
         p.put("tun_fd", tunFd);

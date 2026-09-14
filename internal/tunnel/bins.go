@@ -65,12 +65,24 @@ func LookupBin(binDir, name string) string {
 	if binDir != "" {
 		p := filepath.Join(binDir, name)
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			Tracef("[bins] resolved %q -> %q", name, p)
 			return p
 		}
+		// Some devices nest ABI dirs under nativeLibraryDir.
+		for _, arch := range []string{"arm", "armeabi-v7a", "arm64-v8a", "x86", "x86_64"} {
+			p := filepath.Join(binDir, arch, name)
+			if st, err := os.Stat(p); err == nil && !st.IsDir() {
+				Tracef("[bins] resolved %q -> %q (abi subdir %q)", name, p, arch)
+				return p
+			}
+		}
+		Tracef("[bins] %q NOT found under %q", name, binDir)
 	}
 	if p, err := exec.LookPath(name); err == nil {
+		Tracef("[bins] resolved %q via PATH -> %q", name, p)
 		return p
 	}
+	Tracef("[bins] %q unresolved, returning bare name", name)
 	return name
 }
 
