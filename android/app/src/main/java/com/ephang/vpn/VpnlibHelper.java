@@ -14,6 +14,10 @@ public final class VpnlibHelper {
         return Vpnlib.listTunnels(configPath);
     }
 
+    public static String socksAddrFor(String configPath, String id) {
+        return Vpnlib.socksAddrFor(configPath, id);
+    }
+
     public static String parseLink(String link) {
         return Vpnlib.parseLink(link);
     }

@@ -199,6 +199,15 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	procs := make([]*uzProc, 0, len(ranges))
 	for i, rng := range ranges {
 		uzPort := lbPort + 1 + i
+		// A previous session may still be releasing this port on an
+		// immediate reconnect: wait for it instead of failing.
+		if err := waitPortFree(uzPort, 4*time.Second); err != nil {
+			Tracef("[zivpn][%d] %v", i, err)
+			t.killProcsLocked(procs)
+			t.status = StatusError
+			t.setError(err.Error())
+			return err
+		}
 		cfgJSON, err := buildUzConfig(ip, rng, password, DefaultZivpnObfsPassword, uzPort)
 		if err != nil {
 			Tracef("[zivpn] buildUzConfig error: %v", err)
@@ -252,6 +261,13 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	}
 
 	// Round-robin balancer unifying the uz SOCKS endpoints.
+	if err := waitPortFree(lbPort, 4*time.Second); err != nil {
+		Tracef("[zivpn] balancer %v", err)
+		t.killProcsLocked(procs)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", lbPort))
 	if err != nil {
 		t.killProcsLocked(procs)
@@ -403,7 +419,37 @@ func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
 	for _, up := range procs {
 		if up.cmd != nil && up.cmd.Process != nil {
 			_ = up.cmd.Process.Kill()
+			// Reap the zombie so kernel sockets are fully released
+			// before any immediate reconnect rebinds the ports.
+			done := make(chan struct{})
+			go func() {
+				_ = up.cmd.Wait()
+				close(done)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+			}
 		}
+	}
+}
+
+// waitPortFree waits until nothing listens on 127.0.0.1:port (a previous
+// session shutting down). Without this, an immediate reconnect can race
+// the dying processes still holding uz/LB ports.
+func waitPortFree(port int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 300*time.Millisecond)
+		if err != nil {
+			return nil // nobody listening: free
+		}
+		conn.Close()
+		if time.Now().After(deadline) {
+			return fmt.Errorf("port %d still busy", port)
+		}
+		Tracef("[zivpn] port %d busy, waiting for previous session...", port)
+		time.Sleep(250 * time.Millisecond)
 	}
 }
 

@@ -157,51 +157,44 @@ public class HomeFragment extends Fragment {
     private void pingActive() {
         pingBtn.setEnabled(false);
         pingBtn.setText("...");
-        new Thread(() -> {
-            long ms = -1;
-            String label = "";
-            String tid = "";
-            try {
-                String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
-                JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
-                String active = VPNApplication.getInstance().getActiveTunnelId();
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject t = arr.getJSONObject(i);
-                    if ((active != null && !active.isEmpty() && !t.optString("id", "").equals(active))
-                            || (active == null || active.isEmpty()) && i > 0) {
-                        continue;
-                    }
-                    JSONObject server = t.optJSONObject("server");
-                    if (server == null) {
-                        continue;
-                    }
-                    String host = server.optString("host", "");
-                    int port = PingUtil.dialPort(server);
-                    label = t.optString("name", "");
-                    tid = t.optString("id", "");
-                    if (!host.isEmpty() && port > 0) {
-                        ms = PingUtil.ping(host, port, 4000);
-                    }
-                    break;
+        JSONObject target = null;
+        String active = VPNApplication.getInstance().getActiveTunnelId();
+        try {
+            String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if ((active != null && !active.isEmpty() && !t.optString("id", "").equals(active))
+                        || (active == null || active.isEmpty()) && i > 0) {
+                    continue;
                 }
-            } catch (Exception ignored) {
+                target = t;
+                break;
             }
-            final long result = ms;
-            final String name = label;
-            final String id = tid;
-            bg.post(() -> {
-                pingBtn.setEnabled(true);
-                pingBtn.setText("PING");
-                if (result >= 0) {
-                    if (!id.isEmpty()) {
-                        VPNApplication.getInstance().setTunnelPing(id, result);
-                    }
-                    Toast.makeText(getContext(), name + ": " + result + " ms", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(getContext(), "Ping failed", Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
+        if (target == null) {
+            pingBtn.setEnabled(true);
+            pingBtn.setText("PING");
+            Toast.makeText(getContext(), "No server selected", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final String tid = target.optString("id", "");
+        final String label = target.optString("name", "");
+        TunnelPing.ping(requireContext(), target, (ms, via) -> {
+            pingBtn.setEnabled(true);
+            pingBtn.setText("PING");
+            if (ms >= 0) {
+                if (!tid.isEmpty()) {
+                    VPNApplication.getInstance().setTunnelPing(tid, ms);
                 }
-            });
-        }).start();
+                Toast.makeText(getContext(), label + ": " + ms + " ms", Toast.LENGTH_SHORT).show();
+            } else if (ms == -2) {
+                Toast.makeText(getContext(), "UDP server: TCP port closed (normal). Connect, then PING measures real latency.", Toast.LENGTH_LONG).show();
+            } else {
+                Toast.makeText(getContext(), "Ping failed", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     private static String prettyType(String type) {

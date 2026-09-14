@@ -226,50 +226,39 @@ public class ConfigsFragment extends Fragment {
     }
 
     private void pingActive() {
-        new Thread(() -> {
-            long ms = -1;
-            String id = "";
-            try {
-                JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
-                String active = VPNApplication.getInstance().getActiveTunnelId();
-                for (int i = 0; i < arr.length(); i++) {
-                    JSONObject t = arr.getJSONObject(i);
-                    if (active != null && !active.isEmpty() && !t.optString("id", "").equals(active)) {
-                        continue;
-                    }
-                    if (active == null || active.isEmpty()) {
-                        if (i > 0) {
-                            continue;
-                        }
-                        id = t.optString("id", "");
-                    } else {
-                        id = active;
-                    }
-                    JSONObject server = t.optJSONObject("server");
-                    if (server == null) {
-                        continue;
-                    }
-                    String host = server.optString("host", "");
-                    int port = PingUtil.dialPort(server);
-                    if (!host.isEmpty() && port > 0) {
-                        ms = PingUtil.ping(host, port, 4000);
-                    }
-                    break;
+        JSONObject target = null;
+        try {
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            String active = VPNApplication.getInstance().getActiveTunnelId();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if ((active != null && !active.isEmpty() && !t.optString("id", "").equals(active))
+                        || (active == null || active.isEmpty()) && i > 0) {
+                    continue;
                 }
-            } catch (Exception ignored) {
+                target = t;
+                break;
             }
-            final long result = ms;
-            final String tid = id;
-            bg.post(() -> {
-                if (result >= 0 && !tid.isEmpty()) {
-                    VPNApplication.getInstance().setTunnelPing(tid, result);
-                    Toast.makeText(getContext(), result + " ms", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(getContext(), "Ping failed", Toast.LENGTH_SHORT).show();
+        } catch (Exception ignored) {
+        }
+        if (target == null) {
+            toast("No server selected");
+            return;
+        }
+        final String tid = target.optString("id", "");
+        TunnelPing.ping(requireContext(), target, (ms, via) -> {
+            if (ms >= 0) {
+                if (!tid.isEmpty()) {
+                    VPNApplication.getInstance().setTunnelPing(tid, ms);
                 }
-                reload();
-            });
-        }).start();
+                toast(ms + " ms");
+            } else if (ms == -2) {
+                toast("UDP server: TCP closed (normal). Connect, then PING measures real latency.");
+            } else {
+                toast("Ping failed");
+            }
+            reload();
+        });
     }
 
     private void tapTunnel(JSONObject tunnel) {
@@ -326,29 +315,20 @@ public class ConfigsFragment extends Fragment {
     }
 
     private void pingOne(JSONObject tunnel) {
-        String id = tunnel.optString("id", "");
-        JSONObject server = tunnel.optJSONObject("server");
-        if (server == null) {
-            return;
-        }
-        String host = server.optString("host", "");
-        int port = PingUtil.dialPort(server);
-        if (host.isEmpty() || port <= 0) {
-            toast("Nothing to ping");
-            return;
-        }
-        new Thread(() -> {
-            long ms = PingUtil.ping(host, port, 4000);
-            bg.post(() -> {
-                if (ms >= 0) {
+        final String id = tunnel.optString("id", "");
+        TunnelPing.ping(requireContext(), tunnel, (ms, via) -> {
+            if (ms >= 0) {
+                if (!id.isEmpty()) {
                     VPNApplication.getInstance().setTunnelPing(id, ms);
-                    toast(ms + " ms");
-                } else {
-                    toast("Ping failed");
                 }
-                reload();
-            });
-        }).start();
+                toast(ms + " ms");
+            } else if (ms == -2) {
+                toast("UDP server: TCP closed (normal). Connect, then PING measures real latency.");
+            } else {
+                toast("Ping failed");
+            }
+            reload();
+        });
     }
 
     private void confirmDelete(String id, String name) {

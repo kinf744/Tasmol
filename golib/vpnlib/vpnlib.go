@@ -872,6 +872,28 @@ func ListTunnels(configPath string) string {
 	return string(b)
 }
 
+// SocksAddrFor returns the local SOCKS endpoint of a tunnel
+// ({"socks":"127.0.0.1:port","type":"..."}) without starting anything.
+// Used by the native UDP-DNS ping while connected.
+func SocksAddrFor(configPath, id string) string {
+	mgr, err := openConfigManager(configPath)
+	if err != nil {
+		return errJSON(err)
+	}
+	defer mgr.Close()
+	for i := range mgr.Get().Tunnels {
+		tc := &mgr.Get().Tunnels[i]
+		if tc.ID == id {
+			b, _ := json.Marshal(map[string]string{
+				"socks": tunnel.SocksAddr(tc),
+				"type":  string(tc.Type),
+			})
+			return string(b)
+		}
+	}
+	return errJSON(fmt.Errorf("tunnel not found: %s", id))
+}
+
 func waitTCP(addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {

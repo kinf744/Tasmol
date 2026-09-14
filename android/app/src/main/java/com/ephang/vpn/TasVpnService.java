@@ -109,6 +109,16 @@ public class TasVpnService extends VpnService {
             return;
         }
         lastError = null;
+        // Foreground immediately: the data plane can take 5-20s (process
+        // startups, readiness probes). Blocking the main thread here is an
+        // ANR ("wait / force close"), and the system kills services that
+        // don't call startForeground() in time.
+        startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
+        final String requestedId = tunnelId;
+        new Thread(() -> startSessionBackground(requestedId), "ephang-connect").start();
+    }
+
+    private void startSessionBackground(String tunnelId) {
         try {
             // Ensure bundled official binaries + config are staged.
             BinaryManager.ensureReady(this);
@@ -157,7 +167,7 @@ public class TasVpnService extends VpnService {
             activeTunnelId = tunnelId;
             VPNApplication.getInstance().setActiveTunnelId(tunnelId);
 
-            startForeground(NOTIFICATION_ID, buildNotification("Connected (" + tunnelId + ")"));
+            notifyText("Connected");
             Log.i(TAG, "VPN session running");
             logEvent("connected (" + tunnelId + ")");
         } catch (Exception e) {
@@ -171,26 +181,31 @@ public class TasVpnService extends VpnService {
     }
 
     private void stopSession() {
-        try {
-            if (controller != null) {
-                invokeStop(controller);
+        // Heavy teardown (process kills, stack drain) runs off the main
+        // thread to avoid ANR dialogs.
+        new Thread(() -> {
+            try {
+                if (controller != null) {
+                    invokeStop(controller);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "controller stop failed", e);
+            } finally {
+                controller = null;
+                activeTunnelId = null;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "controller stop failed", e);
-        } finally {
-            controller = null;
-            activeTunnelId = null;
-        }
-        try {
-            if (tunFd != null) {
-                tunFd.close();
+            try {
+                if (tunFd != null) {
+                    tunFd.close();
+                }
+            } catch (Exception ignored) {
+            } finally {
+                tunFd = null;
             }
-        } catch (Exception ignored) {
-        } finally {
-            tunFd = null;
-        }
-        logEvent("disconnected");
-        stopForeground(true);
+            logEvent("disconnected");
+            stopForeground(true);
+            stopSelf();
+        }, "ephang-disconnect").start();
     }
 
     @Override
@@ -272,6 +287,18 @@ public class TasVpnService extends VpnService {
                 .setContentIntent(pi)
                 .setOngoing(true)
                 .build();
+    }
+
+    /** Refresh the foreground notification text (call from any thread). */
+    private void notifyText(String text) {
+        try {
+            NotificationManager nm = getSystemService(NotificationManager.class);
+            if (nm != null) {
+                nm.notify(NOTIFICATION_ID, buildNotification(text));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "notify failed", e);
+        }
     }
 
     /** Best-effort pretty status for the native UI. */
