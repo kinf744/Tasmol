@@ -1,8 +1,10 @@
 package tunnel
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"time"
@@ -52,35 +54,70 @@ func DnsttDomain(cfg *config.TunnelConfig) string {
 	return cfg.Server.Hostname
 }
 
+// DnsttPubKey resolves the dnstt server public key (hex). Advanced
+// ["slowdns_pubkey"] wins when the same config also carries another key
+// (e.g. a Reality public key in server.public_key).
+func DnsttPubKey(cfg *config.TunnelConfig) string {
+	if v := advStr(cfg.Advanced, "slowdns_pubkey", ""); v != "" {
+		return v
+	}
+	return cfg.Server.PublicKey
+}
+
 // DnsttArgs builds the official dnstt-client command line.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	return []string{
 		"-udp", DnsttResolver(cfg),
-		"-pubkey", cfg.Server.PublicKey,
+		"-pubkey", strings.TrimSpace(DnsttPubKey(cfg)),
 		DnsttDomain(cfg),
 		fmt.Sprintf("127.0.0.1:%d", fwdPort),
 	}
 }
 
-// StartDnstt validates the SlowDNS settings, starts dnstt-client and blocks
-// until the local forward port answers. Call it WITHOUT holding the tunnel
-// mutex (it may wait up to ~20s).
+// StartDnstt validates the SlowDNS settings, starts dnstt-client, streams
+// its output to the activity log and blocks until the local forward port
+// answers. Call it WITHOUT holding the tunnel mutex (it may wait ~20s).
 func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*exec.Cmd, error) {
 	if DnsttDomain(cfg) == "" {
 		return nil, fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
-	if cfg.Server.PublicKey == "" {
+	if DnsttPubKey(cfg) == "" {
 		return nil, fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 
-	cmd := exec.CommandContext(ctx, LookupBin(BinDir, BinSlowDNS), DnsttArgs(cfg, fwdPort)...)
+	bin := LookupBin(BinDir, BinSlowDNS)
+	args := DnsttArgs(cfg, fwdPort)
+	Tracef("[slowdns] binary=%q args=-udp %s -pubkey %.12s... %s 127.0.0.1:%d",
+		bin, DnsttResolver(cfg), DnsttPubKey(cfg), DnsttDomain(cfg), fwdPort)
+	cmd := exec.CommandContext(ctx, bin, args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("slowdns stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return nil, fmt.Errorf("slowdns stderr pipe: %w", err)
+	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
 	}
+	Tracef("[slowdns] process started pid=%d", cmd.Process.Pid)
+	go pipeLinesToLog(stdout, "[slowdns][out]")
+	go pipeLinesToLog(stderr, "[slowdns][err]")
 
 	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", fwdPort), 20*time.Second); err != nil {
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("slowdns forward not ready: %w", err)
 	}
+	Tracef("[slowdns] forward 127.0.0.1:%d ready", fwdPort)
 	return cmd, nil
+}
+
+// pipeLinesToLog streams a child process pipe into the activity log.
+func pipeLinesToLog(r io.Reader, tag string) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 64*1024), 64*1024)
+	for sc.Scan() {
+		Tracef("%s %s", tag, sc.Text())
+	}
 }

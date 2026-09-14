@@ -101,6 +101,15 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 
 	outbound := SlowDNSOutbound(t.config, t.fwdPort())
 
+	strategy := t.config.Routing.DomainStrategy
+	if strategy == "" {
+		strategy = "AsIs"
+	}
+	dnsCfg := t.config.Routing.DNS
+	if len(dnsCfg.Servers) == 0 && len(dnsCfg.Hosts) == 0 {
+		dnsCfg.Servers = []string{"1.1.1.1", "8.8.8.8"}
+	}
+
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
 			"loglevel": "warning",
@@ -108,10 +117,10 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		"inbounds":  []interface{}{inbound},
 		"outbounds": []interface{}{outbound},
 		"routing": map[string]interface{}{
-			"domainStrategy": t.config.Routing.DomainStrategy,
+			"domainStrategy": strategy,
 			"rules":          t.config.Routing.Rules,
 		},
-		"dns": t.config.Routing.DNS,
+		"dns": dnsCfg,
 	}
 
 	data, err := json.MarshalIndent(xrayConfig, "", "  ")
@@ -272,8 +281,25 @@ func (t *XraySlowDNSTunnel) Restart(ctx context.Context) error {
 }
 
 func (t *XraySlowDNSTunnel) monitorProcesses() {
-	xrayErr := t.xrayCmd.Wait()
-	slowdnsErr := t.slowdnscmd.Wait()
+	xrayDone := make(chan error, 1)
+	dnsDone := make(chan error, 1)
+	go func() { xrayDone <- t.xrayCmd.Wait() }()
+	go func() { dnsDone <- t.slowdnscmd.Wait() }()
+
+	var xrayErr, slowdnsErr error
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-xrayDone:
+			xrayErr = err
+			Tracef("[xray-slowdns] xray exited: %v", err)
+		case err := <-dnsDone:
+			slowdnsErr = err
+			Tracef("[xray-slowdns] slowdns exited: %v", err)
+		}
+		if t.Status() != StatusRunning {
+			return
+		}
+	}
 	Tracef("[xray-slowdns] exited xray=%v slowdns=%v", xrayErr, slowdnsErr)
 
 	t.mu.Lock()

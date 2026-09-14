@@ -61,7 +61,7 @@ func (t *SSHSlowDNSTunnel) Stats() Stats {
 func (t *SSHSlowDNSTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *SSHSlowDNSTunnel) fwdPort() int {
-	return advInt(t.config.Advanced, "fwd_port", 2222)
+	return DnsttForwardPort(t.config, DefaultSSHSlowDNSFwdPort)
 }
 
 func (t *SSHSlowDNSTunnel) socksPort() int {
@@ -69,28 +69,11 @@ func (t *SSHSlowDNSTunnel) socksPort() int {
 }
 
 func (t *SSHSlowDNSTunnel) resolver() string {
-	if t.config.Server.DNSResolver != "" {
-		return t.config.Server.DNSResolver
-	}
-	return advStr(t.config.Advanced, "dns_resolver", "8.8.8.8")
+	return DnsttResolver(t.config)
 }
 
 func (t *SSHSlowDNSTunnel) nsDomain() string {
-	if t.config.Server.Nameserver != "" {
-		return t.config.Server.Nameserver
-	}
-	return t.config.Server.Hostname
-}
-
-// buildSlowDNSArgs builds the official dnstt-client invocation:
-// slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
-func (t *SSHSlowDNSTunnel) buildSlowDNSArgs() []string {
-	return []string{
-		"-udp", t.resolver() + ":53",
-		"-pubkey", t.config.Server.PublicKey,
-		t.nsDomain(),
-		fmt.Sprintf("127.0.0.1:%d", t.fwdPort()),
-	}
+	return DnsttDomain(t.config)
 }
 
 // buildSSHArgs connects SSH through the local dnstt forward and exposes a
@@ -140,26 +123,17 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	slowdnsArgs := t.buildSlowDNSArgs()
-	t.slowdnscmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSlowDNS), slowdnsArgs...)
-
-	if err := t.slowdnscmd.Start(); err != nil {
-		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS start failed: %v", err))
-		return fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
-	}
-
-	// Wait until dnstt exposes the forwarded SSH port before dialing SSH.
+	// dnstt first (shared helper with output capture), then SSH through it.
 	t.mu.Unlock()
-	fwdErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.fwdPort()), 20*time.Second)
+	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
 
-	if fwdErr != nil {
-		t.slowdnscmd.Process.Kill()
+	if err != nil {
 		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS forward not ready: %v", fwdErr))
-		return fmt.Errorf("slowdns forward not ready: %w", fwdErr)
+		t.setError(err.Error())
+		return err
 	}
+	t.slowdnscmd = dnsttCmd
 
 	sshArgs := t.buildSSHArgs()
 	t.sshCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), sshArgs...)

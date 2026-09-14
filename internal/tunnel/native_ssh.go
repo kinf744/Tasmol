@@ -487,30 +487,18 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	slowdnsArgs := []string{
-		"-udp", t.resolver() + ":53",
-		"-pubkey", t.config.Server.PublicKey,
-		t.nsDomain(),
-		fmt.Sprintf("127.0.0.1:%d", t.fwdPort()),
-	}
-	t.slowdnscmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSlowDNS), slowdnsArgs...)
-	if err := t.slowdnscmd.Start(); err != nil {
-		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS start failed: %v", err))
-		return fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
-	}
-
+	// dnstt first (shared helper with output capture).
 	t.mu.Unlock()
-	fwdErr := waitForTCP(fmt.Sprintf("127.0.0.1:%d", t.fwdPort()), 20*time.Second)
-	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", t.fwdPort()))
+	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
 
-	if fwdErr != nil {
-		t.slowdnscmd.Process.Kill()
+	if err != nil {
 		t.status = StatusError
-		t.setError(fmt.Sprintf("SlowDNS forward not ready: %v", fwdErr))
-		return fmt.Errorf("slowdns forward not ready: %w", fwdErr)
+		t.setError(err.Error())
+		return err
 	}
+	t.slowdnscmd = dnsttCmd
+	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", t.fwdPort()))
 	if dialErr != nil {
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
