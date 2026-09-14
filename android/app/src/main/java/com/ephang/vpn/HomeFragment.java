@@ -94,10 +94,8 @@ public class HomeFragment extends Fragment {
         }
         int green = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_green);
         int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
-        int grey = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_grey);
         boolean running = TasVpnService.isRunning();
         if (!running) {
-            String err = TasVpnService.getLastError();
             // Launching / (re)connecting: stay on CONNECTING in red.
             if (TasVpnService.isStarting()) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
@@ -108,9 +106,11 @@ public class HomeFragment extends Fragment {
                 upText.setText("0 B");
                 return;
             }
+            // VPN never launched (or stopped): no status at all.
+            // Failures are reported via toast + Logs tab, never as a
+            // persistent on-screen state.
             ring.setBackgroundResource(R.drawable.ring_power_off);
-            statusText.setText(err != null ? "[ ERROR ]" : "[ NOT CONNECTED ]");
-            statusText.setTextColor(err != null ? red : grey);
+            statusText.setText("");
             uptimeText.setText("--:--:--");
             downText.setText("0 B");
             upText.setText("0 B");
