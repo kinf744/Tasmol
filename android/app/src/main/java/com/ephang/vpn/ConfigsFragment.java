@@ -91,7 +91,7 @@ public class ConfigsFragment extends Fragment {
         v.findViewById(R.id.configs_group_toggle).setOnClickListener(view -> {
             groupExpanded = !groupExpanded;
             list.setVisibility(groupExpanded ? View.VISIBLE : View.GONE);
-            v.findViewById(R.id.configs_group_chevron).setRotation(groupExpanded ? 0 : -90);
+            view.setRotation(groupExpanded ? 0 : -90);
         });
         v.findViewById(R.id.configs_group_menu).setOnClickListener(view -> showSortMenu());
 
