@@ -7,10 +7,12 @@ import android.os.Looper;
 import org.json.JSONObject;
 
 /**
- * Unified ping: while connected, measures real end-to-end latency with a
- * DNS query through the tunnel's own SOCKS (works for UDP tunnels like
- * Zivpn where TCP probes always fail); otherwise falls back to a TCP
- * connect probe of host:port.
+ * Unified ping. While connected, measures real end-to-end latency through
+ * the tunnel's own SOCKS, trying in order:
+ *   1. UDP ASSOCIATE + DNS query ("udp") — best for UDP-capable upstreams;
+ *   2. SOCKS CONNECT to 8.8.8.8:53 ("tun") — works with ANY SOCKS,
+ *      including TCP-only ones (uz, native SSH);
+ * otherwise falls back to a direct TCP connect probe of host:port.
  */
 public final class TunnelPing {
     private TunnelPing() {
@@ -43,6 +45,12 @@ public final class TunnelPing {
                             if (hp.length == 2) {
                                 ms = SocksUdpPing.ping(hp[0], Integer.parseInt(hp[1]), 5000);
                                 via = "udp";
+                                if (ms < 0) {
+                                    // TCP-only SOCKS (uz, native SSH): CONNECT
+                                    // through the tunnel instead.
+                                    ms = SocksTcpPing.ping(hp[0], Integer.parseInt(hp[1]), 5000);
+                                    via = "tun";
+                                }
                             }
                         }
                     } catch (Exception ignored) {

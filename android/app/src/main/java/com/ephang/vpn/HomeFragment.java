@@ -236,7 +236,7 @@ public class HomeFragment extends Fragment {
                 }
                 Toast.makeText(getContext(), label + ": " + ms + " ms", Toast.LENGTH_SHORT).show();
             } else if (ms == -2) {
-                Toast.makeText(getContext(), "UDP server: TCP port closed (normal). Connect, then PING measures real latency.", Toast.LENGTH_LONG).show();
+                Toast.makeText(getContext(), "UDP-only server and VPN not connected: connect first, then PING shows live latency.", Toast.LENGTH_LONG).show();
             } else {
                 Toast.makeText(getContext(), "Ping failed", Toast.LENGTH_SHORT).show();
             }
