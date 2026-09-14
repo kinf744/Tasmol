@@ -200,6 +200,9 @@ public class BinaryManager {
         p.put("round_robin", VPNApplication.getInstance().getRoundRobinIds());
         // Diagnostic log file in the public Download folder.
         p.put("log_dir", downloadDir());
+        // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
+        // is unreachable through the tunnel).
+        p.put("dns_ip", "8.8.8.8");
         return p.toString();
     }
 

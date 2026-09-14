@@ -68,6 +68,11 @@ type startParams struct {
 	ManagePort   int               `json:"manage_port"`
 	ActiveTunnel string            `json:"active_tunnel"`
 	AutoFollow   bool              `json:"auto_follow"`
+	// DNSIP forces all port-53 traffic to this resolver (DNS-over-TCP
+	// through the SOCKS upstream). Defaults to 8.8.8.8. Required because
+	// devices often send DNS to link-local/carrier resolvers (e.g.
+	// 169.254.1.2) which are unreachable through the tunnel.
+	DNSIP string `json:"dns_ip"`
 	// RoundRobin is the comma-separated id list of the profiles sharing
 	// the session through Xray's built-in roundrobin balancer. Empty (or a
 	// single id) means single-profile mode: no balancer is initialized.
@@ -108,6 +113,7 @@ type Controller struct {
 	configPath string
 	activeID   string
 	autoFollow bool
+	dnsIP      string
 	startTime  time.Time
 	logFile    *os.File
 	rrLastTry  map[string]time.Time
@@ -211,6 +217,10 @@ func (c *Controller) Start(paramsJSON string) string {
 	c.mtu = p.MTU
 	c.configPath = p.ConfigPath
 	c.autoFollow = p.AutoFollow
+	c.dnsIP = p.DNSIP
+	if strings.TrimSpace(c.dnsIP) == "" {
+		c.dnsIP = "8.8.8.8"
+	}
 	c.activeID = p.ActiveTunnel
 
 	if c.activeID == "" {
@@ -518,7 +528,7 @@ func (c *Controller) startDataplaneLocked() error {
 		return fmt.Errorf("socks dialer: %w", err)
 	}
 
-	d := &swapDialer{}
+	d := newSwapDialer(c.dnsIP)
 	d.set(upstream)
 
 	tun := t2tunnel.New(d, t2stat.DefaultManager)
@@ -913,10 +923,24 @@ func (c *Controller) GetStatus() string {
 // ---------------------------------------------------------------------------
 
 // swapDialer implements t2proxy.Dialer. UDP port 53 is relayed as
-// DNS-over-TCP through the SOCKS proxy so DNS works with every tunnel type
-// (SSH has no UDP support). All other traffic uses the upstream directly.
+// DNS-over-TCP through the SOCKS proxy, always toward the forced resolver
+// (never the packet's original destination, which is often a link-local or
+// carrier-local IP unreachable through the tunnel). This makes DNS work
+// with every tunnel type (SSH has no UDP support either).
+// All other traffic uses the upstream directly.
 type swapDialer struct {
-	v atomic.Value // stores t2proxy.Dialer
+	v     atomic.Value // stores t2proxy.Dialer
+	dnsIP netip.Addr
+}
+
+func newSwapDialer(dnsIP string) *swapDialer {
+	d := &swapDialer{}
+	if ip, err := netip.ParseAddr(strings.TrimSpace(dnsIP)); err == nil {
+		d.dnsIP = ip
+	} else {
+		d.dnsIP = netip.MustParseAddr("8.8.8.8")
+	}
+	return d
 }
 
 func (d *swapDialer) set(u t2proxy.Dialer) {
@@ -945,28 +969,30 @@ func (d *swapDialer) DialUDP(m *t2meta.Metadata) (net.PacketConn, error) {
 		return nil, fmt.Errorf("no upstream proxy selected")
 	}
 	if m.DstPort == 53 && m.DstIP.IsValid() {
-		return newDNSOverTCPConn(u, m.DstIP), nil
+		tunnel.Tracef("[dns] hijack %s -> %s (forced resolver)", m.DstIP, d.dnsIP)
+		return newDNSOverTCPConn(u, m.DstIP, d.dnsIP), nil
 	}
 	return u.DialUDP(m)
 }
 
 // dnsOverTCPConn is a net.PacketConn relaying DNS datagrams over a
 // DNS-over-TCP stream (RFC 7766 framing: uint16 length + message) opened
-// through the SOCKS upstream to the original destination IP.
+// through the SOCKS upstream toward the forced resolver IP. raddr carries
+// the original destination so the stack accepts the answer.
 type dnsOverTCPConn struct {
 	dial    t2proxy.Dialer
-	dstIP   netip.Addr
+	dialIP  netip.Addr
 	raddr   net.Addr
 	respCh  chan []byte
 	closeCh chan struct{}
 	once    sync.Once
 }
 
-func newDNSOverTCPConn(u t2proxy.Dialer, dstIP netip.Addr) *dnsOverTCPConn {
-	udpAddr := net.UDPAddrFromAddrPort(netip.AddrPortFrom(dstIP, 53))
+func newDNSOverTCPConn(u t2proxy.Dialer, origDst, dialIP netip.Addr) *dnsOverTCPConn {
+	udpAddr := net.UDPAddrFromAddrPort(netip.AddrPortFrom(origDst, 53))
 	return &dnsOverTCPConn{
 		dial:    u,
-		dstIP:   dstIP,
+		dialIP:  dialIP,
 		raddr:   udpAddr,
 		respCh:  make(chan []byte, 32),
 		closeCh: make(chan struct{}),
@@ -990,10 +1016,11 @@ func (c *dnsOverTCPConn) relay(query []byte) {
 
 	conn, err := c.dial.DialContext(ctx, &t2meta.Metadata{
 		Network: t2meta.TCP,
-		DstIP:   c.dstIP,
+		DstIP:   c.dialIP,
 		DstPort: 53,
 	})
 	if err != nil {
+		tunnel.Tracef("[dns] dial %s:53 failed: %v", c.dialIP, err)
 		return
 	}
 	defer conn.Close()
@@ -1009,6 +1036,7 @@ func (c *dnsOverTCPConn) relay(query []byte) {
 	}
 	resp := make([]byte, int(binary.BigEndian.Uint16(hdr[:])))
 	if _, err := io.ReadFull(conn, resp); err != nil {
+		tunnel.Tracef("[dns] read from %s:53 failed: %v", c.dialIP, err)
 		return
 	}
 	select {

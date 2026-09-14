@@ -346,14 +346,18 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 
 	done := make(chan struct{}, 2)
 	started := time.Now()
+	var upBytes, downBytes int64
+	var upErr, downErr error
 	go func() {
-		n, err := io.Copy(upstream, client)
-		Tracef("[zivpn][lb] relay c->uz:%d bytes=%d err=%v", up.uzPort, n, err)
+		var n int64
+		n, upErr = io.Copy(upstream, client)
+		upBytes = n
 		done <- struct{}{}
 	}()
 	go func() {
-		n, err := io.Copy(client, upstream)
-		Tracef("[zivpn][lb] relay uz:%d->c bytes=%d err=%v", up.uzPort, n, err)
+		var n int64
+		n, downErr = io.Copy(client, upstream)
+		downBytes = n
 		done <- struct{}{}
 	}()
 	<-done
@@ -364,7 +368,15 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 	<-done
 	client.Close()
 	upstream.Close()
-	Tracef("[zivpn][lb] relay done in %s", time.Since(started).Truncate(time.Millisecond))
+	if upErr != nil || downErr != nil {
+		Tracef("[zivpn][lb] relay uz:%d up=%d down=%d upErr=%v downErr=%v in %s",
+			up.uzPort, upBytes, downBytes, upErr, downErr,
+			time.Since(started).Truncate(time.Millisecond))
+	} else {
+		Tracef("[zivpn][lb] relay uz:%d up=%d down=%d in %s",
+			up.uzPort, upBytes, downBytes,
+			time.Since(started).Truncate(time.Millisecond))
+	}
 }
 
 // watchOutput logs every uz process output line (maximal detail).
