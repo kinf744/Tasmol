@@ -1,6 +1,7 @@
 package tunnel
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -201,6 +202,13 @@ func closeWrite(c net.Conn) {
 // It is used to wait for a forwarder (dnstt, SOCKS) to be ready before
 // starting the next stage of a chained tunnel.
 func waitForTCP(addr string, timeout time.Duration) error {
+	return waitForTCPctx(context.Background(), addr, timeout)
+}
+
+// waitForTCPctx is waitForTCP aborting promptly when ctx is cancelled, so
+// a disconnect during a chained start never blocks teardown on full
+// readiness budgets (that delay once produced stuck-disconnect reports).
+func waitForTCPctx(ctx context.Context, addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		conn, err := net.DialTimeout("tcp", addr, time.Second)
@@ -208,10 +216,17 @@ func waitForTCP(addr string, timeout time.Duration) error {
 			conn.Close()
 			return nil
 		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("aborted waiting for %s: %w", addr, ctx.Err())
+		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timeout waiting for %s: %w", addr, err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("aborted waiting for %s: %w", addr, ctx.Err())
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
 }
 

@@ -134,9 +134,16 @@ public class MainActivity extends AppCompatActivity {
         intent.setAction(TasVpnService.ACTION_DISCONNECT);
         startService(intent);
         showToast("Disconnecting...");
-        // Watchdog: if the service is still alive after 7s (wedged
-        // teardown, stuck VPN key), offer the nuclear option.
-        handler.postDelayed(this::checkDisconnectStuck, 7000);
+        // Two-stage watchdog. Teardown is time-bounded on both sides, so a
+        // healthy disconnect finishes in ~1-3s and nothing shows. Only a
+        // genuinely wedged service (still alive at 18s, past the 15s forced
+        // cleanup) pops the dialog — no more false alarms.
+        handler.postDelayed(() -> {
+            if ((TasVpnService.isRunning() || TasVpnService.isStarting()) && !isFinishing()) {
+                showToast("Still disconnecting...");
+            }
+        }, 8000);
+        handler.postDelayed(this::checkDisconnectStuck, 18000);
     }
 
     private boolean stuckDialogShowing = false;

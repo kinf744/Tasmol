@@ -281,7 +281,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		}
 		// A previous session may still be releasing a port on an
 		// immediate reconnect: wait for it instead of failing.
-		if err := waitPortFree(uzPort, 4*time.Second); err != nil {
+		if err := waitPortFreeCtx(ctx, uzPort, 4*time.Second); err != nil {
 			Tracef("[zivpn][%d] %v", i, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
@@ -329,7 +329,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		go t.watchOutput(up)
 
 		// Readiness: uz exposes its SOCKS port (5s budget, like reference).
-		if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
+		if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
 			Tracef("[zivpn][%d] SOCKS %d NOT ready: %v", i, uzPort, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
@@ -353,7 +353,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 			Tracef("[zivpn] pickFreePort for LB failed: %v", err)
 			p = basePort + attempt
 		}
-		if err := waitPortFree(p, 2*time.Second); err != nil {
+		if err := waitPortFreeCtx(ctx, p, 2*time.Second); err != nil {
 			Tracef("[zivpn] LB port %d busy, repicking (attempt %d/3)", p, attempt)
 			continue
 		}
@@ -381,7 +381,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	go t.serveBalancer(ctx, ln)
 
 	// Balancer readiness probe.
-	if err := waitForTCP(fmt.Sprintf("127.0.0.1:%d", lbPort), 3*time.Second); err != nil {
+	if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", lbPort), 3*time.Second); err != nil {
 		t.killProcsLocked(procs)
 		ln.Close()
 		t.lbLn = nil
@@ -531,21 +531,36 @@ func indexNewline(b []byte) int {
 }
 
 func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
+	// Signal every process first, then reap concurrently: sequential
+	// kill+wait costs up to 2s per range (16s+ for 8 ranges) and that
+	// delay once tripped the stuck-disconnect watchdog on teardown.
 	for _, up := range procs {
 		if up.cmd != nil && up.cmd.Process != nil {
 			_ = up.cmd.Process.Kill()
+		}
+	}
+	var wg sync.WaitGroup
+	for _, up := range procs {
+		if up.cmd == nil {
+			continue
+		}
+		up := up
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			// Reap the zombie so kernel sockets are fully released
 			// before any immediate reconnect rebinds the ports.
-			done := make(chan struct{})
-			go func() {
-				_ = up.cmd.Wait()
-				close(done)
-			}()
-			select {
-			case <-done:
-			case <-time.After(2 * time.Second):
-			}
-		}
+			_ = up.cmd.Wait()
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
 	}
 }
 
@@ -553,6 +568,12 @@ func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
 // session shutting down). Without this, an immediate reconnect can race
 // the dying processes still holding uz/LB ports.
 func waitPortFree(port int, timeout time.Duration) error {
+	return waitPortFreeCtx(context.Background(), port, timeout)
+}
+
+// waitPortFreeCtx aborts promptly on ctx cancel: a disconnect racing an
+// in-flight start must not sit out the whole budget.
+func waitPortFreeCtx(ctx context.Context, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 300*time.Millisecond)
@@ -560,11 +581,18 @@ func waitPortFree(port int, timeout time.Duration) error {
 			return nil // nobody listening: free
 		}
 		conn.Close()
+		if ctx.Err() != nil {
+			return fmt.Errorf("aborted waiting for port %d: %w", port, ctx.Err())
+		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("port %d still busy", port)
 		}
 		Tracef("[zivpn] port %d busy, waiting for previous session...", port)
-		time.Sleep(250 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("aborted waiting for port %d: %w", port, ctx.Err())
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
 }
 
