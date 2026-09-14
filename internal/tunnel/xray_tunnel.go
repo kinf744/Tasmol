@@ -1,11 +1,9 @@
 package tunnel
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -204,15 +202,6 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	go t.monitorProcess()
 
 	return nil
-}
-
-// pipeLinesToLog streams a child process pipe into the activity log.
-func pipeLinesToLog(r io.Reader, tag string) {
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 64*1024)
-	for sc.Scan() {
-		Tracef("%s %s", tag, sc.Text())
-	}
 }
 
 func (t *XrayTunnel) Stop(ctx context.Context) error {
