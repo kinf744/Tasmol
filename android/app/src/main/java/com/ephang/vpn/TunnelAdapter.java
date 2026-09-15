@@ -26,6 +26,8 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         void onEdit(JSONObject tunnel);
 
+        void onClone(JSONObject tunnel);
+
         void onDelete(JSONObject tunnel);
     }
 
@@ -105,6 +107,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         });
         h.share.setOnClickListener(v -> listener.onShare(t));
         h.edit.setOnClickListener(v -> listener.onEdit(t));
+        h.clone.setOnClickListener(v -> listener.onClone(t));
         h.delete.setOnClickListener(v -> listener.onDelete(t));
     }
 
@@ -122,6 +125,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final TextView rr;
         final View share;
         final View edit;
+        final View clone;
         final View delete;
 
         Holder(View v) {
@@ -134,6 +138,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             rr = v.findViewById(R.id.item_rr);
             share = v.findViewById(R.id.item_share);
             edit = v.findViewById(R.id.item_edit);
+            clone = v.findViewById(R.id.item_clone);
             delete = v.findViewById(R.id.item_delete);
         }
     }

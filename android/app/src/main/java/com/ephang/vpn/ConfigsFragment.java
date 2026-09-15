@@ -82,6 +82,11 @@ public class ConfigsFragment extends Fragment {
             }
 
             @Override
+            public void onClone(JSONObject tunnel) {
+                cloneTunnel(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
+            }
+
+            @Override
             public void onDelete(JSONObject tunnel) {
                 confirmDelete(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
             }
@@ -314,11 +319,11 @@ public class ConfigsFragment extends Fragment {
         reload();
     }
 
-    /** Long-press a card: Ping / Share / Edit / Delete (no connect here). */
+    /** Long-press a card: Ping / Share / Clone / Edit / Delete (no connect here). */
     private void showActions(JSONObject tunnel) {
         String id = tunnel.optString("id", "");
         String name = tunnel.optString("name", "Server");
-        String[] options = {"Ping", "Share", "Edit", "Delete"};
+        String[] options = {"Ping", "Share", "Clone", "Edit", "Delete"};
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(name)
                 .setItems(options, (d, which) -> {
@@ -328,6 +333,9 @@ public class ConfigsFragment extends Fragment {
                             break;
                         case "Share":
                             shareTunnel(tunnel);
+                            break;
+                        case "Clone":
+                            cloneTunnel(id, name);
                             break;
                         case "Edit": {
                             Intent i = new Intent(getContext(), TunnelEditorActivity.class);
@@ -342,6 +350,42 @@ public class ConfigsFragment extends Fragment {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** Duplicate a profile (fresh id, "name copy"). */
+    private void cloneTunnel(String id, String name) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        try {
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            JSONObject src = null;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if (id.equals(t.optString("id", ""))) {
+                    src = t;
+                    break;
+                }
+            }
+            if (src == null) {
+                toast("Profile not found");
+                return;
+            }
+            src.remove("id");
+            src.put("name", name + " copy");
+            String res = VpnlibHelper.configAdd(cfgPath(), src.toString());
+            if (res != null && res.startsWith("{")) {
+                JSONObject o = new JSONObject(res);
+                if (o.has("error")) {
+                    toast("Clone failed: " + o.optString("error"));
+                    return;
+                }
+            }
+            toast("Cloned: " + name + " copy");
+            reload();
+        } catch (Exception e) {
+            toast("Clone failed: " + e.getMessage());
+        }
     }
 
     private void shareTunnel(JSONObject tunnel) {
