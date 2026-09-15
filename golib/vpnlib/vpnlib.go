@@ -428,6 +428,7 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 	for attempt := 1; attempt <= 3; attempt++ {
 		tunnel.Tracef("[rr] starting %s (attempt %d/3)", t.Name(), attempt)
 		if err = t.Start(c.ctx); err == nil {
+			tunnel.Tracef("[rr] %s up, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 			return nil
 		}
 		_ = t.Stop(context.Background())
@@ -471,6 +472,8 @@ func (c *Controller) startBalancerFrontLocked() error {
 			return fmt.Errorf("round-robin tunnel gone: %s", id)
 		}
 		profiles = append(profiles, t.Config())
+		tunnel.Tracef("[rr-front] member %q type=%s live=%s",
+			t.Name(), t.Type(), tunnel.SocksAddr(t.Config()))
 	}
 	raw, err := tunnel.BuildBalancerFront(profiles, tunnel.DefaultFrontPort)
 	if err != nil {

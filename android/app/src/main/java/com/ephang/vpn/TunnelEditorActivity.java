@@ -381,7 +381,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             server.put("port", port);
             if (type.equals("zivpn")) {
-                server.put("port_range", edPortRange.getText().toString().trim());
+                String ranges = edPortRange.getText().toString().trim();
+                if (ranges.isEmpty()) {
+                    // Never store a blank range: a hidden/untouched field
+                    // must not wipe the stored ranges. Reuse them, else
+                    // fall back to the default.
+                    ranges = storedServerField("port_range");
+                    if (ranges.isEmpty()) {
+                        ranges = "6000-19999";
+                    } else {
+                        toast("Kept saved port range(s)");
+                    }
+                    edPortRange.setText(ranges);
+                }
+                server.put("port_range", ranges);
             }
             if (type.equals("ssh_slowdns") || type.equals("xray_slowdns")) {
                 server.put("public_key", edPubkey.getText().toString().trim());
@@ -509,8 +522,30 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    private void restartService() {
-        String active = TasVpnService.getActiveTunnelId();
+    /** Read one stored server.* field of the profile being edited ("" if none). */
+    private String storedServerField(String field) {
+        if (editId == null || editId.isEmpty()) {
+            return "";
+        }
+        try {
+            String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath).trim());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if (!editId.equals(t.optString("id", ""))) {
+                    continue;
+                }
+                JSONObject server = t.optJSONObject("server");
+                if (server != null) {
+                    return server.optString(field, "");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    private void restartService() {        String active = TasVpnService.getActiveTunnelId();
         if (active == null || active.isEmpty()) {
             active = VPNApplication.getInstance().getActiveTunnelId();
         }
