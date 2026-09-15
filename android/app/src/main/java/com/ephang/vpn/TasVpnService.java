@@ -118,8 +118,8 @@ public class TasVpnService extends VpnService {
     }
 
     private void startSession(String tunnelId) {
-        if (controller != null) {
-            Log.i(TAG, "session already running");
+        if (controller != null || starting) {
+            Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
         lastError = null;

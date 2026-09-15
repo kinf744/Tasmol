@@ -116,6 +116,8 @@ public class MainActivity extends AppCompatActivity {
     public void toggleVpn() {
         if (TasVpnService.isRunning()) {
             disconnectVpn();
+        } else if (TasVpnService.isStarting()) {
+            showToast("Connecting, please wait...");
         } else {
             pickTunnelAndConnect();
         }
@@ -222,6 +224,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void pickTunnelAndConnect() {
+        if (TasVpnService.isStarting()) {
+            showToast("Connecting, please wait...");
+            return;
+        }
         java.util.LinkedHashSet<String> selected = app.getSelectedIds();
         if (selected.isEmpty()) {
             new AlertDialog.Builder(this)

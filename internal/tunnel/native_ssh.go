@@ -289,6 +289,16 @@ func portOf(addr string) string {
 	return port
 }
 
+// socksPortOf extracts the port from a 127.0.0.1:port endpoint (0 if bad).
+func socksPortOf(addr string) int {
+	_, p, err := net.SplitHostPort(addr)
+	if err != nil {
+		return 0
+	}
+	port, _ := strconv.Atoi(p)
+	return port
+}
+
 // serveSocks5 runs a minimal SOCKS5 server (CONNECT, no auth) on ln; every
 // connection is forwarded through sshClient. It stops when ctx is done.
 func serveSocks5(ctx context.Context, ln net.Listener, sshClient *ssh.Client) {
@@ -462,6 +472,15 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("ssh dial failed: %w", err)
 	}
 
+	// A previous session may still be releasing the SOCKS port (quick
+	// restart, duplicate start): wait briefly instead of failing.
+	if err := waitPortFreeCtx(ctx, socksPortOf(t.socksAddr()), 3*time.Second); err != nil {
+		Tracef("[ssh] ERROR socks port busy: %v", err)
+		client.Close()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	ln, err := net.Listen("tcp", t.socksAddr())
 	if err != nil {
 		Tracef("[ssh] ERROR socks listen %s: %v", t.socksAddr(), err)
@@ -621,6 +640,12 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	// dnstt first (shared helper with output capture).
 	Tracef("[ssh-slowdns] phase 1/2: starting dnstt forward :%d", t.fwdPort())
+	if err := waitPortFreeCtx(ctx, t.fwdPort(), 3*time.Second); err != nil {
+		Tracef("[ssh-slowdns] ERROR fwd port busy: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
@@ -642,6 +667,14 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("ssh dial through SlowDNS failed: %w", dialErr)
 	}
 
+	if err := waitPortFreeCtx(ctx, socksPortOf(t.socksAddr()), 3*time.Second); err != nil {
+		Tracef("[ssh-slowdns] ERROR socks port busy: %v", err)
+		sshClient.Close()
+		t.slowdnscmd.Process.Kill()
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
 	ln, err := net.Listen("tcp", t.socksAddr())
 	if err != nil {
 		Tracef("[ssh-slowdns] ERROR socks listen %s: %v", t.socksAddr(), err)
