@@ -408,10 +408,34 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 server.put("port_range", ranges);
             }
             if (type.equals("ssh_slowdns") || type.equals("xray_slowdns")) {
-                server.put("public_key", edPubkey.getText().toString().trim());
-                server.put("nameserver", edNsdomain.getText().toString().trim());
+                String pubkey = edPubkey.getText().toString().trim();
+                String nsdomain = edNsdomain.getText().toString().trim();
                 String resolver = edResolver.getText().toString().trim();
-                server.put("dns_resolver", resolver.isEmpty() ? "8.8.8.8:53" : resolver);
+                // Never store blanks over saved values: a hidden/untouched
+                // field must not wipe the stored SlowDNS settings.
+                if (pubkey.isEmpty()) {
+                    pubkey = storedServerField("public_key");
+                    if (!pubkey.isEmpty()) {
+                        edPubkey.setText(pubkey);
+                        toast("Kept saved public key");
+                    }
+                }
+                if (nsdomain.isEmpty()) {
+                    nsdomain = storedServerField("nameserver");
+                    if (nsdomain.isEmpty()) {
+                        nsdomain = storedServerField("hostname");
+                    }
+                    if (!nsdomain.isEmpty()) {
+                        edNsdomain.setText(nsdomain);
+                    }
+                }
+                if (resolver.isEmpty()) {
+                    resolver = "8.8.8.8:53";
+                    edResolver.setText(resolver);
+                }
+                server.put("public_key", pubkey);
+                server.put("nameserver", nsdomain);
+                server.put("dns_resolver", resolver);
             }
             if (type.equals("xray") || type.equals("xray_slowdns")) {
                 if (!edSni.getText().toString().trim().isEmpty()) {
