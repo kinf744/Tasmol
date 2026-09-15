@@ -1,13 +1,17 @@
 package tunnel
 
 import (
+	"crypto/sha256"
+	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"vpn-app/internal/config"
 )
@@ -84,17 +88,13 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 	}
 
 	if cfg.Transport.Security == "tls" {
-		allowInsecure := false
-		if dialAddr != "" {
-			if ip := net.ParseIP(dialAddr); ip != nil {
-				allowInsecure = true
-			}
-		}
+		// NOTE: never emit "allowInsecure": Xray 26.x removed it and
+		// aborts startup when present. IP-literal endpoints are handled
+		// by resolveDialAddr (SNI domain) + probeCertPins (cert pinning).
 		ss["tlsSettings"] = map[string]interface{}{
-			"serverName":    cfg.Server.SNI,
-			"allowInsecure": allowInsecure,
-			"fingerprint":   cfg.Transport.Fingerprint,
-			"alpn":          cfg.Transport.ALPN,
+			"serverName":  cfg.Server.SNI,
+			"fingerprint": cfg.Transport.Fingerprint,
+			"alpn":        cfg.Transport.ALPN,
 		}
 	}
 
@@ -110,12 +110,124 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 	return ss
 }
 
+// isIPLiteral reports whether addr parses as an IP (v4/v6).
+func isIPLiteral(addr string) bool {
+	return net.ParseIP(strings.TrimSpace(addr)) != nil
+}
+
+// isLoopback reports loopback addresses (local dnstt forwards need no
+// TLS tricks: the real endpoint sits behind the forward).
+func isLoopback(addr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(addr))
+	return ip != nil && ip.IsLoopback()
+}
+
+// resolveDialAddr prefers the TLS SNI domain over a raw IP for TLS
+// endpoints: certificates are (almost) never valid for IPs, while dialing
+// the domain keeps full chain verification working (CDN-fronted servers
+// especially). Falls back to the IP when the SNI is missing, itself an IP,
+// or unresolvable (probeCertPins then pins the live chain instead).
+func resolveDialAddr(cfg *config.TunnelConfig, addr string) string {
+	if cfg == nil || cfg.Transport.Security != "tls" {
+		return addr
+	}
+	if !isIPLiteral(addr) || isLoopback(addr) {
+		return addr
+	}
+	sni := strings.TrimSpace(cfg.Server.SNI)
+	if sni == "" || isIPLiteral(sni) {
+		return addr
+	}
+	if _, err := net.ResolveIPAddr("ip", sni); err != nil {
+		Tracef("[xray] SNI %s unresolvable, keeping IP %s", sni, addr)
+		return addr
+	}
+	Tracef("[xray] tls to IP %s with SNI %s: dialing the domain so the chain verifies", addr, sni)
+	return sni
+}
+
+// probeCertPins opens one throwaway TLS handshake (no verification) and
+// hashes the presented chain: the hashes feed Xray 26.x
+// "pinnedPeerCertSha256", the supported replacement for the removed
+// "allowInsecure", so self-signed / IP-only certs connect.
+func probeCertPins(addr string, port int, sni string) ([]string, error) {
+	serverName := sni
+	if serverName == "" || isIPLiteral(serverName) {
+		serverName = addr
+	}
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	conn, err := tls.DialWithDialer(dialer, "tcp",
+		net.JoinHostPort(addr, strconv.Itoa(port)), &tls.Config{
+			InsecureSkipVerify: true,
+			ServerName:         serverName,
+		})
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	var pins []string
+	seen := map[string]bool{}
+	for _, cert := range conn.ConnectionState().PeerCertificates {
+		sum := sha256.Sum256(cert.Raw)
+		h := hex.EncodeToString(sum[:])
+		if !seen[h] {
+			seen[h] = true
+			pins = append(pins, h)
+		}
+	}
+	if len(pins) == 0 {
+		return nil, fmt.Errorf("no peer certificates")
+	}
+	return pins, nil
+}
+
+// patchStoredTLS migrates a stored (link-imported or pasted) outbound to
+// what the bundled Xray accepts and the network requires:
+//   - drops "allowInsecure" (removed in Xray 26.x: it aborts startup);
+//   - pins the live peer cert chain when the endpoint stays a raw IP, so
+//     self-signed / IP-only certs connect without disabling verification.
+func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr string, port int) {
+	ss, ok := ob["streamSettings"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	sec, _ := ss["security"].(string)
+	if sec == "" && cfg != nil {
+		sec = cfg.Transport.Security
+	}
+	if sec != "tls" {
+		return
+	}
+	tlsm, ok := ss["tlsSettings"].(map[string]interface{})
+	if !ok {
+		return
+	}
+	if _, bad := tlsm["allowInsecure"]; bad {
+		delete(tlsm, "allowInsecure")
+		Tracef("[xray] dropped removed allowInsecure (Xray 26.x)")
+	}
+	if isIPLiteral(addr) && !isLoopback(addr) {
+		sni := ""
+		if cfg != nil {
+			sni = strings.TrimSpace(cfg.Server.SNI)
+		}
+		pins, err := probeCertPins(addr, port, sni)
+		if err != nil {
+			Tracef("[xray] cert probe %s:%d failed: %v (strict verification)", addr, port, err)
+			return
+		}
+		tlsm["pinnedPeerCertSha256"] = pins
+		Tracef("[xray] pinned %d peer cert(s) for %s:%d", len(pins), addr, port)
+	}
+}
+
 // BuildVmessOutbound builds a VMess outbound object.
 func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	security := cfg.Auth.Method
 	if security == "" {
 		security = "auto"
 	}
+	addr = resolveDialAddr(cfg, addr)
 	return map[string]interface{}{
 		"protocol": "vmess",
 		"tag":      "proxy",
@@ -136,6 +248,7 @@ func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 
 // BuildTrojanOutbound builds a Trojan outbound object.
 func BuildTrojanOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	addr = resolveDialAddr(cfg, addr)
 	return map[string]interface{}{
 		"protocol": "trojan",
 		"tag":      "proxy",
@@ -154,6 +267,7 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 	if method == "" {
 		method = "aes-256-gcm"
 	}
+	addr = resolveDialAddr(cfg, addr)
 	return map[string]interface{}{
 		"protocol": "shadowsocks",
 		"tag":      "proxy",
@@ -199,12 +313,20 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 			case map[string]interface{}:
 				m = v
 			}
-			if m != nil {
-				if tag, _ := m["tag"].(string); tag == "" {
-					m["tag"] = "proxy"
-				}
-				return m
+		if m != nil {
+			if tag, _ := m["tag"].(string); tag == "" {
+				m["tag"] = "proxy"
 			}
+			// Honor the CURRENT host/port fields (they may have been
+			// edited after the link import that produced this JSON),
+			// preferring the SNI domain over a raw IP for TLS, then
+			// migrate TLS settings for Xray 26.x (drop allowInsecure,
+			// pin the live chain for bare IPs).
+			addr = resolveDialAddr(cfg, addr)
+			rewriteOutboundAddr(m, addr, port)
+			patchStoredTLS(m, cfg, addr, port)
+			return m
+		}
 		}
 	}
 	return BuildVlessOutbound(cfg, addr, port)

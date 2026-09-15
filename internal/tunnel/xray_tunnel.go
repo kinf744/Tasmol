@@ -95,6 +95,7 @@ func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 // dialing addr:port. The mobile front-end reuses it with 127.0.0.1 and the
 // dnstt forward port for xray_slowdns tunnels.
 func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	addr = resolveDialAddr(cfg, addr)
 	streamSettings := buildStreamSettings(cfg, addr)
 
 	settings := map[string]interface{}{
