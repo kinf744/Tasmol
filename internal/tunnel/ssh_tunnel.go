@@ -11,13 +11,13 @@ import (
 )
 
 type SSHTunnel struct {
-	mu        sync.RWMutex
-	config    *config.TunnelConfig
-	status    Status
-	stats     Stats
-	cmd       *exec.Cmd
-	cancel    context.CancelFunc
-	startTime time.Time
+	mu          sync.RWMutex
+	config      *config.TunnelConfig
+	status      Status
+	stats       Stats
+	cmd         *exec.Cmd
+	cancel      context.CancelFunc
+	startTime   time.Time
 	pickedSocks int
 }
 

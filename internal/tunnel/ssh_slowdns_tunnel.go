@@ -22,14 +22,14 @@ import (
 // convention), socksPort 10802, resolver 8.8.8.8. All overridable via the
 // tunnel Advanced map ("fwd_port", "socks_port", "dns_resolver").
 type SSHSlowDNSTunnel struct {
-	mu         sync.RWMutex
-	config     *config.TunnelConfig
-	status     Status
-	stats      Stats
-	sshCmd     *exec.Cmd
-	slowdnscmd *exec.Cmd
-	cancel     context.CancelFunc
-	startTime  time.Time
+	mu          sync.RWMutex
+	config      *config.TunnelConfig
+	status      Status
+	stats       Stats
+	sshCmd      *exec.Cmd
+	slowdnscmd  *exec.Cmd
+	cancel      context.CancelFunc
+	startTime   time.Time
 	pickedSocks int
 	pickedFwd   int
 }

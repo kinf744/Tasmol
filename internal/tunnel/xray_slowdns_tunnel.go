@@ -25,17 +25,17 @@ import (
 // 8.8.8.8. All overridable via the tunnel Advanced map ("fwd_port",
 // "socks_port", "dns_resolver").
 type XraySlowDNSTunnel struct {
-	mu         sync.RWMutex
-	config     *config.TunnelConfig
-	status     Status
-	stats      Stats
-	xrayCmd    *exec.Cmd
-	slowdnscmd *exec.Cmd
-	cancel     context.CancelFunc
-	startTime  time.Time
-	configPath string
+	mu          sync.RWMutex
+	config      *config.TunnelConfig
+	status      Status
+	stats       Stats
+	xrayCmd     *exec.Cmd
+	slowdnscmd  *exec.Cmd
+	cancel      context.CancelFunc
+	startTime   time.Time
+	configPath  string
 	pickedSocks int
-	pickedFwd  int
+	pickedFwd   int
 }
 
 func NewXraySlowDNSTunnel(cfg *config.TunnelConfig) *XraySlowDNSTunnel {
