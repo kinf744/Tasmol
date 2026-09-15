@@ -10,13 +10,11 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 type Manager struct {
 	config    *Config
-	viper     *viper.Viper
 	path      string
 	watcher   *fsnotify.Watcher
 	callbacks []func(*Config)
@@ -27,14 +25,6 @@ func NewManager(configPath string) (*Manager, error) {
 		path:      configPath,
 		callbacks: make([]func(*Config), 0),
 	}
-
-	v := viper.New()
-	v.SetConfigFile(configPath)
-	v.SetConfigType("yaml")
-	v.AutomaticEnv()
-	v.SetEnvPrefix("VPN")
-
-	m.viper = v
 
 	if err := m.load(); err != nil {
 		return nil, err
@@ -48,15 +38,20 @@ func NewManager(configPath string) (*Manager, error) {
 }
 
 func (m *Manager) load() error {
-	if err := m.viper.ReadInConfig(); err != nil {
-		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
+	// Direct YAML decode (no viper): every struct field maps 1:1 via
+	// yaml tags, so slowdns keys and port ranges can never be dropped
+	// by a mapping layer on load.
+	raw, err := os.ReadFile(m.path)
+	if err != nil {
+		if os.IsNotExist(err) {
 			m.config = m.defaultConfig()
 			return m.Save()
 		}
 		return err
 	}
 
-	if err := m.viper.Unmarshal(&m.config); err != nil {
+	m.config = &Config{}
+	if err := yaml.Unmarshal(raw, m.config); err != nil {
 		return err
 	}
 

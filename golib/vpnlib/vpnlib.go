@@ -1216,6 +1216,8 @@ func ConfigAdd(configPath, tunnelJSON string) string {
 	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
 		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
 	}
+	tunnel.Tracef("[config] add type=%s name=%q pubkeyLen=%d port_range=%q",
+		tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
 		return errJSON(err)
@@ -1235,6 +1237,8 @@ func ConfigUpdate(configPath, id, tunnelJSON string) string {
 		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
 	}
 	tc.ID = id
+	tunnel.Tracef("[config] update id=%s type=%s name=%q pubkeyLen=%d port_range=%q",
+		id, tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
 		return errJSON(err)
@@ -1268,6 +1272,14 @@ func ListTunnels(configPath string) string {
 	}
 	defer mgr.Close()
 	out := mgr.Get().Tunnels
+	// Proof-tracing for vanishing fields (slowdns key, zivpn ranges):
+	// logged on every list so save-vs-load can be compared in kighmu.txt.
+	for _, tc := range out {
+		if tc.Type == config.TunnelSSHSlowDNS || tc.Type == config.TunnelXraySlowDNS || tc.Type == config.TunnelZivpn {
+			tunnel.Tracef("[config] list id=%s type=%s name=%q pubkeyLen=%d port_range=%q",
+				tc.ID, tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
+		}
+	}
 	if out == nil {
 		out = []config.TunnelConfig{}
 	}
