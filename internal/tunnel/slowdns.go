@@ -75,11 +75,21 @@ func DnsttPubKey(cfg *config.TunnelConfig) string {
 	return cfg.Server.PublicKey
 }
 
+// cleanDnsttKey strips copy-paste debris (spaces, newlines, quotes,
+// parens, shell metachars) from the dnstt server public key. A pasted key
+// with stray whitespace makes dnstt fail cryptically.
+func cleanDnsttKey(key string) string {
+	for _, r := range []string{" ", "\n", "\r", "\t", "(", ")", "'", "\"", "`", ";", "&", "|", "$"} {
+		key = strings.ReplaceAll(key, r, "")
+	}
+	return key
+}
+
 // DnsttArgs builds the official dnstt-client command line.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	return []string{
 		"-udp", DnsttResolver(cfg),
-		"-pubkey", strings.TrimSpace(DnsttPubKey(cfg)),
+		"-pubkey", cleanDnsttKey(strings.TrimSpace(DnsttPubKey(cfg))),
 		DnsttDomain(cfg),
 		fmt.Sprintf("127.0.0.1:%d", fwdPort),
 	}

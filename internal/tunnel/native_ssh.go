@@ -113,14 +113,69 @@ func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	p = strings.ReplaceAll(p, "[PROTOCOL]", "HTTP/1.1")
 	p = strings.ReplaceAll(p, "[proxy_host]", proxyHost)
 	p = strings.ReplaceAll(p, "[proxy_port]", proxyPort)
-	// Timing-evasion tokens have no meaning here: strip them instead of
-	// sending them literally (the proxy would choke on "[delay_split]").
-	p = strings.ReplaceAll(p, "[delay_split]", "")
-	p = strings.ReplaceAll(p, "[DELAY_SPLIT]", "")
-	p = strings.ReplaceAll(p, "[delay]", "")
-	p = strings.ReplaceAll(p, "[DELAY]", "")
-	p = strings.ReplaceAll(p, "[netData]", "")
+	p = strings.ReplaceAll(p, "[real_host]", host)
+	p = strings.ReplaceAll(p, "[REAL_HOST]", host)
+	// Pasted HTTP-Custom payloads carry literal backslash escapes.
+	p = strings.ReplaceAll(p, "\\r\\n", "\r\n")
+	p = strings.ReplaceAll(p, "\\r", "\r")
+	p = strings.ReplaceAll(p, "\\n", "\n")
+	// [split]/[delay] DPI-evasion markers are kept for sendPayload, which
+	// transmits the chunks with inter-part sleeps (never sent literally).
 	return p
+}
+
+// sendPayload writes the payload, honoring Injector DPI-evasion markers:
+// [split] parts go out 30ms apart, [delay] lines 20ms apart; otherwise one
+// shot. Markers themselves are never transmitted.
+func sendPayload(conn net.Conn, payload, raw string) error {
+	lower := strings.ToLower(raw)
+	if strings.Contains(lower, "[split]") {
+		parts := splitMarker(payload, "[split]")
+		for i, part := range parts {
+			if _, err := io.WriteString(conn, part); err != nil {
+				return err
+			}
+			if i < len(parts)-1 {
+				time.Sleep(30 * time.Millisecond)
+			}
+		}
+		return nil
+	}
+	if strings.Contains(lower, "[delay]") {
+		lines := strings.Split(payload, "\r\n")
+		for i, line := range lines {
+			data := line
+			if i < len(lines)-1 {
+				data += "\r\n"
+			}
+			if _, err := io.WriteString(conn, data); err != nil {
+				return err
+			}
+			if i < len(lines)-1 {
+				time.Sleep(20 * time.Millisecond)
+			}
+		}
+		return nil
+	}
+	_, err := io.WriteString(conn, payload)
+	return err
+}
+
+// splitMarker splits s on marker case-insensitively, dropping the markers.
+func splitMarker(s, marker string) []string {
+	var out []string
+	lower := strings.ToLower(s)
+	lm := strings.ToLower(marker)
+	for {
+		i := strings.Index(lower, lm)
+		if i < 0 {
+			out = append(out, s)
+			return out
+		}
+		out = append(out, s[:i])
+		s = s[i+len(marker):]
+		lower = lower[i+len(marker):]
+	}
 }
 
 // isFullRequest reports whether a rendered payload already carries its own
@@ -182,6 +237,10 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	}
 
 	var req strings.Builder
+	// isConnect mirrors the reference engine: only a CONNECT request
+	// demands 200/101; other methods (or the auto default) fail solely on
+	// explicit proxy errors.
+	isConnect := strings.TrimSpace(payloadTpl) == ""
 	if strings.TrimSpace(payloadTpl) != "" {
 		body := renderPayload(payloadTpl, host, port, proxyHost, portOf(proxyAddr))
 		if isFullRequest(body) {
@@ -193,6 +252,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 			if !strings.HasSuffix(body, "\r\n") {
 				req.WriteString("\r\n")
 			}
+			isConnect = strings.HasPrefix(strings.ToUpper(strings.TrimLeft(body, " \t\r\n")), "CONNECT ")
 		} else {
 			req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
 			req.WriteString("Host: " + addr + "\r\n")
@@ -202,17 +262,19 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 				}
 				req.WriteString(body)
 			}
+			isConnect = true
 		}
 	} else {
 		req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
 		req.WriteString("Host: " + addr + "\r\n")
+		req.WriteString("Proxy-Connection: Keep-Alive\r\n")
 	}
 	req.WriteString("\r\n")
 
 	if lines := strings.Split(req.String(), "\r\n"); len(lines) > 0 {
 		Tracef("[ssh] CONNECT request line: %s (+%d header/payload lines)", lines[0], len(lines)-1)
 	}
-	if _, err := conn.Write([]byte(req.String())); err != nil {
+	if err := sendPayload(conn, req.String(), payloadTpl); err != nil {
 		Tracef("[ssh] ERROR proxy write: %v", err)
 		conn.Close()
 		return nil, fmt.Errorf("proxy write: %w", err)
@@ -227,9 +289,13 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	}
 	Tracef("[ssh] proxy status: %s", strings.TrimSpace(status))
 	code := proxyStatusCode(status)
-	// 2xx = standard success. 101 = the WS-panel convention (EDOZTUNNEL
-	// style): "tunnel open, proceed" despite the informational code.
-	if !((code >= 200 && code < 300) || code == 101) {
+	// Reference-engine rule: hard proxy errors always fail; a CONNECT
+	// additionally demands 200, or 101 (WS-panel "tunnel open" convention).
+	if code == 400 || code == 403 || code == 404 || code == 407 || code == 500 || code == 502 {
+		conn.Close()
+		return nil, fmt.Errorf("proxy error: %s", strings.TrimSpace(status))
+	}
+	if isConnect && code != 200 && code != 101 {
 		conn.Close()
 		return nil, fmt.Errorf("proxy refused: %s", strings.TrimSpace(status))
 	}
