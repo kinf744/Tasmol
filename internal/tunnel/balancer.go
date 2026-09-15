@@ -60,12 +60,14 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 					"type": "field", "network": "tcp,udp", "balancerTag": RoundRobinOutboundTag,
 				},
 			},
-		},
-		"balancers": []interface{}{
-			map[string]interface{}{
-				"tag":      RoundRobinOutboundTag,
-				"selector": []string{"lb-"},
-				"strategy": "roundrobin",
+			// NOTE: balancers MUST live inside "routing" (not top-level),
+			// otherwise Xray fails with "balancer rr not found".
+			"balancers": []interface{}{
+				map[string]interface{}{
+					"tag":      RoundRobinOutboundTag,
+					"selector": []string{"lb-"},
+					"strategy": "roundrobin",
+				},
 			},
 		},
 	}

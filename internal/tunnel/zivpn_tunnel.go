@@ -215,11 +215,14 @@ func buildUzConfig(ip, portRange, password, obfs string, uzPort int) (string, er
 		"auth":                  password,
 		"socks5":                map[string]interface{}{"listen": fmt.Sprintf("127.0.0.1:%d", uzPort)},
 		"insecure":              true,
-		"recvwindowconn":        65536,
-		"recvwindow":            262144,
+		"recvwindowconn":        131072,
+		"recvwindow":            1048576,
 		"disable_mtu_discovery": true,
-		"down_mbps":             50,
-		"up_mbps":               10,
+		// Generous client-side caps so multi-range / multi-profile
+		// round-robin can actually scale: the old 50/10 Mbps ceiling
+		// throttled every uz process and hid any fan-out gain.
+		"down_mbps": 500,
+		"up_mbps":   100,
 	}
 	raw, err := json.Marshal(doc)
 	if err != nil {
