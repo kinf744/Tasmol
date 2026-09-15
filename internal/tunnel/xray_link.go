@@ -223,8 +223,9 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 			Tracef("[xray] cert probe %s:%d failed: %v (strict verification)", addr, port, err)
 			return
 		}
-		tlsm["pinnedPeerCertSha256"] = pins
-		Tracef("[xray] pinned %d peer cert(s) for %s:%d", len(pins), addr, port)
+		// Xray 26.x wants a single hex string (the leaf), not an array.
+		tlsm["pinnedPeerCertSha256"] = pins[0]
+		Tracef("[xray] pinned leaf cert for %s:%d (%d in chain)", addr, port, len(pins))
 	}
 }
 
