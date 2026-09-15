@@ -90,29 +90,44 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	return client, nil
 }
 
-// renderPayload expands a payload template: [crlf]/[lf]/[host]/[port] tokens
-// plus [proxy_host]/[proxy_port], then normalizes line endings to CRLF.
+// renderPayload expands a payload template like HTTP Injector / HTTP
+// Custom: [crlf]/[lf]/[cr]/[host]/[port]/[host_port]/[protocol] tokens plus
+// [proxy_host]/[proxy_port]. Line endings are honored EXACTLY ([lf] stays
+// a bare LF: some proxies reject forced CRLF). [delay]/[delay_split]
+// DPI-evasion timings are stripped (sent continuously) — logged by caller.
 func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	p := tpl
-	p = strings.ReplaceAll(p, "[crlf]", "\r\n")
 	p = strings.ReplaceAll(p, "[CRLF]", "\r\n")
-	p = strings.ReplaceAll(p, "[lf]", "\n")
+	p = strings.ReplaceAll(p, "[crlf]", "\r\n")
 	p = strings.ReplaceAll(p, "[LF]", "\n")
+	p = strings.ReplaceAll(p, "[lf]", "\n")
+	p = strings.ReplaceAll(p, "[CR]", "\r")
+	p = strings.ReplaceAll(p, "[cr]", "\r")
+	p = strings.ReplaceAll(p, "[host_port]", host+":"+port)
+	p = strings.ReplaceAll(p, "[HOST_PORT]", host+":"+port)
 	p = strings.ReplaceAll(p, "[host]", host)
+	p = strings.ReplaceAll(p, "[HOST]", host)
 	p = strings.ReplaceAll(p, "[port]", port)
+	p = strings.ReplaceAll(p, "[PORT]", port)
+	p = strings.ReplaceAll(p, "[protocol]", "HTTP/1.1")
+	p = strings.ReplaceAll(p, "[PROTOCOL]", "HTTP/1.1")
 	p = strings.ReplaceAll(p, "[proxy_host]", proxyHost)
 	p = strings.ReplaceAll(p, "[proxy_port]", proxyPort)
-	// Normalize every line ending to CRLF.
-	p = strings.ReplaceAll(p, "\r\n", "\n")
-	lines := strings.Split(p, "\n")
-	return strings.Join(lines, "\r\n")
+	// Timing-evasion tokens have no meaning here: strip them instead of
+	// sending them literally (the proxy would choke on "[delay_split]").
+	p = strings.ReplaceAll(p, "[delay_split]", "")
+	p = strings.ReplaceAll(p, "[DELAY_SPLIT]", "")
+	p = strings.ReplaceAll(p, "[delay]", "")
+	p = strings.ReplaceAll(p, "[DELAY]", "")
+	p = strings.ReplaceAll(p, "[netData]", "")
+	return p
 }
 
 // dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
 // request (with the optional custom payload) towards addr.
 func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	Tracef("[ssh] proxy hop: proxy=%s target=%s payloadLen=%d", proxyAddr, addr, len(payloadTpl))
-	proxyHost, _, err := splitProxyAddr(proxyAddr)
+	proxyHost, proxyPort, err := splitProxyAddr(proxyAddr)
 	if err != nil {
 		Tracef("[ssh] ERROR bad proxy addr: %v", err)
 		return nil, err
@@ -122,10 +137,16 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		Tracef("[ssh] ERROR bad target addr: %v", err)
 		return nil, err
 	}
+	if proxyHost == host && proxyPort == port {
+		Tracef("[ssh] WARNING proxy == target (%s): the proxy would CONNECT to itself; check ssh.proxy vs server host/port", addr)
+	}
+	if strings.Contains(strings.ToLower(payloadTpl), "[delay") {
+		Tracef("[ssh] note: [delay*] timing tokens stripped (sent continuously)")
+	}
 
-	conn, err := net.DialTimeout("tcp", proxyAddr, 15*time.Second)
+	conn, err := net.DialTimeout("tcp", proxyHost+":"+proxyPort, 15*time.Second)
 	if err != nil {
-		Tracef("[ssh] ERROR dial proxy: %v", err)
+		Tracef("[ssh] ERROR dial proxy %s:%s: %v (proxy unreachable: wrong IP/port, proxy down, or carrier-filtered)", proxyHost, proxyPort, err)
 		return nil, fmt.Errorf("dial proxy %s: %w", proxyAddr, err)
 	}
 	if err := conn.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
@@ -147,6 +168,9 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	}
 	req.WriteString("\r\n")
 
+	if lines := strings.Split(req.String(), "\r\n"); len(lines) > 0 {
+		Tracef("[ssh] CONNECT request line: %s (+%d header/payload lines)", lines[0], len(lines)-1)
+	}
 	if _, err := conn.Write([]byte(req.String())); err != nil {
 		Tracef("[ssh] ERROR proxy write: %v", err)
 		conn.Close()
@@ -192,7 +216,15 @@ type bufferedConn struct {
 func (c *bufferedConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
 func splitProxyAddr(addr string) (host, port string, err error) {
-	host, port, err = net.SplitHostPort(strings.TrimSpace(addr))
+	a := strings.TrimSpace(addr)
+	// Tolerate pasted URLs ("http://1.2.3.4:8080/path").
+	if i := strings.Index(a, "://"); i >= 0 {
+		a = a[i+3:]
+	}
+	if i := strings.Index(a, "/"); i >= 0 {
+		a = a[:i]
+	}
+	host, port, err = net.SplitHostPort(a)
 	if err != nil || host == "" || port == "" {
 		return "", "", fmt.Errorf("invalid ip:port %q (expected proxy_ip:port)", addr)
 	}
