@@ -155,8 +155,8 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 		method = "aes-256-gcm"
 	}
 	return map[string]interface{}{
-		"protocol":       "shadowsocks",
-		"tag":            "proxy",
+		"protocol": "shadowsocks",
+		"tag":      "proxy",
 		"settings": map[string]interface{}{
 			"servers": []map[string]interface{}{
 				{
