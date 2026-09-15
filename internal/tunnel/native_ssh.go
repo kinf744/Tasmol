@@ -564,7 +564,9 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
 	t.ln = ln
-	serveSocks5(t.ctx, ln, client)
+	// serveSocks5 blocks in Accept: always run it as a goroutine or
+	// Start() never returns (session stuck in CONNECTING forever).
+	go serveSocks5(t.ctx, ln, client)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
@@ -772,7 +774,9 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.ctx = ctx
 	t.client = sshClient
 	t.ln = ln
-	serveSocks5(t.ctx, ln, sshClient)
+	// serveSocks5 blocks in Accept: always run it as a goroutine or
+	// Start() never returns (session stuck in CONNECTING forever).
+	go serveSocks5(t.ctx, ln, sshClient)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
