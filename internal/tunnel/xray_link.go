@@ -122,28 +122,35 @@ func isLoopback(addr string) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// resolveDialAddr prefers the TLS SNI domain over a raw IP for TLS
-// endpoints: certificates are (almost) never valid for IPs, while dialing
-// the domain keeps full chain verification working (CDN-fronted servers
-// especially). Falls back to the IP when the SNI is missing, itself an IP,
-// or unresolvable (probeCertPins then pins the live chain instead).
+// resolveDialAddr is intentionally identity: Xray must never receive a
+// domain to dial — its child-process resolver is dead on Android
+// ([::1]:53 refused) and domainStrategy does not cover transport dials.
+// Domains are resolved up-front by resolveEndpoint; TLS trust survives via
+// SNI serverName + live chain pinning (patchStoredTLS).
 func resolveDialAddr(cfg *config.TunnelConfig, addr string) string {
-	if cfg == nil || cfg.Transport.Security != "tls" {
+	return addr
+}
+
+// resolveEndpoint turns a domain endpoint into a dialable IP using the app
+// process resolver (which works: Bionic/netd), because the xray child can
+// resolve nothing. IP literals and loopback forwards pass through
+// untouched. TLS keeps working via serverName SNI + live chain pinning.
+func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
+	if cfg == nil || isIPLiteral(addr) || isLoopback(addr) {
 		return addr
 	}
-	if !isIPLiteral(addr) || isLoopback(addr) {
-		return addr
+	name := strings.TrimSpace(addr)
+	if ip, err := net.ResolveIPAddr("ip4", name); err == nil && ip != nil {
+		Tracef("[xray] endpoint %s resolves to %s: dialing the IP (child DNS is dead)", name, ip.String())
+		return ip.String()
 	}
-	sni := strings.TrimSpace(cfg.Server.SNI)
-	if sni == "" || isIPLiteral(sni) {
-		return addr
+	if ip, err := net.ResolveIPAddr("ip", name); err == nil && ip != nil {
+		Tracef("[xray] endpoint %s resolves to %s: dialing the IP (child DNS is dead)", name, ip.String())
+		return ip.String()
+	} else {
+		Tracef("[xray] WARNING endpoint %s unresolvable here, passing through: %v", name, err)
 	}
-	if _, err := net.ResolveIPAddr("ip", sni); err != nil {
-		Tracef("[xray] SNI %s unresolvable, keeping IP %s", sni, addr)
-		return addr
-	}
-	Tracef("[xray] tls to IP %s with SNI %s: dialing the domain so the chain verifies", addr, sni)
-	return sni
+	return addr
 }
 
 // probeCertPins opens one throwaway TLS handshake (no verification) and
@@ -302,6 +309,8 @@ func HasOutboundJSON(cfg *config.TunnelConfig) bool {
 // Advanced["outbound_json"] verbatim when present (links, pasted JSON),
 // otherwise the structured VLESS builder.
 func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	// Domains are unresolvable by the xray child: dial a self-resolved IP.
+	addr = resolveEndpoint(cfg, addr)
 	if cfg.Advanced != nil {
 		if raw, ok := cfg.Advanced[OutboundJSONKey]; ok {
 			var m map[string]interface{}
