@@ -44,7 +44,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secSsh;
     private EditText edUsername;
     private EditText edPassword;
+    private TextView lblSshProxy;
     private EditText edSshProxy;
+    private TextView lblSshPayload;
     private EditText edSshPayload;
     private LinearLayout secXray;
     private EditText edUuid;
@@ -109,7 +111,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSsh = findViewById(R.id.sec_ssh);
         edUsername = findViewById(R.id.ed_username);
         edPassword = findViewById(R.id.ed_password);
+        lblSshProxy = findViewById(R.id.lbl_ssh_proxy);
         edSshProxy = findViewById(R.id.ed_ssh_proxy);
+        lblSshPayload = findViewById(R.id.lbl_ssh_payload);
         edSshPayload = findViewById(R.id.ed_ssh_payload);
         secXray = findViewById(R.id.sec_xray);
         edUuid = findViewById(R.id.ed_uuid);
@@ -186,6 +190,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean showTransport = false;
 
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
+        // Proxy/payload are plain-SSH only: ssh_slowdns dials through the
+        // dnstt forward and needs username/password/pubkey/NS/DNS instead.
+        int proxyVis = type.equals("ssh") ? View.VISIBLE : View.GONE;
+        lblSshProxy.setVisibility(proxyVis);
+        edSshProxy.setVisibility(proxyVis);
+        lblSshPayload.setVisibility(proxyVis);
+        edSshPayload.setVisibility(proxyVis);
         secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
@@ -439,6 +450,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
                 auth.put("username", edUsername.getText().toString().trim());
                 auth.put("password", edPassword.getText().toString());
+            }
+            if (type.equals("ssh")) {
                 ssh.put("proxy", edSshProxy.getText().toString().trim());
                 ssh.put("payload", edSshPayload.getText().toString());
             }
