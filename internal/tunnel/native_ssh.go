@@ -123,6 +123,19 @@ func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	return p
 }
 
+// isFullRequest reports whether a rendered payload already carries its own
+// HTTP request line (Injector "custom request" style): prepending another
+// CONNECT would glue two requests and hang the proxy silent.
+func isFullRequest(body string) bool {
+	upper := strings.ToUpper(strings.TrimLeft(body, " \t\r\n"))
+	for _, m := range []string{"CONNECT ", "GET ", "POST ", "HEAD ", "OPTIONS ", "PUT ", "DELETE ", "PATCH ", "TRACE "} {
+		if strings.HasPrefix(upper, m) {
+			return true
+		}
+	}
+	return false
+}
+
 // dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
 // request (with the optional custom payload) towards addr.
 func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
@@ -155,16 +168,30 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	}
 
 	var req strings.Builder
-	req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
-	req.WriteString("Host: " + addr + "\r\n")
 	if strings.TrimSpace(payloadTpl) != "" {
 		body := renderPayload(payloadTpl, host, port, proxyHost, portOf(proxyAddr))
-		if body != "" {
-			if !strings.HasSuffix(body, "\r\n") {
-				body += "\r\n"
-			}
+		if isFullRequest(body) {
+			// Injector-style: the payload IS the complete HTTP request
+			// (its own CONNECT/GET line). Prepending another CONNECT
+			// glues two requests together and the proxy hangs silent.
+			Tracef("[ssh] full-request payload, sent as-is (%d bytes)", len(body))
 			req.WriteString(body)
+			if !strings.HasSuffix(body, "\r\n") {
+				req.WriteString("\r\n")
+			}
+		} else {
+			req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
+			req.WriteString("Host: " + addr + "\r\n")
+			if body != "" {
+				if !strings.HasSuffix(body, "\r\n") {
+					body += "\r\n"
+				}
+				req.WriteString(body)
+			}
 		}
+	} else {
+		req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
+		req.WriteString("Host: " + addr + "\r\n")
 	}
 	req.WriteString("\r\n")
 
