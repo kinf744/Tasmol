@@ -18,6 +18,7 @@ type SSHTunnel struct {
 	cmd       *exec.Cmd
 	cancel    context.CancelFunc
 	startTime time.Time
+	pickedSocks int
 }
 
 func NewSSHTunnel(cfg *config.TunnelConfig) *SSHTunnel {
@@ -60,6 +61,13 @@ func redactSSHArgs(args []string) []string {
 	return out
 }
 
+func (t *SSHTunnel) socksPort() int {
+	if t.pickedSocks > 0 {
+		return t.pickedSocks
+	}
+	return advInt(t.config.Advanced, "socks_port", 10801)
+}
+
 func (t *SSHTunnel) buildArgs() []string {
 	args := []string{
 		"-o", "StrictHostKeyChecking=no",
@@ -69,7 +77,7 @@ func (t *SSHTunnel) buildArgs() []string {
 		"-o", "ConnectTimeout=10",
 		"-N",
 		"-T",
-		"-D", fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", 10801)),
+		"-D", fmt.Sprintf("127.0.0.1:%d", t.socksPort()),
 	}
 
 	if t.config.Auth.PrivateKey != "" {
@@ -113,6 +121,18 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	t.setError("")
 
 	ctx, t.cancel = context.WithCancel(ctx)
+
+	// Fresh random SOCKS port per session (override respected).
+	ClearLiveSocksAddr(t.config.ID)
+	_, socksPort, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[ssh-proc] ERROR socks port: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.pickedSocks = socksPort
+	Tracef("[ssh-proc] SOCKS picked 127.0.0.1:%d", socksPort)
 
 	args := t.buildArgs()
 	Tracef("[ssh-proc] BinDir=%q BinNames=%v", BinDir, BinNames)
@@ -158,6 +178,8 @@ func (t *SSHTunnel) Stop(ctx context.Context) error {
 		Tracef("[ssh-proc] process reaped")
 	}
 
+	t.pickedSocks = 0
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }

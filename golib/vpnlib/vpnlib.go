@@ -106,10 +106,12 @@ type Controller struct {
 
 	// Balancer-front state (round-robin mode only): an Xray child process
 	// exposing SOCKS, rotating across the selected profiles with Xray's
-	// built-in "roundrobin" strategy.
+	// built-in "roundrobin" strategy. frontPort is fresh per (re)build:
+	// never the fixed default, never reused.
 	front      *exec.Cmd
 	frontCfg   string
 	frontAlive bool
+	frontPort  int
 	rrIDs      []string
 
 	tunFd      int
@@ -475,7 +477,13 @@ func (c *Controller) startBalancerFrontLocked() error {
 		tunnel.Tracef("[rr-front] member %q type=%s live=%s",
 			t.Name(), t.Type(), tunnel.SocksAddr(t.Config()))
 	}
-	raw, err := tunnel.BuildBalancerFront(profiles, tunnel.DefaultFrontPort)
+	// Fresh random front port per (re)build: a previous front — draining
+	// or leaked — can never hold the new one hostage.
+	frontPort, err := tunnel.PickFreePort()
+	if err != nil {
+		return fmt.Errorf("round-robin front port: %w", err)
+	}
+	raw, err := tunnel.BuildBalancerFront(profiles, frontPort)
 	if err != nil {
 		return err
 	}
@@ -510,11 +518,12 @@ func (c *Controller) startBalancerFrontLocked() error {
 	c.front = cmd
 	c.frontCfg = cfgPath
 	c.frontAlive = true
+	c.frontPort = frontPort
 	go tunnel.PipeLinesToLog(stdout, "[rr-front][out]")
 	go tunnel.PipeLinesToLog(stderr, "[rr-front][err]")
 	go c.watchFront(cmd)
 
-	frontAddr := fmt.Sprintf("127.0.0.1:%d", tunnel.DefaultFrontPort)
+	frontAddr := fmt.Sprintf("127.0.0.1:%d", frontPort)
 	if err := waitTCP(frontAddr, 15*time.Second); err != nil {
 		c.killFrontLocked()
 		return fmt.Errorf("round-robin front not ready: %w", err)
@@ -530,6 +539,7 @@ func (c *Controller) killFrontLocked() {
 	}
 	c.front = nil
 	c.frontAlive = false
+	c.frontPort = 0
 	if c.frontCfg != "" {
 		os.Remove(c.frontCfg)
 		c.frontCfg = ""
@@ -558,7 +568,7 @@ func (c *Controller) rebuildBalancerFrontLocked(ids []string) error {
 // TUN fd, upstreaming at the active tunnel's local SOCKS5 (caller holds
 // c.mu).
 func (c *Controller) startDataplaneLocked() error {
-	socksAddr := fmt.Sprintf("127.0.0.1:%d", tunnel.DefaultFrontPort)
+	socksAddr := fmt.Sprintf("127.0.0.1:%d", c.frontPort)
 	if len(c.rrIDs) < 2 {
 		t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
 		if !ok {
@@ -602,16 +612,26 @@ func (c *Controller) startDataplaneLocked() error {
 	return nil
 }
 
-// switchUpstreamLocked re-points the data plane at the active tunnel.
+// switchUpstreamLocked re-points the data plane: at the live front in
+// round-robin mode (its port changes on every rebuild), otherwise at the
+// active tunnel's live SOCKS.
 func (c *Controller) switchUpstreamLocked() error {
 	if c.dialer == nil {
 		return fmt.Errorf("data plane not running")
 	}
-	t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
-	if !ok {
-		return fmt.Errorf("active tunnel gone: %s", c.activeID)
+	var socksAddr string
+	if len(c.rrIDs) >= 2 {
+		if c.frontPort <= 0 {
+			return fmt.Errorf("round-robin front has no port")
+		}
+		socksAddr = fmt.Sprintf("127.0.0.1:%d", c.frontPort)
+	} else {
+		t, ok := c.vpn.GetTunnelManager().Get(c.activeID)
+		if !ok {
+			return fmt.Errorf("active tunnel gone: %s", c.activeID)
+		}
+		socksAddr = tunnel.SocksAddr(t.Config())
 	}
-	socksAddr := tunnel.SocksAddr(t.Config())
 	upstream, err := t2proxy.NewSocks5(socksAddr, "", "")
 	if err != nil {
 		return err
@@ -661,6 +681,12 @@ func (c *Controller) followRoundRobinLocked() {
 		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
 		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
 			tunnel.Tracef("[rr] rebuild failed: %v", err)
+			return
+		}
+		// The rebuilt front listens on a fresh port: re-point the data
+		// plane or traffic keeps flowing to the dead one.
+		if err := c.switchUpstreamLocked(); err != nil {
+			tunnel.Tracef("[rr] re-point after rebuild failed: %v", err)
 		}
 		return
 	}

@@ -109,7 +109,7 @@ func balancerOutbound(tc *config.TunnelConfig, tag string) (map[string]interface
 		if !HasOutboundJSON(tc) && tc.Auth.UUID == "" {
 			return nil, fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 		}
-		fwd := DnsttForwardPort(tc, DefaultXraySlowDNSFwdPort)
+		fwd := DnsttForwardPortLive(tc, DefaultXraySlowDNSFwdPort)
 		ob = SlowDNSOutbound(tc, fwd)
 	default:
 		return nil, fmt.Errorf("unsupported tunnel type: %s", tc.Type)

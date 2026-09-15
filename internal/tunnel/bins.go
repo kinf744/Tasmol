@@ -130,6 +130,113 @@ func SocksPort(cfg *config.TunnelConfig) int {
 // must resolve through SocksAddr/SocksPortLive, never the static default.
 var liveSocks sync.Map // string -> string
 
+// liveFwd maps tunnel ID -> live dnstt forward port of the running session
+// (ssh_slowdns / xray_slowdns). Same per-session randomness rationale as
+// liveSocks: two profiles of the same type must never share 2222/2224.
+var liveFwd sync.Map // string -> int
+
+// SetLiveForward publishes the live dnstt forward port of a session.
+func SetLiveForward(id string, port int) { liveFwd.Store(id, port) }
+
+// ClearLiveForward removes the live forward entry (session stopped).
+func ClearLiveForward(id string) { liveFwd.Delete(id) }
+
+// LiveForward returns the published live forward port, or 0 if none.
+func LiveForward(id string) int {
+	v, ok := liveFwd.Load(id)
+	if !ok {
+		return 0
+	}
+	p, _ := v.(int)
+	return p
+}
+
+// PickFreePort asks the kernel for a free loopback TCP port (exported
+// wrapper around pickFreePort for the vpnlib front builder).
+func PickFreePort() (int, error) {
+	return pickFreePort()
+}
+
+// PickLiveSocksAddr returns the SOCKS endpoint a session must bind: the
+// explicit Advanced["socks_port"] override when set, otherwise a fresh
+// random loopback port. The choice is published in the live registry so
+// the data plane, the RR front, the status and the ping helper always dial
+// the live port. Sessions never reuse ports: a previous session's
+// listener — draining or leaked — can never collide.
+func PickLiveSocksAddr(cfg *config.TunnelConfig) (string, int, error) {
+	if cfg != nil {
+		if p := advInt(cfg.Advanced, "socks_port", 0); p > 0 {
+			if err := waitPortFree(p, 3*time.Second); err != nil {
+				return "", 0, err
+			}
+			addr := fmt.Sprintf("127.0.0.1:%d", p)
+			SetLiveSocksAddr(cfg.ID, addr)
+			return addr, p, nil
+		}
+	}
+	var port int
+	for attempt := 0; attempt < 5; attempt++ {
+		p, err := pickFreePort()
+		if err != nil {
+			continue
+		}
+		if waitPortFree(p, time.Second) == nil {
+			port = p
+			break
+		}
+	}
+	if port == 0 {
+		p, err := pickFreePort()
+		if err != nil {
+			return "", 0, err
+		}
+		port = p
+	}
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	if cfg != nil && cfg.ID != "" {
+		SetLiveSocksAddr(cfg.ID, addr)
+	}
+	return addr, port, nil
+}
+
+// PickLiveForward returns the dnstt forward port a session must use: the
+// explicit Advanced["fwd_port"] override when set, otherwise a fresh
+// random loopback port, published via SetLiveForward.
+func PickLiveForward(cfg *config.TunnelConfig, def int) (int, error) {
+	if cfg != nil {
+		if p := advInt(cfg.Advanced, "fwd_port", 0); p > 0 {
+			if err := waitPortFree(p, 3*time.Second); err != nil {
+				return 0, err
+			}
+			SetLiveForward(cfg.ID, p)
+			return p, nil
+		}
+	}
+	var port int
+	for attempt := 0; attempt < 5; attempt++ {
+		p, err := pickFreePort()
+		if err != nil {
+			continue
+		}
+		if waitPortFree(p, time.Second) == nil {
+			port = p
+			break
+		}
+	}
+	if port == 0 {
+		p, err := pickFreePort()
+		if err != nil {
+			return 0, err
+		}
+		port = p
+	}
+	_ = def
+	if cfg != nil && cfg.ID != "" {
+		SetLiveForward(cfg.ID, port)
+	}
+	return port, nil
+}
+
 // SetLiveSocksAddr publishes the live SOCKS endpoint of a running session.
 func SetLiveSocksAddr(id, addr string) { liveSocks.Store(id, addr) }
 

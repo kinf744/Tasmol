@@ -472,24 +472,28 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("ssh dial failed: %w", err)
 	}
 
-	// A previous session may still be releasing the SOCKS port (quick
-	// restart, duplicate start): wait briefly instead of failing.
-	if err := waitPortFreeCtx(ctx, socksPortOf(t.socksAddr()), 3*time.Second); err != nil {
-		Tracef("[ssh] ERROR socks port busy: %v", err)
+	// Fresh random SOCKS port per session (override respected): never
+	// reuse, never collide with a draining previous session.
+	ClearLiveSocksAddr(t.config.ID)
+	socksAddr, _, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[ssh] ERROR socks port: %v", err)
 		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
-	ln, err := net.Listen("tcp", t.socksAddr())
+	Tracef("[ssh] SOCKS picked %s", socksAddr)
+	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
-		Tracef("[ssh] ERROR socks listen %s: %v", t.socksAddr(), err)
+		Tracef("[ssh] ERROR socks listen %s: %v", socksAddr, err)
+		ClearLiveSocksAddr(t.config.ID)
 		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Tracef("[ssh] SOCKS listening on %s", t.socksAddr())
+	Tracef("[ssh] SOCKS listening on %s", socksAddr)
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
@@ -521,6 +525,7 @@ func (t *NativeSSHTunnel) Stop(ctx context.Context) error {
 	if t.client != nil {
 		t.client.Close()
 	}
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }
@@ -638,53 +643,65 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// dnstt first (shared helper with output capture).
-	Tracef("[ssh-slowdns] phase 1/2: starting dnstt forward :%d", t.fwdPort())
-	if err := waitPortFreeCtx(ctx, t.fwdPort(), 3*time.Second); err != nil {
-		Tracef("[ssh-slowdns] ERROR fwd port busy: %v", err)
+	// Fresh random forward + SOCKS ports per session (overrides
+	// respected): two profiles of the same type never share 2222/10802.
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
+	fwdPort, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
+	if err != nil {
+		Tracef("[ssh-slowdns] ERROR fwd port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
+
+	// dnstt first (shared helper with output capture).
+	Tracef("[ssh-slowdns] phase 1/2: starting dnstt forward :%d", fwdPort)
 	t.mu.Unlock()
-	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
+	dnsttCmd, err := StartDnstt(ctx, t.config, fwdPort)
 	t.mu.Lock()
 
 	if err != nil {
 		Tracef("[ssh-slowdns] ERROR dnstt phase: %v", err)
+		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	t.slowdnscmd = dnsttCmd
-	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", t.fwdPort())
-	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", t.fwdPort()))
+	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
+	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
 		Tracef("[ssh-slowdns] ERROR ssh dial: %v", dialErr)
 		t.slowdnscmd.Process.Kill()
+		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(dialErr.Error())
 		return fmt.Errorf("ssh dial through SlowDNS failed: %w", dialErr)
 	}
 
-	if err := waitPortFreeCtx(ctx, socksPortOf(t.socksAddr()), 3*time.Second); err != nil {
-		Tracef("[ssh-slowdns] ERROR socks port busy: %v", err)
+	socksAddr, _, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[ssh-slowdns] ERROR socks port: %v", err)
 		sshClient.Close()
 		t.slowdnscmd.Process.Kill()
+		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
-	ln, err := net.Listen("tcp", t.socksAddr())
+	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
-		Tracef("[ssh-slowdns] ERROR socks listen %s: %v", t.socksAddr(), err)
+		Tracef("[ssh-slowdns] ERROR socks listen %s: %v", socksAddr, err)
+		ClearLiveSocksAddr(t.config.ID)
 		sshClient.Close()
 		t.slowdnscmd.Process.Kill()
+		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Tracef("[ssh-slowdns] SOCKS listening on %s", t.socksAddr())
+	Tracef("[ssh-slowdns] SOCKS listening on %s", socksAddr)
 
 	t.ctx = ctx
 	t.client = sshClient
@@ -721,6 +738,8 @@ func (t *NativeSSHSlowDNSTunnel) Stop(ctx context.Context) error {
 		t.slowdnscmd.Wait()
 		Tracef("[ssh-slowdns] slowdns reaped")
 	}
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }

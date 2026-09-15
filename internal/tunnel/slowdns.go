@@ -30,6 +30,17 @@ func DnsttForwardPort(cfg *config.TunnelConfig, def int) int {
 	return advInt(cfg.Advanced, "fwd_port", def)
 }
 
+// DnsttForwardPortLive returns the live dnstt forward port of a running
+// session, falling back to the static configured/default port.
+func DnsttForwardPortLive(cfg *config.TunnelConfig, def int) int {
+	if cfg != nil {
+		if p := LiveForward(cfg.ID); p > 0 {
+			return p
+		}
+	}
+	return DnsttForwardPort(cfg, def)
+}
+
 // DnsttResolver resolves the UDP DNS resolver used by dnstt-client as
 // "host:port" (e.g. "8.8.8.8:53"). A bare IP gets ":53" appended.
 func DnsttResolver(cfg *config.TunnelConfig) string {

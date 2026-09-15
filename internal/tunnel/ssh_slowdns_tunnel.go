@@ -30,6 +30,8 @@ type SSHSlowDNSTunnel struct {
 	slowdnscmd *exec.Cmd
 	cancel     context.CancelFunc
 	startTime  time.Time
+	pickedSocks int
+	pickedFwd   int
 }
 
 func NewSSHSlowDNSTunnel(cfg *config.TunnelConfig) *SSHSlowDNSTunnel {
@@ -62,10 +64,16 @@ func (t *SSHSlowDNSTunnel) Stats() Stats {
 func (t *SSHSlowDNSTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *SSHSlowDNSTunnel) fwdPort() int {
+	if t.pickedFwd > 0 {
+		return t.pickedFwd
+	}
 	return DnsttForwardPort(t.config, DefaultSSHSlowDNSFwdPort)
 }
 
 func (t *SSHSlowDNSTunnel) socksPort() int {
+	if t.pickedSocks > 0 {
+		return t.pickedSocks
+	}
 	return advInt(t.config.Advanced, "socks_port", 10802)
 }
 
@@ -133,6 +141,28 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
+	// Fresh random forward + SOCKS ports per session (overrides respected).
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
+	fwd, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
+	if err != nil {
+		Tracef("[ssh-slowdns-proc] ERROR fwd port: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.pickedFwd = fwd
+	_, socksPort, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[ssh-slowdns-proc] ERROR socks port: %v", err)
+		ClearLiveForward(t.config.ID)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.pickedSocks = socksPort
+	Tracef("[ssh-slowdns-proc] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
+
 	// dnstt first (shared helper with output capture), then SSH through it.
 	Tracef("[ssh-slowdns-proc] phase 1/2: starting dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
@@ -197,6 +227,10 @@ func (t *SSHSlowDNSTunnel) Stop(ctx context.Context) error {
 		Tracef("[ssh-slowdns-proc] slowdns reaped")
 	}
 
+	t.pickedSocks = 0
+	t.pickedFwd = 0
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }

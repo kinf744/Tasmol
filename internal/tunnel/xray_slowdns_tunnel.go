@@ -34,6 +34,8 @@ type XraySlowDNSTunnel struct {
 	cancel     context.CancelFunc
 	startTime  time.Time
 	configPath string
+	pickedSocks int
+	pickedFwd  int
 }
 
 func NewXraySlowDNSTunnel(cfg *config.TunnelConfig) *XraySlowDNSTunnel {
@@ -66,10 +68,16 @@ func (t *XraySlowDNSTunnel) Stats() Stats {
 func (t *XraySlowDNSTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *XraySlowDNSTunnel) fwdPort() int {
+	if t.pickedFwd > 0 {
+		return t.pickedFwd
+	}
 	return advInt(t.config.Advanced, "fwd_port", 2224)
 }
 
 func (t *XraySlowDNSTunnel) socksPort() int {
+	if t.pickedSocks > 0 {
+		return t.pickedSocks
+	}
 	return advInt(t.config.Advanced, "socks_port", 10809)
 }
 
@@ -165,6 +173,29 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.setError("")
 
 	ctx, t.cancel = context.WithCancel(ctx)
+
+	// Fresh random forward + SOCKS ports per session (overrides
+	// respected). Clear stale entries first so nothing dials a dead port.
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
+	fwd, err := PickLiveForward(t.config, DefaultXraySlowDNSFwdPort)
+	if err != nil {
+		Tracef("[xray-slowdns] ERROR fwd port: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.pickedFwd = fwd
+	_, socksPort, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[xray-slowdns] ERROR socks port: %v", err)
+		ClearLiveForward(t.config.ID)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.pickedSocks = socksPort
+	Tracef("[xray-slowdns] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
 
 	// dnstt first: Xray dials the local forward once it answers.
 	Tracef("[xray-slowdns] phase 1/2: starting dnstt forward :%d", t.fwdPort())
@@ -302,6 +333,10 @@ func (t *XraySlowDNSTunnel) Stop(ctx context.Context) error {
 		os.Remove(filepath.Dir(t.configPath))
 	}
 
+	t.pickedSocks = 0
+	t.pickedFwd = 0
+	ClearLiveForward(t.config.ID)
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }

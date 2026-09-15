@@ -22,6 +22,7 @@ type XrayTunnel struct {
 	cancel     context.CancelFunc
 	startTime  time.Time
 	configPath string
+	socksPort  int
 }
 
 func NewXrayTunnel(cfg *config.TunnelConfig) *XrayTunnel {
@@ -55,7 +56,7 @@ func (t *XrayTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *XrayTunnel) generateConfig() (string, error) {
 	inbound := map[string]interface{}{
-		"port":     10808,
+		"port":     t.socksPort,
 		"listen":   "127.0.0.1",
 		"protocol": "socks",
 		"settings": map[string]interface{}{
@@ -146,9 +147,8 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	hasUUID := t.config.Auth.UUID != ""
 	hasJSON := HasOutboundJSON(t.config)
-	Tracef("[xray] inputs uuidSet=%v outboundJSON=%v host=%q port=%d socksPort=%d",
-		hasUUID, hasJSON, t.config.Server.Host, t.config.Server.Port,
-		advInt(t.config.Advanced, "socks_port", DefaultXrayPort))
+	Tracef("[xray] inputs uuidSet=%v outboundJSON=%v host=%q port=%d",
+		hasUUID, hasJSON, t.config.Server.Host, t.config.Server.Port)
 	if t.config.Auth.UUID == "" && !hasJSON {
 		Tracef("[xray] ERROR: no uuid and no outbound_json")
 		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
@@ -160,6 +160,19 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	t.status = StatusStarting
 	t.setError("")
+
+	// Fresh random SOCKS port per session (override respected): the old
+	// hardcoded 10808 also mismatched custom socks_port overrides.
+	ClearLiveSocksAddr(t.config.ID)
+	_, socksPort, err := PickLiveSocksAddr(t.config)
+	if err != nil {
+		Tracef("[xray] ERROR socks port: %v", err)
+		t.status = StatusError
+		t.setError(err.Error())
+		return err
+	}
+	t.socksPort = socksPort
+	Tracef("[xray] SOCKS picked 127.0.0.1:%d", socksPort)
 
 	configContent, err := t.generateConfig()
 	if err != nil {
@@ -221,7 +234,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	go PipeLinesToLog(stderr, "[xray][err]")
 
 	// Wait until the local SOCKS inbound answers instead of assuming ready.
-	socksAddr := fmt.Sprintf("127.0.0.1:%d", advInt(t.config.Advanced, "socks_port", DefaultXrayPort))
+	socksAddr := fmt.Sprintf("127.0.0.1:%d", t.socksPort)
 	Tracef("[xray] waiting for SOCKS %s ...", socksAddr)
 	t.mu.Unlock()
 	readyErr := waitForTCPctx(ctx, socksAddr, 15*time.Second)
@@ -273,6 +286,8 @@ func (t *XrayTunnel) Stop(ctx context.Context) error {
 		Tracef("[xray] temp config removed")
 	}
 
+	t.socksPort = 0
+	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
 	return nil
 }
