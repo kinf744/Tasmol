@@ -313,20 +313,20 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 			case map[string]interface{}:
 				m = v
 			}
-		if m != nil {
-			if tag, _ := m["tag"].(string); tag == "" {
-				m["tag"] = "proxy"
+			if m != nil {
+				if tag, _ := m["tag"].(string); tag == "" {
+					m["tag"] = "proxy"
+				}
+				// Honor the CURRENT host/port fields (they may have been
+				// edited after the link import that produced this JSON),
+				// preferring the SNI domain over a raw IP for TLS, then
+				// migrate TLS settings for Xray 26.x (drop allowInsecure,
+				// pin the live chain for bare IPs).
+				addr = resolveDialAddr(cfg, addr)
+				rewriteOutboundAddr(m, addr, port)
+				patchStoredTLS(m, cfg, addr, port)
+				return m
 			}
-			// Honor the CURRENT host/port fields (they may have been
-			// edited after the link import that produced this JSON),
-			// preferring the SNI domain over a raw IP for TLS, then
-			// migrate TLS settings for Xray 26.x (drop allowInsecure,
-			// pin the live chain for bare IPs).
-			addr = resolveDialAddr(cfg, addr)
-			rewriteOutboundAddr(m, addr, port)
-			patchStoredTLS(m, cfg, addr, port)
-			return m
-		}
 		}
 	}
 	return BuildVlessOutbound(cfg, addr, port)
