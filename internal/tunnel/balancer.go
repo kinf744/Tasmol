@@ -53,8 +53,14 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 			},
 		},
 		"outbounds": outbounds,
+		"dns": map[string]interface{}{
+			"servers": []string{"1.1.1.1", "8.8.8.8"},
+		},
 		"routing": map[string]interface{}{
-			"domainStrategy": "AsIs",
+			// UseIP: the front resolves member domains through its
+			// internal DNS client; the Android system resolver is dead
+			// from child processes ([::1]:53 refused).
+			"domainStrategy": "UseIP",
 			"rules": []interface{}{
 				map[string]interface{}{
 					"type": "field", "network": "tcp,udp", "balancerTag": RoundRobinOutboundTag,

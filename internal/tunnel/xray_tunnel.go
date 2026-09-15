@@ -66,6 +66,15 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 
 	outbound := TunnelOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
 
+	// domainStrategy UseIP: Xray resolves outbound domains through its
+	// internal DNS client (1.1.1.1/8.8.8.8, direct since our UID is
+	// excluded from the VPN) instead of the system resolver, which is
+	// dead on Android ([::1]:53 refused) and breaks every domain dial.
+	strategy := t.config.Routing.DomainStrategy
+	if strategy == "" {
+		strategy = "UseIP"
+	}
+
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
 			"loglevel": "warning",
@@ -73,10 +82,12 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		"inbounds":  []interface{}{inbound},
 		"outbounds": []interface{}{outbound},
 		"routing": map[string]interface{}{
-			"domainStrategy": t.config.Routing.DomainStrategy,
+			"domainStrategy": strategy,
 			"rules":          t.config.Routing.Rules,
 		},
-		"dns": t.config.Routing.DNS,
+		"dns": map[string]interface{}{
+			"servers": []string{"1.1.1.1", "8.8.8.8"},
+		},
 	}
 
 	data, err := json.MarshalIndent(xrayConfig, "", "  ")

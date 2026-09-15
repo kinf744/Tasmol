@@ -104,7 +104,9 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 
 	strategy := t.config.Routing.DomainStrategy
 	if strategy == "" {
-		strategy = "AsIs"
+		// UseIP: resolve through the internal DNS client, the Android
+		// system resolver is unusable from the xray child ([::1]:53).
+		strategy = "UseIP"
 	}
 	dnsCfg := t.config.Routing.DNS
 	if len(dnsCfg.Servers) == 0 && len(dnsCfg.Hosts) == 0 {
