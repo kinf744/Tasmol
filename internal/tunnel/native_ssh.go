@@ -136,6 +136,20 @@ func isFullRequest(body string) bool {
 	return false
 }
 
+// proxyStatusCode extracts the 3-digit code from an HTTP status line
+// ("HTTP/1.1 200 OK" -> 200), or 0 when unparsable.
+func proxyStatusCode(status string) int {
+	parts := strings.Fields(status)
+	if len(parts) < 2 {
+		return 0
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0
+	}
+	return code
+}
+
 // dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
 // request (with the optional custom payload) towards addr.
 func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
@@ -212,11 +226,17 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		return nil, fmt.Errorf("proxy read: %w", err)
 	}
 	Tracef("[ssh] proxy status: %s", strings.TrimSpace(status))
-	if !strings.Contains(status, " 200") {
+	code := proxyStatusCode(status)
+	// 2xx = standard success. 101 = the WS-panel convention (EDOZTUNNEL
+	// style): "tunnel open, proceed" despite the informational code.
+	if !((code >= 200 && code < 300) || code == 101) {
 		conn.Close()
 		return nil, fmt.Errorf("proxy refused: %s", strings.TrimSpace(status))
 	}
-	// Consume remaining header lines.
+	// Consume remaining header lines, tolerantly: quirky proxies may send
+	// no terminating blank line — never fail here, the buffered wrapper
+	// below replays anything already read.
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil || line == "\r\n" || line == "\n" {
@@ -225,9 +245,12 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	}
 	// Hand the (possibly buffered) connection to the SSH handshake. The
 	// buffered reader may already hold handshake bytes, so wrap it.
+	// The hop deadline is cleared either way: the SSH handshake and the
+	// session get the full configured timeouts, not the 3s header budget.
 	if reader.Buffered() > 0 {
 		conn = &bufferedConn{Conn: conn, r: reader}
-	} else if err := conn.SetDeadline(time.Time{}); err != nil {
+	}
+	if err := conn.SetDeadline(time.Time{}); err != nil {
 		conn.Close()
 		return nil, err
 	}
