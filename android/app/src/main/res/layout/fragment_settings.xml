@@ -632,5 +632,4 @@
             android:textColor="@color/npv_grey"
             android:textSize="11sp"
             android:typeface="monospace" />
-    </LinearLayout>
 </ScrollView>
