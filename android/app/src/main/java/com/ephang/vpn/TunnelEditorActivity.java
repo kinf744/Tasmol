@@ -36,6 +36,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private Spinner edType;
     private Switch edEnabled;
     private LinearLayout secServer;
+    private TextView lblHost;
     private EditText edHost;
     private EditText edPort;
     private TextView lblPort;
@@ -55,6 +56,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edMethod;
     private LinearLayout secXrayLink;
     private EditText edLink;
+    private Button btnParseLink;
+    private TextView lblOutboundJson;
     private EditText edOutboundJson;
     private LinearLayout secZivpn;
     private EditText edZpass;
@@ -103,6 +106,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edType = findViewById(R.id.ed_type);
         edEnabled = findViewById(R.id.ed_enabled);
         secServer = findViewById(R.id.sec_server);
+        lblHost = findViewById(R.id.lbl_host);
         edHost = findViewById(R.id.ed_host);
         edPort = findViewById(R.id.ed_port);
         lblPort = findViewById(R.id.lbl_port);
@@ -122,6 +126,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edMethod = findViewById(R.id.ed_method);
         secXrayLink = findViewById(R.id.sec_xray_link);
         edLink = findViewById(R.id.ed_link);
+        btnParseLink = findViewById(R.id.btn_parse_link);
+        lblOutboundJson = findViewById(R.id.lbl_outbound_json);
         edOutboundJson = findViewById(R.id.ed_outbound_json);
         secZivpn = findViewById(R.id.sec_zivpn);
         edZpass = findViewById(R.id.ed_zpass);
@@ -185,9 +191,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean showServer = !type.equals("ssh_slowdns") && !type.equals("xray");
 
         // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
-        boolean showXrayAuth = type.equals("xray_slowdns");
+        // xray_slowdns is link-only too (auto-parsed on save): no manual
+        // host/port, no Xray auth section, no outbound JSON, no Parse button.
+        boolean showXrayAuth = false;
         // No visible transport section: Xray works from link/JSON only.
         boolean showTransport = false;
+        boolean isXraySlowDns = type.equals("xray_slowdns");
 
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
         // Proxy/payload are plain-SSH only: ssh_slowdns dials through the
@@ -201,13 +210,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
-        secServer.setVisibility(showServer ? View.VISIBLE : View.GONE);
+        secServer.setVisibility(showServer && !isXraySlowDns ? View.VISIBLE : View.GONE);
         secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
-
+        // xray_slowdns simplified form: link + slowdns fields only (host,
+        // port, Xray auth, outbound JSON and Parse button hidden).
+        int slowLinkVis = isXraySlowDns ? View.GONE : View.VISIBLE;
         boolean showPath = isXray && (network.equals("ws") || network.equals("grpc")
                 || network.equals("xhttp") || network.equals("httpupgrade"));
-        secPath.setVisibility(showPath ? View.VISIBLE : View.GONE);
-        secReality.setVisibility(isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
+        secPath.setVisibility(!isXraySlowDns && showPath ? View.VISIBLE : View.GONE);
+        secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
+        btnParseLink.setVisibility(slowLinkVis);
+        lblOutboundJson.setVisibility(slowLinkVis);
+        edOutboundJson.setVisibility(slowLinkVis);
 
         edPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
         lblPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
@@ -283,6 +297,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (adv != null) {
                     edLink.setText(adv.optString("link", ""));
                     edOutboundJson.setText(adv.optString("outbound_json", ""));
+                    // xray_slowdns keeps its SlowDNS key in advanced (the
+                    // server key belongs to Reality): prefer it on load.
+                    if (currentType().equals("xray_slowdns")
+                            && !adv.optString("slowdns_pubkey", "").isEmpty()) {
+                        edPubkey.setText(adv.optString("slowdns_pubkey"));
+                    }
                 }
                 found = true;
                 break;
@@ -375,6 +395,40 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Base config for xray_slowdns saves: parse the link now (auto-parse on
+     * save), or reuse the stored profile when no link is given (legacy /
+     * manual setups). Returns null after showing the reason.
+     */
+    private JSONObject resolveXraySlowDnsBase() {
+        String link = edLink.getText().toString().trim();
+        if (!link.isEmpty()) {
+            try {
+                String res = VpnlibHelper.parseLink(link);
+                JSONObject parsed = new JSONObject(res);
+                if (parsed.has("error")) {
+                    toast("Parse failed: " + parsed.optString("error"));
+                    return null;
+                }
+                return parsed;
+            } catch (Exception e) {
+                toast("Parse failed: " + e.getMessage());
+                return null;
+            }
+        }
+        JSONObject stored = storedTunnel();
+        if (stored == null) {
+            toast("Link is required");
+            return null;
+        }
+        try {
+            return new JSONObject(stored.toString());
+        } catch (Exception e) {
+            toast("Load failed: " + e.getMessage());
+            return null;
+        }
+    }
+
     private void save() {
         String type = currentType();
         String name = edName.getText().toString().trim();
@@ -383,14 +437,32 @@ public class TunnelEditorActivity extends AppCompatActivity {
             return;
         }
         try {
-            JSONObject server = new JSONObject();
-            server.put("host", edHost.getText().toString().trim());
-            int port = 0;
-            try {
-                port = Integer.parseInt(edPort.getText().toString().trim());
-            } catch (NumberFormatException ignored) {
+            // xray_slowdns is link-driven: the link is parsed now (or the
+            // stored profile reused for legacy/manual setups) and provides
+            // host/port/uuid/transport/outbound. The form only adds the
+            // SlowDNS key + NS + resolver.
+            JSONObject slowBase = null;
+            if (type.equals("xray_slowdns")) {
+                slowBase = resolveXraySlowDnsBase();
+                if (slowBase == null) {
+                    return;
+                }
             }
-            server.put("port", port);
+            JSONObject server = new JSONObject();
+            if (type.equals("xray_slowdns")) {
+                JSONObject bs = slowBase.optJSONObject("server");
+                if (bs != null) {
+                    server = new JSONObject(bs.toString());
+                }
+            } else {
+                server.put("host", edHost.getText().toString().trim());
+                int port = 0;
+                try {
+                    port = Integer.parseInt(edPort.getText().toString().trim());
+                } catch (NumberFormatException ignored) {
+                }
+                server.put("port", port);
+            }
             if (type.equals("zivpn")) {
                 String ranges = edPortRange.getText().toString().trim();
                 if (ranges.isEmpty()) {
@@ -414,7 +486,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 // Never store blanks over saved values: a hidden/untouched
                 // field must not wipe the stored SlowDNS settings.
                 if (pubkey.isEmpty()) {
-                    pubkey = storedServerField("public_key");
+                    pubkey = storedSlowdnsKey();
                     if (!pubkey.isEmpty()) {
                         edPubkey.setText(pubkey);
                         toast("Kept saved public key");
@@ -433,11 +505,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     resolver = "8.8.8.8:53";
                     edResolver.setText(resolver);
                 }
-                server.put("public_key", pubkey);
+                if (type.equals("ssh_slowdns")) {
+                    server.put("public_key", pubkey);
+                }
+                // xray_slowdns: server.public_key belongs to Reality (from
+                // the parsed link); the SlowDNS key goes to advanced below.
                 server.put("nameserver", nsdomain);
                 server.put("dns_resolver", resolver);
             }
-            if (type.equals("xray") || type.equals("xray_slowdns")) {
+            if (type.equals("xray")) {
                 if (!edSni.getText().toString().trim().isEmpty()) {
                     server.put("sni", edSni.getText().toString().trim());
                 }
@@ -449,7 +525,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             }
 
-            if (!type.equals("ssh_slowdns") && edHost.getText().toString().trim().isEmpty()) {
+            if (!type.equals("ssh_slowdns") && !type.equals("xray_slowdns")
+                    && edHost.getText().toString().trim().isEmpty()) {
                 toast("Host is required");
                 return;
             }
@@ -464,6 +541,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     return;
                 }
             }
+            if (type.equals("xray_slowdns")) {
+                if (edNsdomain.getText().toString().trim().isEmpty()
+                        || edPubkey.getText().toString().trim().isEmpty()) {
+                    toast("NS domain and public key are required");
+                    return;
+                }
+            }
             if (type.equals("zivpn") && edZpass.getText().toString().isEmpty()) {
                 toast("Password is required");
                 return;
@@ -471,6 +555,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
             JSONObject auth = new JSONObject();
             JSONObject ssh = new JSONObject();
+            if (type.equals("xray_slowdns") && slowBase != null) {
+                JSONObject ba = slowBase.optJSONObject("auth");
+                if (ba != null) {
+                    auth = new JSONObject(ba.toString());
+                }
+            }
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
                 auth.put("username", edUsername.getText().toString().trim());
                 auth.put("password", edPassword.getText().toString());
@@ -494,7 +584,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
             JSONObject transport = new JSONObject();
             // Transport only matters for Xray-family tunnels (zivpn obfs is
             // hardcoded server-side, ssh uses none).
-            if (type.equals("xray") || type.equals("xray_slowdns")) {
+            if (type.equals("xray_slowdns") && slowBase != null) {
+                JSONObject bt = slowBase.optJSONObject("transport");
+                if (bt != null) {
+                    transport = new JSONObject(bt.toString());
+                }
+            } else if (type.equals("xray") || type.equals("xray_slowdns")) {
                 transport.put("network", edNetwork.getSelectedItem().toString());
                 transport.put("security", security);
                 transport.put("path", edPath.getText().toString().trim());
@@ -502,7 +597,17 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
 
             JSONObject advanced = new JSONObject();
-            if (type.equals("xray") || type.equals("xray_slowdns")) {
+            if (type.equals("xray_slowdns") && slowBase != null) {
+                JSONObject ba = slowBase.optJSONObject("advanced");
+                if (ba != null) {
+                    advanced = new JSONObject(ba.toString());
+                }
+                advanced.put("link", edLink.getText().toString().trim());
+                String slowKey = edPubkey.getText().toString().trim();
+                if (!slowKey.isEmpty()) {
+                    advanced.put("slowdns_pubkey", slowKey);
+                }
+            } else if (type.equals("xray") || type.equals("xray_slowdns")) {
                 String manualJson = edOutboundJson.getText().toString().trim();
                 if (!manualJson.isEmpty()) {
                     new JSONObject(manualJson); // validate
@@ -561,23 +666,50 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
     /** Read one stored server.* field of the profile being edited ("" if none). */
     private String storedServerField(String field) {
-        if (editId == null || editId.isEmpty()) {
+        JSONObject t = storedTunnel();
+        if (t == null) {
             return "";
+        }
+        JSONObject server = t.optJSONObject("server");
+        if (server != null) {
+            return server.optString(field, "");
+        }
+        return "";
+    }
+
+    /** Full stored JSON of the profile being edited (null if new/missing). */
+    private JSONObject storedTunnel() {
+        if (editId == null || editId.isEmpty()) {
+            return null;
         }
         try {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
             JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath).trim());
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
-                if (!editId.equals(t.optString("id", ""))) {
-                    continue;
-                }
-                JSONObject server = t.optJSONObject("server");
-                if (server != null) {
-                    return server.optString(field, "");
+                if (editId.equals(t.optString("id", ""))) {
+                    return t;
                 }
             }
         } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    /** Stored SlowDNS key: advanced.slowdns_pubkey first (xray_slowdns),
+     *  then the legacy server.public_key. */
+    private String storedSlowdnsKey() {
+        JSONObject t = storedTunnel();
+        if (t == null) {
+            return "";
+        }
+        JSONObject adv = t.optJSONObject("advanced");
+        if (adv != null && !adv.optString("slowdns_pubkey", "").isEmpty()) {
+            return adv.optString("slowdns_pubkey");
+        }
+        JSONObject server = t.optJSONObject("server");
+        if (server != null) {
+            return server.optString("public_key", "");
         }
         return "";
     }

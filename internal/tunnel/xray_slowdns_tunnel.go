@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -154,7 +153,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	}
 
 	Tracef("[xray-slowdns] inputs nsDomain=%q resolver=%q pubkeyLen=%d uuidSet=%v outboundJSON=%v fwdPort=%d socksPort=%d",
-		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
+		t.nsDomain(), t.resolver(), len(cleanDnsttKey(DnsttPubKey(t.config))),
 		t.config.Auth.UUID != "", HasOutboundJSON(t.config), t.fwdPort(), t.socksPort())
 	if t.nsDomain() == "" {
 		Tracef("[xray-slowdns] ERROR: nameserver domain empty")
