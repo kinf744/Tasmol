@@ -49,11 +49,11 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			auth = append(auth, ssh.PublicKeys(signer))
 			Tracef("[ssh] private key parsed OK")
 		} else {
-			Tracef("[ssh] ERROR private key unparsable: %v", err)
+			Errorf("ssh", "private key unparsable: %v", err)
 		}
 	}
 	if len(auth) == 0 {
-		Tracef("[ssh] ERROR: no usable auth method")
+		Errorf("ssh", "no usable auth method")
 		return nil, fmt.Errorf("ssh: no auth method (need auth.password or auth.private_key)")
 	}
 
@@ -68,12 +68,12 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		Tracef("[ssh] hop via HTTP proxy %s", cfg.SSH.Proxy)
 		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
 		if err != nil {
-			Tracef("[ssh] ERROR proxy hop: %v", err)
+			Errorf("ssh", "proxy hop: %v", err)
 			return nil, fmt.Errorf("ssh proxy hop: %w", err)
 		}
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
-			Tracef("[ssh] ERROR handshake via proxy: %v", err)
+			Errorf("ssh", "handshake via proxy: %v", err)
 			conn.Close()
 			return nil, err
 		}
@@ -83,7 +83,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	Tracef("[ssh] direct dial %s ...", addr)
 	client, err := ssh.Dial("tcp", addr, sshCfg)
 	if err != nil {
-		Tracef("[ssh] ERROR direct dial/handshake: %v", err)
+		Errorf("ssh", "direct dial/handshake: %v", err)
 		return nil, err
 	}
 	Tracef("[ssh] handshake OK")
@@ -211,16 +211,16 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	Tracef("[ssh] proxy hop: proxy=%s target=%s payloadLen=%d", proxyAddr, addr, len(payloadTpl))
 	proxyHost, proxyPort, err := splitProxyAddr(proxyAddr)
 	if err != nil {
-		Tracef("[ssh] ERROR bad proxy addr: %v", err)
+		Errorf("ssh", "bad proxy addr: %v", err)
 		return nil, err
 	}
 	host, port, err := splitProxyAddr(addr)
 	if err != nil {
-		Tracef("[ssh] ERROR bad target addr: %v", err)
+		Errorf("ssh", "bad target addr: %v", err)
 		return nil, err
 	}
 	if proxyHost == host && proxyPort == port {
-		Tracef("[ssh] WARNING proxy == target (%s): the proxy would CONNECT to itself; check ssh.proxy vs server host/port", addr)
+		Warnf("ssh", "proxy == target (%s): the proxy would CONNECT to itself; check ssh.proxy vs server host/port", addr)
 	}
 	if strings.Contains(strings.ToLower(payloadTpl), "[delay") {
 		Tracef("[ssh] note: [delay*] timing tokens stripped (sent continuously)")
@@ -228,7 +228,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 
 	conn, err := net.DialTimeout("tcp", proxyHost+":"+proxyPort, 15*time.Second)
 	if err != nil {
-		Tracef("[ssh] ERROR dial proxy %s:%s: %v (proxy unreachable: wrong IP/port, proxy down, or carrier-filtered)", proxyHost, proxyPort, err)
+		Errorf("ssh", "dial proxy %s:%s: %v (proxy unreachable: wrong IP/port, proxy down, or carrier-filtered)", proxyHost, proxyPort, err)
 		return nil, fmt.Errorf("dial proxy %s: %w", proxyAddr, err)
 	}
 	if err := conn.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
@@ -275,7 +275,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		Tracef("[ssh] CONNECT request line: %s (+%d header/payload lines)", lines[0], len(lines)-1)
 	}
 	if err := sendPayload(conn, req.String(), payloadTpl); err != nil {
-		Tracef("[ssh] ERROR proxy write: %v", err)
+		Errorf("ssh", "proxy write: %v", err)
 		conn.Close()
 		return nil, fmt.Errorf("proxy write: %w", err)
 	}
@@ -283,7 +283,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 	reader := bufio.NewReader(conn)
 	status, err := reader.ReadString('\n')
 	if err != nil {
-		Tracef("[ssh] ERROR proxy read: %v", err)
+		Errorf("ssh", "proxy read: %v", err)
 		conn.Close()
 		return nil, fmt.Errorf("proxy read: %w", err)
 	}
@@ -519,7 +519,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		t.config.Server.Host, t.config.Server.Port, t.config.Auth.Username,
 		t.socksAddr(), t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
-		Tracef("[ssh] ERROR: host or username empty")
+		Errorf("ssh", "host or username empty")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
 	}
 
@@ -532,7 +532,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	}
 	client, err := sshDial(t.config, net.JoinHostPort(t.config.Server.Host, strconv.Itoa(port)))
 	if err != nil {
-		Tracef("[ssh] ERROR sshDial: %v", err)
+		Errorf("ssh", "sshDial: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("ssh dial failed: %w", err)
@@ -543,7 +543,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	socksAddr, _, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[ssh] ERROR socks port: %v", err)
+		Errorf("ssh", "socks port: %v", err)
 		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
@@ -552,7 +552,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	Tracef("[ssh] SOCKS picked %s", socksAddr)
 	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
-		Tracef("[ssh] ERROR socks listen %s: %v", socksAddr, err)
+		Errorf("ssh", "socks listen %s: %v", socksAddr, err)
 		ClearLiveSocksAddr(t.config.ID)
 		client.Close()
 		t.status = StatusError
@@ -570,7 +570,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Tracef("[ssh] RUNNING name=%q", t.config.Name)
+	Connf("ssh", "RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }
@@ -694,15 +694,15 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
 		t.config.Auth.Username, t.fwdPort(), t.socksAddr())
 	if t.nsDomain() == "" {
-		Tracef("[ssh-slowdns] ERROR: nameserver domain empty")
+		Errorf("ssh-slowdns", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if t.config.Server.PublicKey == "" {
-		Tracef("[ssh-slowdns] ERROR: slowdns public key empty")
+		Errorf("ssh-slowdns", "slowdns public key empty")
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 	if t.config.Auth.Username == "" {
-		Tracef("[ssh-slowdns] ERROR: ssh username empty")
+		Errorf("ssh-slowdns", "ssh username empty")
 		return fmt.Errorf("ssh username is required (auth.username)")
 	}
 
@@ -717,7 +717,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	fwdPort, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
 	if err != nil {
-		Tracef("[ssh-slowdns] ERROR fwd port: %v", err)
+		Errorf("ssh-slowdns", "fwd port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -730,7 +730,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 
 	if err != nil {
-		Tracef("[ssh-slowdns] ERROR dnstt phase: %v", err)
+		Errorf("ssh-slowdns", "dnstt phase: %v", err)
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
@@ -740,7 +740,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
 	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
-		Tracef("[ssh-slowdns] ERROR ssh dial: %v", dialErr)
+		Errorf("ssh-slowdns", "ssh dial: %v", dialErr)
 		t.slowdnscmd.Process.Kill()
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
@@ -750,7 +750,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	socksAddr, _, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[ssh-slowdns] ERROR socks port: %v", err)
+		Errorf("ssh-slowdns", "socks port: %v", err)
 		sshClient.Close()
 		t.slowdnscmd.Process.Kill()
 		ClearLiveForward(t.config.ID)
@@ -760,7 +760,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	ln, err := net.Listen("tcp", socksAddr)
 	if err != nil {
-		Tracef("[ssh-slowdns] ERROR socks listen %s: %v", socksAddr, err)
+		Errorf("ssh-slowdns", "socks listen %s: %v", socksAddr, err)
 		ClearLiveSocksAddr(t.config.ID)
 		sshClient.Close()
 		t.slowdnscmd.Process.Kill()
@@ -780,7 +780,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Tracef("[ssh-slowdns] RUNNING name=%q", t.config.Name)
+	Connf("ssh-slowdns", "RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }

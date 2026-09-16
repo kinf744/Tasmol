@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -158,9 +159,27 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 		mu.Lock()
 		defer mu.Unlock()
 		fmt.Fprintf(f, "%s  %s\n", time.Now().Format("15:04:05.000"),
-			fmt.Sprintf(format, args...))
+			sanitizeLogLine(fmt.Sprintf(format, args...)))
 	}
 }
+
+// sanitizeLogLine masks secrets before they reach kighmu.txt (passwords,
+// obfs values, UUIDs, tunnel links): structure stays for diagnosis, values
+// don't leak into a Download-folder file.
+func sanitizeLogLine(line string) string {
+	line = logSecretRe.ReplaceAllString(line, `$1"••••••"`)
+	line = logUUIDRe.ReplaceAllString(line, "[UUID]")
+	line = logLinkRe.ReplaceAllString(line, "[tunnel link]")
+	line = logPassEqRe.ReplaceAllString(line, `$1"••••••"`)
+	return line
+}
+
+var (
+	logSecretRe = regexp.MustCompile(`(?i)("(?:password|pass|auth|obfs|token|secret|private[_-]?key|uuid|publicKey|pkey|sshPassword)"\s*:\s*)"[^"]*"`)
+	logUUIDRe   = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
+	logLinkRe   = regexp.MustCompile(`(?i)\b(?:vmess|vless|trojan|ss)://[^\s"'<>]+`)
+	logPassEqRe = regexp.MustCompile(`(?i)\b(password|passwd)\s*=\s*"[^"]*"`)
+)
 
 // Start boots the management core, the helpers of the active tunnel and the
 // in-process data plane over the Android TUN fd. Returns "" on success or
@@ -198,7 +217,7 @@ func (c *Controller) Start(paramsJSON string) string {
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
-	tunnel.Tracef("[session] start tunFd=%d mtu=%d active=%q round_robin=%q binDir=%q nativeSSH=%v managePort=%d",
+	tunnel.Connf("session", "start tunFd=%d mtu=%d active=%q round_robin=%q binDir=%q nativeSSH=%v managePort=%d",
 		p.TunFd, p.MTU, p.ActiveTunnel, p.RoundRobin, p.BinDir, p.NativeSSH, p.ManagePort)
 
 	cfgMgr, err := config.NewManager(p.ConfigPath)
@@ -251,9 +270,9 @@ func (c *Controller) Start(paramsJSON string) string {
 	// data plane dials the single active SOCKS directly (no balancer).
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
 	if len(c.rrIDs) >= 2 {
-		tunnel.Tracef("[session] mode=round-robin profiles=%v", c.rrIDs)
+		tunnel.Connf("session", "mode=round-robin profiles=%v", c.rrIDs)
 	} else {
-		tunnel.Tracef("[session] mode=single active=%q", c.activeID)
+		tunnel.Connf("session", "mode=single active=%q", c.activeID)
 	}
 	if len(c.rrIDs) >= 2 {
 		tunnel.Tracef("[rr] round-robin mode with %d profiles: %v", len(c.rrIDs), c.rrIDs)
@@ -333,7 +352,7 @@ func waitBounded(wait func(), d time.Duration, what string) {
 	select {
 	case <-done:
 	case <-time.After(d):
-		tunnel.Tracef("[dataplane] teardown: %s did not finish in %v, continuing anyway", what, d)
+		tunnel.Warnf("session", "teardown: %s did not finish in %v, continuing anyway", what, d)
 	}
 }
 
@@ -381,18 +400,18 @@ func (c *Controller) cleanupLocked() {
 func (c *Controller) ensureHelpersLocked(id string) error {
 	t, ok := c.vpn.GetTunnelManager().Get(id)
 	if !ok {
-		tunnel.Tracef("[session] helper id=%s not found in config", id)
+		tunnel.Errorf("session", "helper id=%s not found in config", id)
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
 	if t.Status() != tunnel.StatusRunning {
-		tunnel.Tracef("[session] starting helper %q (type=%s id=%s)", t.Name(), t.Type(), t.ID())
+		tunnel.Infof("session", "starting helper %q (type=%s id=%s)", t.Name(), t.Type(), t.ID())
 		if err := t.Start(c.ctx); err != nil {
-			tunnel.Tracef("[session] helper %q FAILED: %v", t.Name(), err)
+			tunnel.Errorf("session", "helper %q failed: %v", t.Name(), err)
 			return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
 		}
-		tunnel.Tracef("[session] helper %q running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+		tunnel.Connf("session", "helper %q running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 	} else {
-		tunnel.Tracef("[session] helper %q already running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+		tunnel.Connf("session", "helper %q already running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 	}
 	return nil
 }
@@ -434,7 +453,7 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 			return nil
 		}
 		_ = t.Stop(context.Background())
-		tunnel.Tracef("[rr] %s attempt %d failed: %v", t.Name(), attempt, err)
+		tunnel.Warnf("rr", "%s attempt %d failed: %v", t.Name(), attempt, err)
 		time.Sleep(500 * time.Millisecond)
 	}
 	return fmt.Errorf("tunnel %s failed after 3 attempts: %w", t.Name(), err)
@@ -448,7 +467,7 @@ func (c *Controller) ensureHelpersNLocked(ids []string) error {
 	var lastErr error
 	for _, id := range ids {
 		if err := c.ensureHelperRetryLocked(id); err != nil {
-			tunnel.Tracef("[rr] dropping profile %s: %v", id, err)
+			tunnel.Warnf("rr", "dropping profile %s: %v", id, err)
 			lastErr = err
 			continue
 		}
@@ -608,7 +627,7 @@ func (c *Controller) startDataplaneLocked() error {
 	c.stack = st
 	c.tun = tun
 	c.dialer = d
-	tunnel.Tracef("[dataplane] gVisor stack up, session RUNNING")
+	tunnel.Connf("dataplane", "gVisor stack up, session RUNNING")
 	return nil
 }
 
@@ -640,7 +659,7 @@ func (c *Controller) switchUpstreamLocked() error {
 		return fmt.Errorf("tunnel socks not ready (%s): %w", socksAddr, err)
 	}
 	c.dialer.set(upstream)
-	tunnel.Tracef("[dataplane] upstream switched to %s", socksAddr)
+	tunnel.Connf("dataplane", "upstream switched to %s", socksAddr)
 	return nil
 }
 
@@ -663,7 +682,7 @@ func (c *Controller) followRoundRobinLocked() {
 				c.rrLastTry[id] = now
 				tunnel.Tracef("[rr] revive attempt for %s", t.Name())
 				if err := t.Start(c.ctx); err != nil {
-					tunnel.Tracef("[rr] revive %s failed: %v", t.Name(), err)
+					tunnel.Warnf("rr", "revive %s failed: %v", t.Name(), err)
 					continue
 				}
 				// A revived member rebinds fresh ports: the front's
@@ -680,7 +699,7 @@ func (c *Controller) followRoundRobinLocked() {
 	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs) || revived) {
 		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
 		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
-			tunnel.Tracef("[rr] rebuild failed: %v", err)
+			tunnel.Errorf("rr", "rebuild failed: %v", err)
 			return
 		}
 		// The rebuilt front listens on a fresh port: re-point the data
@@ -726,11 +745,11 @@ func (c *Controller) throttledRestartLocked(t tunnel.Tunnel) bool {
 	tunnel.Tracef("[dataplane] restarting dead tunnel %s", t.Name())
 	_ = t.Stop(context.Background())
 	if err := t.Start(c.ctx); err != nil {
-		tunnel.Tracef("[dataplane] restart %s failed: %v", t.Name(), err)
+		tunnel.Warnf("dataplane", "restart %s failed: %v", t.Name(), err)
 		return false
 	}
 	if err := c.switchUpstreamLocked(); err != nil {
-		tunnel.Tracef("[dataplane] re-point upstream failed: %v", err)
+		tunnel.Warnf("dataplane", "re-point upstream failed: %v", err)
 		return false
 	}
 	tunnel.Tracef("[dataplane] restarted %s", t.Name())

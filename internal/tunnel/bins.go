@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -48,6 +49,37 @@ func Tracef(format string, args ...interface{}) {
 		return
 	}
 	LogFunc(format, args...)
+}
+
+// Leveled journal: every line carries [level] [component] so the UI colors
+// milestones, warnings and errors (info/connection/warning/error).
+// Secrets are masked at write time by the file logger.
+func logLine(level, component, format string, args ...interface{}) {
+	if LogFunc == nil {
+		return
+	}
+	comp := strings.ReplaceAll(strings.ReplaceAll(component, "[", ""), "]", "")
+	LogFunc("[" + level + "] [" + comp + "] " + fmt.Sprintf(format, args...))
+}
+
+// Infof logs a routine journal line.
+func Infof(component, format string, args ...interface{}) {
+	logLine("info", component, format, args...)
+}
+
+// Connf logs a connection milestone (helper up, session running, switch).
+func Connf(component, format string, args ...interface{}) {
+	logLine("connection", component, format, args...)
+}
+
+// Warnf logs a suspicious but non-fatal journal line.
+func Warnf(component, format string, args ...interface{}) {
+	logLine("warning", component, format, args...)
+}
+
+// Errorf logs a failure journal line.
+func Errorf(component, format string, args ...interface{}) {
+	logLine("error", component, format, args...)
 }
 
 // Binary names as stored in bin/armv7/ of the repository.

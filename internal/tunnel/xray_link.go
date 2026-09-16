@@ -148,7 +148,7 @@ func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 		Tracef("[xray] endpoint %s resolves to %s: dialing the IP (child DNS is dead)", name, ip.String())
 		return ip.String()
 	} else {
-		Tracef("[xray] WARNING endpoint %s unresolvable here, passing through: %v", name, err)
+		Warnf("xray", "endpoint %s unresolvable here, passing through: %v", name, err)
 	}
 	return addr
 }

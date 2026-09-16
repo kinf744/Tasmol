@@ -150,11 +150,11 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	Tracef("[xray] inputs uuidSet=%v outboundJSON=%v host=%q port=%d",
 		hasUUID, hasJSON, t.config.Server.Host, t.config.Server.Port)
 	if t.config.Auth.UUID == "" && !hasJSON {
-		Tracef("[xray] ERROR: no uuid and no outbound_json")
+		Errorf("xray", "no uuid and no outbound_json")
 		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
 	}
 	if t.config.Server.Host == "" && !hasJSON {
-		Tracef("[xray] ERROR: server host empty")
+		Errorf("xray", "server host empty")
 		return fmt.Errorf("xray server host is required (server.host)")
 	}
 
@@ -166,7 +166,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[xray] ERROR socks port: %v", err)
+		Errorf("xray", "socks port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -176,7 +176,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	configContent, err := t.generateConfig()
 	if err != nil {
-		Tracef("[xray] ERROR generateConfig: %v", err)
+		Errorf("xray", "generateConfig: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -184,14 +184,14 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	tmpDir, err := os.MkdirTemp(TmpDir, "xray-*")
 	if err != nil {
-		Tracef("[xray] ERROR mktemp in %s: %v", TmpDir, err)
+		Errorf("xray", "mktemp in %s: %v", TmpDir, err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
-		Tracef("[xray] ERROR write config: %v", err)
+		Errorf("xray", "write config: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -210,21 +210,21 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	stdout, err := t.cmd.StdoutPipe()
 	if err != nil {
-		Tracef("[xray] ERROR stdout pipe: %v", err)
+		Errorf("xray", "stdout pipe: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	stderr, err := t.cmd.StderrPipe()
 	if err != nil {
-		Tracef("[xray] ERROR stderr pipe: %v", err)
+		Errorf("xray", "stderr pipe: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 
 	if err := t.cmd.Start(); err != nil {
-		Tracef("[xray] ERROR process start: %v", err)
+		Errorf("xray", "process start: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start Xray: %w", err)
@@ -240,7 +240,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	readyErr := waitForTCPctx(ctx, socksAddr, 15*time.Second)
 	t.mu.Lock()
 	if readyErr != nil {
-		Tracef("[xray] SOCKS %s NOT ready: %v", socksAddr, readyErr)
+		Errorf("xray", "SOCKS %s not ready: %v", socksAddr, readyErr)
 		if t.cmd.Process != nil {
 			t.cmd.Process.Kill()
 		}
@@ -252,7 +252,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Tracef("[xray] RUNNING name=%q", t.config.Name)
+	Connf("xray", "RUNNING name=%q", t.config.Name)
 
 	go t.monitorProcess()
 

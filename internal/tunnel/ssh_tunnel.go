@@ -109,11 +109,11 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 		t.config.Auth.PrivateKey != "", t.config.Auth.Password != "",
 		advInt(t.config.Advanced, "socks_port", 10801))
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
-		Tracef("[ssh-proc] ERROR: host or username empty")
+		Errorf("ssh-proc", "host or username empty")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
 	}
 	if t.config.Auth.PrivateKey == "" && t.config.Auth.Password != "" {
-		Tracef("[ssh-proc] WARNING: password auth with the openssh binary has no TTY: " +
+		Warnf("ssh-proc", "password auth with the openssh binary has no TTY: "+
 			"ssh will block on a password prompt unless key auth is used")
 	}
 
@@ -126,7 +126,7 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[ssh-proc] ERROR socks port: %v", err)
+		Errorf("ssh-proc", "socks port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -142,12 +142,12 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	t.cmd = exec.CommandContext(ctx, bin, args...)
 
 	if err := t.cmd.Start(); err != nil {
-		Tracef("[ssh-proc] ERROR process start: %v", err)
+		Errorf("ssh-proc", "process start: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start SSH: %w", err)
 	}
-	Tracef("[ssh-proc] process started pid=%d, RUNNING name=%q", t.cmd.Process.Pid, t.config.Name)
+	Connf("ssh-proc", "process started pid=%d, RUNNING name=%q", t.cmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning

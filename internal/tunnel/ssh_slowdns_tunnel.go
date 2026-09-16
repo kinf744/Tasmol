@@ -124,15 +124,15 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
 		t.config.Auth.Username, t.fwdPort(), t.socksPort())
 	if t.nsDomain() == "" {
-		Tracef("[ssh-slowdns-proc] ERROR: nameserver domain empty")
+		Errorf("ssh-slowdns-proc", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if t.config.Server.PublicKey == "" {
-		Tracef("[ssh-slowdns-proc] ERROR: slowdns public key empty")
+		Errorf("ssh-slowdns-proc", "slowdns public key empty")
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 	if t.config.Auth.Username == "" {
-		Tracef("[ssh-slowdns-proc] ERROR: ssh username empty")
+		Errorf("ssh-slowdns-proc", "ssh username empty")
 		return fmt.Errorf("ssh username is required (auth.username)")
 	}
 
@@ -146,7 +146,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	fwd, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
 	if err != nil {
-		Tracef("[ssh-slowdns-proc] ERROR fwd port: %v", err)
+		Errorf("ssh-slowdns-proc", "fwd port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -154,7 +154,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.pickedFwd = fwd
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[ssh-slowdns-proc] ERROR socks port: %v", err)
+		Errorf("ssh-slowdns-proc", "socks port: %v", err)
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
@@ -170,7 +170,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 
 	if err != nil {
-		Tracef("[ssh-slowdns-proc] ERROR dnstt phase: %v", err)
+		Errorf("ssh-slowdns-proc", "dnstt phase: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -183,13 +183,13 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.sshCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), sshArgs...)
 
 	if err := t.sshCmd.Start(); err != nil {
-		Tracef("[ssh-slowdns-proc] ERROR ssh start: %v", err)
+		Errorf("ssh-slowdns-proc", "ssh start: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("SSH start failed: %v", err))
 		return fmt.Errorf("failed to start SSH through SlowDNS: %w", err)
 	}
-	Tracef("[ssh-slowdns-proc] ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
+	Connf("ssh-slowdns-proc", "ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
 		t.sshCmd.Process.Pid, t.slowdnscmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()

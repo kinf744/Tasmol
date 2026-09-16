@@ -102,11 +102,11 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	Tracef("[slowdns] StartDnstt begin nsDomain=%q resolver=%q pubkeyLen=%d fwdPort=%d",
 		DnsttDomain(cfg), DnsttResolver(cfg), len(strings.TrimSpace(DnsttPubKey(cfg))), fwdPort)
 	if DnsttDomain(cfg) == "" {
-		Tracef("[slowdns] ERROR: nameserver domain empty")
+		Errorf("slowdns", "nameserver domain empty")
 		return nil, fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if DnsttPubKey(cfg) == "" {
-		Tracef("[slowdns] ERROR: public key empty")
+		Errorf("slowdns", "public key empty")
 		return nil, fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 
@@ -118,16 +118,16 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	cmd := exec.CommandContext(ctx, bin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		Tracef("[slowdns] ERROR stdout pipe: %v", err)
+		Errorf("slowdns", "stdout pipe: %v", err)
 		return nil, fmt.Errorf("slowdns stdout pipe: %w", err)
 	}
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		Tracef("[slowdns] ERROR stderr pipe: %v", err)
+		Errorf("slowdns", "stderr pipe: %v", err)
 		return nil, fmt.Errorf("slowdns stderr pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		Tracef("[slowdns] ERROR process start: %v", err)
+		Errorf("slowdns", "process start: %v", err)
 		return nil, fmt.Errorf("failed to start SlowDNS (dnstt-client): %w", err)
 	}
 	Tracef("[slowdns] process started pid=%d", cmd.Process.Pid)
@@ -135,7 +135,7 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	go PipeLinesToLog(stderr, "[slowdns][err]")
 
 	if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", fwdPort), 20*time.Second); err != nil {
-		Tracef("[slowdns] forward NOT ready, killing pid=%d: %v", cmd.Process.Pid, err)
+		Errorf("slowdns", "forward not ready, killing pid=%d: %v", cmd.Process.Pid, err)
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("slowdns forward not ready: %w", err)
 	}

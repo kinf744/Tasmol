@@ -156,15 +156,15 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		t.nsDomain(), t.resolver(), len(cleanDnsttKey(DnsttPubKey(t.config))),
 		t.config.Auth.UUID != "", HasOutboundJSON(t.config), t.fwdPort(), t.socksPort())
 	if t.nsDomain() == "" {
-		Tracef("[xray-slowdns] ERROR: nameserver domain empty")
+		Errorf("xray-slowdns", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if t.config.Server.PublicKey == "" {
-		Tracef("[xray-slowdns] ERROR: slowdns public key empty")
+		Errorf("xray-slowdns", "slowdns public key empty")
 		return fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
 	if t.config.Auth.UUID == "" && !HasOutboundJSON(t.config) {
-		Tracef("[xray-slowdns] ERROR: no uuid and no outbound_json")
+		Errorf("xray-slowdns", "no uuid and no outbound_json")
 		return fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 	}
 
@@ -179,7 +179,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	fwd, err := PickLiveForward(t.config, DefaultXraySlowDNSFwdPort)
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR fwd port: %v", err)
+		Errorf("xray-slowdns", "fwd port: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -187,7 +187,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.pickedFwd = fwd
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR socks port: %v", err)
+		Errorf("xray-slowdns", "socks port: %v", err)
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
@@ -203,7 +203,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR dnstt phase: %v", err)
+		Errorf("xray-slowdns", "dnstt phase: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -212,7 +212,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 
 	configContent, err := t.generateXrayConfig()
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR generateConfig: %v", err)
+		Errorf("xray-slowdns", "generateConfig: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
@@ -221,14 +221,14 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 
 	tmpDir, err := os.MkdirTemp(TmpDir, "xray-slowdns-*")
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR mktemp in %s: %v", TmpDir, err)
+		Errorf("xray-slowdns", "mktemp in %s: %v", TmpDir, err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR mktemp: %v", err)
+		Errorf("xray-slowdns", "mktemp: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
@@ -236,7 +236,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
-		Tracef("[xray-slowdns] ERROR write config: %v", err)
+		Errorf("xray-slowdns", "write config: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
@@ -251,7 +251,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	Tracef("[xray-slowdns] binary=%q config=%s", t.xrayCmd.Path, configContent)
 	stdout, err := t.xrayCmd.StdoutPipe()
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR stdout pipe: %v", err)
+		Errorf("xray-slowdns", "stdout pipe: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
@@ -259,14 +259,14 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	stderr, err := t.xrayCmd.StderrPipe()
 	if err != nil {
-		Tracef("[xray-slowdns] ERROR stderr pipe: %v", err)
+		Errorf("xray-slowdns", "stderr pipe: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
 	}
 	if err := t.xrayCmd.Start(); err != nil {
-		Tracef("[xray-slowdns] ERROR process start: %v", err)
+		Errorf("xray-slowdns", "process start: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("Xray start failed: %v", err))
@@ -283,14 +283,14 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 
 	if socksErr != nil {
-		Tracef("[xray-slowdns] SOCKS NOT ready: %v", socksErr)
+		Errorf("xray-slowdns", "SOCKS not ready: %v", socksErr)
 		t.xrayCmd.Process.Kill()
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("Xray SOCKS not ready: %v", socksErr))
 		return fmt.Errorf("xray socks not ready: %w", socksErr)
 	}
-	Tracef("[xray-slowdns] SOCKS ready, RUNNING name=%q", t.config.Name)
+	Connf("xray-slowdns", "SOCKS ready, RUNNING name=%q", t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning

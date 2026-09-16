@@ -242,7 +242,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 	if strings.TrimSpace(t.config.Server.Host) == "" {
-		Tracef("[zivpn] ERROR: server host empty")
+		Errorf("zivpn", "server host empty")
 		return fmt.Errorf("zivpn server host is required (server.host)")
 	}
 
@@ -260,7 +260,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	basePort := t.socksPort()
 	ranges, err := t.portRanges()
 	if err != nil {
-		Tracef("[zivpn] ERROR: %v", err)
+		Errorf("zivpn", "%v", err)
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -285,7 +285,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		// A previous session may still be releasing a port on an
 		// immediate reconnect: wait for it instead of failing.
 		if err := waitPortFreeCtx(ctx, uzPort, 4*time.Second); err != nil {
-			Tracef("[zivpn][%d] %v", i, err)
+			Errorf("zivpn", "[%d] %v", i, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(err.Error())
@@ -293,7 +293,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		}
 		cfgJSON, err := buildUzConfig(ip, rng, password, DefaultZivpnObfsPassword, uzPort)
 		if err != nil {
-			Tracef("[zivpn] buildUzConfig error: %v", err)
+			Errorf("zivpn", "buildUzConfig error: %v", err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(err.Error())
@@ -319,7 +319,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		cmd.Stdout = nil
 
 		if err := cmd.Start(); err != nil {
-			Tracef("[zivpn][%d] exec start ERROR: %v", i, err)
+			Errorf("zivpn", "[%d] exec start failed: %v", i, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(fmt.Sprintf("zivpn start failed: %v", err))
@@ -333,7 +333,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 		// Readiness: uz exposes its SOCKS port (5s budget, like reference).
 		if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
-			Tracef("[zivpn][%d] SOCKS %d NOT ready: %v", i, uzPort, err)
+			Errorf("zivpn", "[%d] SOCKS %d not ready: %v", i, uzPort, err)
 			t.killProcsLocked(procs)
 			t.status = StatusError
 			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
@@ -370,7 +370,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	}
 	if ln == nil {
 		err := fmt.Errorf("zivpn balancer: no free port after 3 attempts")
-		Tracef("[zivpn] %v", err)
+		Errorf("zivpn", "%v", err)
 		t.killProcsLocked(procs)
 		t.status = StatusError
 		t.setError(err.Error())
@@ -393,11 +393,13 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		ClearLiveSocksAddr(t.config.ID)
 		t.status = StatusError
 		t.setError(fmt.Sprintf("zivpn balancer not ready: %v", err))
+		Errorf("zivpn", "balancer not ready: %v", err)
 		return fmt.Errorf("zivpn balancer not ready: %w", err)
 	}
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
+	Connf("zivpn", "RUNNING name=%q ranges=%d lb=%s", t.config.Name, len(procs), fmt.Sprintf("127.0.0.1:%d", lbPort))
 
 	go t.monitorProcs()
 
