@@ -87,7 +87,11 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         int port = server != null ? PingUtil.dialPort(server) : 0;
 
         h.name.setText(name);
-        h.detail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
+        if (ProfileTransfer.isHideServer(t)) {
+            h.detail.setText("serveur masqué");
+        } else {
+            h.detail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
+        }
         h.type.setText(prettyType(type));
 
         Long ms = pingMs.get(id);

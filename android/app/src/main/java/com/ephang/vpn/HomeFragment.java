@@ -216,7 +216,9 @@ public class HomeFragment extends Fragment {
             JSONObject server = pick.optJSONObject("server");
             String host = server != null ? server.optString("host", "") : "";
             int port = server != null ? PingUtil.dialPort(server) : 0;
-            serverDetail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
+            boolean hidden = ProfileTransfer.isHideServer(pick);
+            serverDetail.setText(hidden ? "serveur masqué"
+                    : (host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "")));
             serverType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
         } catch (Exception e) {
             serverText.setText("No server selected");

@@ -357,7 +357,7 @@ public class MainActivity extends AppCompatActivity {
                     .show();
             return;
         }
-        // Locked profiles: refuse expired or foreign-device bindings.
+        // Locked profiles: refuse expired, foreign-device or rooted bindings.
         for (JSONObject t : ProfileTransfer.selectedTunnels(this, selected)) {
             String reason = ProfileTransfer.lockReason(this, t);
             if (reason != null && !reason.isEmpty()) {

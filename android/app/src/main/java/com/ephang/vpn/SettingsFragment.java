@@ -47,7 +47,7 @@ public class SettingsFragment extends Fragment {
         ((TextView) v.findViewById(R.id.settings_android_id))
                 .setText(aid.isEmpty() ? "—" : aid);
         ((TextView) v.findViewById(R.id.settings_root)).setText(
-                "Intégrité : " + (isRooted() ? "root détecté" : "aucun root détecté"));
+                "Intégrité : " + (ProfileTransfer.isRooted() ? "root détecté" : "aucun root détecté"));
         v.findViewById(R.id.settings_copy_id).setOnClickListener(view -> {
             if (aid.isEmpty()) {
                 toast("ID indisponible");
@@ -238,19 +238,6 @@ public class SettingsFragment extends Fragment {
         ((TextView) v.findViewById(R.id.settings_mtu)).setText(String.valueOf(app.getCustomMtu()));
         ((EditText) v.findViewById(R.id.settings_dns_primary)).setText(app.getCustomDnsPrimary());
         ((EditText) v.findViewById(R.id.settings_dns_secondary)).setText(app.getCustomDnsSecondary());
-    }
-
-    private static boolean isRooted() {
-        for (String p : new String[]{"/system/xbin/su", "/system/bin/su", "/sbin/su",
-                "/system/sd/xbin/su", "/data/local/xbin/su"}) {
-            try {
-                if (new File(p).exists()) {
-                    return true;
-                }
-            } catch (Exception ignored) {
-            }
-        }
-        return false;
     }
 
     private void toast(String msg) {

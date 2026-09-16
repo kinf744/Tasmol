@@ -212,7 +212,9 @@ public class ConfigsFragment extends Fragment {
                     JSONObject server = pick.optJSONObject("server");
                     String host = server != null ? server.optString("host", "") : "";
                     int port = server != null ? PingUtil.dialPort(server) : 0;
-                    activeDetail.setText(host.isEmpty() ? "" : host + (port > 0 ? ":" + port : ""));
+                    boolean hidden = ProfileTransfer.isHideServer(pick);
+                    activeDetail.setText(hidden ? "serveur masqué"
+                            : (host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "")));
                     activeType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
                 }
                 activeCard.setBackgroundResource(R.drawable.card_bg_active);
@@ -430,27 +432,89 @@ public class ConfigsFragment extends Fragment {
             return;
         }
 
+        final float density = getResources().getDisplayMetrics().density;
+        int pad = (int) (16 * density);
+
         android.widget.LinearLayout layout = new android.widget.LinearLayout(requireContext());
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
         layout.setPadding(pad, pad, pad, pad);
 
-        final android.widget.CheckBox lockBox = new android.widget.CheckBox(requireContext());
-        lockBox.setText("Verrouiller (ni modification ni clonage après import)");
-        lockBox.setTextColor(0xFFFFFFFF);
-        layout.addView(lockBox);
+        final android.widget.EditText filenameInput = new android.widget.EditText(requireContext());
+        filenameInput.setHint("Filename");
+        filenameInput.setText("ephang-" + tunnels.size() + "-profils.epha");
+        filenameInput.setTextColor(0xFFFFFFFF);
+        filenameInput.setHintTextColor(0xFF616161);
+        layout.addView(filenameInput);
 
-        final android.widget.EditText expiryInput = new android.widget.EditText(requireContext());
-        expiryInput.setHint("Expiration AAAA-MM-JJ (optionnel)");
-        expiryInput.setTextColor(0xFFFFFFFF);
-        expiryInput.setHintTextColor(0xFF616161);
-        layout.addView(expiryInput);
+        android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
+        grid.setColumnCount(2);
+        grid.setPadding(0, pad / 2, 0, 0);
+        final java.util.Map<String, android.widget.CheckBox> boxes = new java.util.LinkedHashMap<>();
+        String[][] opts = {
+                {"lock", "Lock Backup"}, {"external", "External"},
+                {"hideserver", "Hide Server"}, {"hideupass", "Hide UPass"},
+                {"blockroot", "Block Root"}, {"hwid", "HWID"},
+                {"note", "Note"}, {"expired", "Expired"},
+                {"rmbanner", "Remove Banner"}, {"custombanner", "Custom Banner"},
+        };
+        boolean[] defaults = {false, true, false, false, false, false, false, false, false, false};
+        for (int i = 0; i < opts.length; i++) {
+            android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
+            cb.setText(opts[i][1]);
+            cb.setTextColor(0xFFFFFFFF);
+            cb.setChecked(defaults[i]);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF00E676));
+            }
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.columnSpec = android.widget.GridLayout.spec(i % 2, 1f);
+            lp.setMargins(0, (int) (4 * density), 0, (int) (4 * density));
+            cb.setLayoutParams(lp);
+            grid.addView(cb);
+            boxes.put(opts[i][0], cb);
+        }
+        layout.addView(grid);
 
         final android.widget.EditText hwidInput = new android.widget.EditText(requireContext());
-        hwidInput.setHint("Hardware IDs autorisés, séparés par virgule (optionnel)");
+        hwidInput.setHint("HWID");
         hwidInput.setTextColor(0xFFFFFFFF);
         hwidInput.setHintTextColor(0xFF616161);
+        hwidInput.setEnabled(false);
+        hwidInput.setAlpha(0.4f);
         layout.addView(hwidInput);
+
+        final android.widget.EditText noteInput = new android.widget.EditText(requireContext());
+        noteInput.setHint("Note (ex. 2026 © Ephang Team)");
+        noteInput.setTextColor(0xFFFFFFFF);
+        noteInput.setHintTextColor(0xFF616161);
+        noteInput.setEnabled(false);
+        noteInput.setAlpha(0.4f);
+        layout.addView(noteInput);
+
+        final android.widget.TextView expiryText = new android.widget.TextView(requireContext());
+        expiryText.setText("Expiration : —");
+        expiryText.setTextColor(0xFF9E9E9E);
+        expiryText.setPadding(0, pad / 2, 0, 0);
+        layout.addView(expiryText);
+
+        final String[] expiry = {""};
+        boxes.get("hwid").setOnCheckedChangeListener((b, c) -> {
+            hwidInput.setEnabled(c);
+            hwidInput.setAlpha(c ? 1f : 0.4f);
+        });
+        boxes.get("note").setOnCheckedChangeListener((b, c) -> {
+            noteInput.setEnabled(c);
+            noteInput.setAlpha(c ? 1f : 0.4f);
+        });
+        boxes.get("expired").setOnCheckedChangeListener((b, c) -> {
+            if (c) {
+                showExpiryPicker(expiry, expiryText);
+            } else {
+                expiry[0] = "";
+                expiryText.setText("Expiration : —");
+            }
+        });
 
         android.widget.TextView summary = new android.widget.TextView(requireContext());
         summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
@@ -462,20 +526,18 @@ public class ConfigsFragment extends Fragment {
                 .setTitle("Partager la sélection")
                 .setView(layout)
                 .setPositiveButton("Fichier .epha", (d, w) -> {
-                    ProfileTransfer.Restrictions r = readRestrictions(
-                            lockBox.isChecked(),
-                            expiryInput.getText().toString(),
-                            hwidInput.getText().toString());
+                    ProfileTransfer.Restrictions r = readBackupOptions(
+                            boxes, hwidInput.getText().toString(),
+                            noteInput.getText().toString(), expiry[0]);
                     if (r == null) {
                         return;
                     }
-                    exportToFile(tunnels, r);
+                    exportToFile(tunnels, r, filenameInput.getText().toString());
                 })
                 .setNeutralButton("Clipboard", (d, w) -> {
-                    ProfileTransfer.Restrictions r = readRestrictions(
-                            lockBox.isChecked(),
-                            expiryInput.getText().toString(),
-                            hwidInput.getText().toString());
+                    ProfileTransfer.Restrictions r = readBackupOptions(
+                            boxes, hwidInput.getText().toString(),
+                            noteInput.getText().toString(), expiry[0]);
                     if (r == null) {
                         return;
                     }
@@ -485,39 +547,88 @@ public class ConfigsFragment extends Fragment {
                 .show();
     }
 
-    /** Validate lock options; null = invalid (toast shown). */
-    private ProfileTransfer.Restrictions readRestrictions(boolean lock, String expiry, String hwids) {
+    /** Green date picker for the Expired option (AAAA-MM-JJ). */
+    private void showExpiryPicker(final String[] expiry, final android.widget.TextView label) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        android.app.DatePickerDialog dlg = new android.app.DatePickerDialog(requireContext(),
+                R.style.GreenDatePicker,
+                (view, y, m, day) -> {
+                    expiry[0] = String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, day);
+                    label.setText("Expiration : " + expiry[0]);
+                },
+                cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
+                cal.get(java.util.Calendar.DAY_OF_MONTH));
+        dlg.getDatePicker().setMinDate(System.currentTimeMillis() - 1000);
+        dlg.setOnCancelListener(d -> {
+            // No date chosen: keep the box but require a date at export.
+        });
+        dlg.show();
+    }
+
+    /** Validate Backup options; null = invalid (toast shown). */
+    private ProfileTransfer.Restrictions readBackupOptions(
+            java.util.Map<String, android.widget.CheckBox> boxes,
+            String hwids, String note, String expiry) {
         ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
-        r.lockConfiguration = lock;
-        String exp = expiry == null ? "" : expiry.trim();
-        if (!exp.isEmpty() && !exp.matches("\\d{4}-\\d{2}-\\d{2}")) {
-            toast("Expiration invalide (AAAA-MM-JJ)");
-            return null;
+        r.lockConfiguration = boxes.get("lock").isChecked();
+        r.external = boxes.get("external").isChecked();
+        r.hideServer = boxes.get("hideserver").isChecked();
+        r.hideUpass = boxes.get("hideupass").isChecked();
+        r.blockRoot = boxes.get("blockroot").isChecked();
+        r.removeBanner = boxes.get("rmbanner").isChecked();
+        r.customBanner = boxes.get("custombanner").isChecked();
+        if (boxes.get("expired").isChecked()) {
+            if (expiry == null || !expiry.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                toast("Choisissez une date d'expiration");
+                return null;
+            }
+            r.expiresAt = expiry;
         }
-        r.expiresAt = exp;
-        if (hwids != null) {
-            for (String part : hwids.split("[,;\\n]+")) {
-                String id = part.trim().replaceAll("\\s+", "").toUpperCase(java.util.Locale.US);
-                if (!id.isEmpty() && !id.matches("[A-F0-9]{32}")) {
-                    toast("Hardware ID invalide : " + part.trim());
-                    return null;
-                }
-                if (!id.isEmpty() && !r.allowedHardwareIds.contains(id)) {
-                    r.allowedHardwareIds.add(id);
+        if (boxes.get("hwid").isChecked()) {
+            if (hwids != null) {
+                for (String part : hwids.split("[,;\\n]+")) {
+                    String id = part.trim().replaceAll("\\s+", "").toUpperCase(java.util.Locale.US);
+                    if (!id.isEmpty() && !id.matches("[A-F0-9]{32}")) {
+                        toast("Hardware ID invalide : " + part.trim());
+                        return null;
+                    }
+                    if (!id.isEmpty() && !r.allowedHardwareIds.contains(id)) {
+                        r.allowedHardwareIds.add(id);
+                    }
                 }
             }
+            if (r.allowedHardwareIds.isEmpty()) {
+                toast("HWID coché : saisissez au moins un ID");
+                return null;
+            }
+        }
+        if (boxes.get("note").isChecked()) {
+            r.userNote = note == null ? "" : note.trim();
         }
         return r;
     }
 
-    private void exportToFile(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
+    private void exportToFile(List<JSONObject> tunnels, ProfileTransfer.Restrictions r,
+                              String filename) {
+        for (JSONObject t : tunnels) {
+            if (ProfileTransfer.isLocked(t) && !ProfileTransfer.isExternalAllowed(t)) {
+                toast("Partage externe interdit pour : " + t.optString("name", "Server"));
+                return;
+            }
+        }
         try {
-            String json = ProfileTransfer.buildExport(tunnels, r);
+            String json = ProfileTransfer.buildExport(tunnels, r, filename);
             pendingExport = json;
+            String name = filename == null ? "" : filename.trim();
+            if (name.isEmpty()) {
+                name = "ephang-" + tunnels.size() + "-profils.epha";
+            } else if (!name.toLowerCase(java.util.Locale.US).endsWith(".epha")) {
+                name = name + ".epha";
+            }
             Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
             i.addCategory(Intent.CATEGORY_OPENABLE);
             i.setType("application/octet-stream");
-            i.putExtra(Intent.EXTRA_TITLE, "ephang-" + tunnels.size() + "-profils.epha");
+            i.putExtra(Intent.EXTRA_TITLE, name);
             startActivityForResult(i, REQ_EXPORT_SHARE);
         } catch (Exception e) {
             toast("Export impossible : " + e.getMessage());
@@ -525,8 +636,14 @@ public class ConfigsFragment extends Fragment {
     }
 
     private void exportToClipboard(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
+        for (JSONObject t : tunnels) {
+            if (ProfileTransfer.isLocked(t) && !ProfileTransfer.isExternalAllowed(t)) {
+                toast("Partage externe interdit pour : " + t.optString("name", "Server"));
+                return;
+            }
+        }
         try {
-            String json = ProfileTransfer.buildExport(tunnels, r);
+            String json = ProfileTransfer.buildExport(tunnels, r, null);
             String link = ProfileTransfer.toClipboard(json);
             android.content.ClipboardManager cm = (android.content.ClipboardManager) requireContext()
                     .getSystemService(Context.CLIPBOARD_SERVICE);

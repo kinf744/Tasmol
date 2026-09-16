@@ -50,7 +50,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Réglages"
+                    android:text="Settings"
                     android:textColor="@color/npv_text"
                     android:textSize="16sp"
                     android:textStyle="bold"
@@ -94,7 +94,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Partage Hotspot"
+                    android:text="Hotspot share"
                     android:textColor="@color/npv_text"
                     android:textSize="16sp"
                     android:textStyle="bold"

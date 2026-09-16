@@ -246,6 +246,7 @@ public class TasVpnService extends VpnService {
                     activeTunnelId = tid;
                     VPNApplication.getInstance().setActiveTunnelId(tid);
                     acquireWakeLock();
+                    showCustomBanner(tid);
 
                     notifyText("Connected");
                     Log.i(TAG, "VPN session running");
@@ -303,6 +304,35 @@ public class TasVpnService extends VpnService {
     private static void clearStarting(int gen) {
         if (sessionGen.get() == gen) {
             starting = false;
+        }
+    }
+
+    /** Custom banner of the profile (Backup "Custom Banner" + Note). */
+    private void showCustomBanner(String tunnelId) {
+        try {
+            String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
+            org.json.JSONArray arr = new org.json.JSONArray(
+                    VpnlibHelper.listTunnels(cfgPath));
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject t = arr.getJSONObject(i);
+                if (!tunnelId.equals(t.optString("id", ""))) {
+                    continue;
+                }
+                String banner = ProfileTransfer.customBanner(t);
+                if (!banner.isEmpty()) {
+                    logEvent("connection", "app", "banner: " + banner);
+                    final String text = banner;
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        try {
+                            android.widget.Toast.makeText(getApplicationContext(),
+                                    text, android.widget.Toast.LENGTH_LONG).show();
+                        } catch (Exception ignored) {
+                        }
+                    });
+                }
+                break;
+            }
+        } catch (Exception ignored) {
         }
     }
 

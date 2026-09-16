@@ -23,4 +23,9 @@
 
     <style name="Theme.VPNApp.AppBarOverlay" parent="ThemeOverlay.AppCompat.Dark.ActionBar" />
     <style name="Theme.VPNApp.PopupOverlay" parent="ThemeOverlay.AppCompat.Light" />
+
+    <!-- Green date picker for the share dialog (Expired date). -->
+    <style name="GreenDatePicker" parent="Theme.AppCompat.Dialog">
+        <item name="colorAccent">@color/npv_green</item>
+    </style>
 </resources>

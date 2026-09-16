@@ -122,19 +122,74 @@ public final class ProfileTransfer {
         if (!isHwidAllowed(ctx, tunnel)) {
             return "Profil lié à un autre appareil";
         }
+        if (isBlockRoot(tunnel) && isRooted()) {
+            return "Profil interdit sur appareil rooté";
+        }
         return "";
+    }
+
+    public static boolean isBlockRoot(JSONObject tunnel) {
+        return tunnel != null && tunnel.optJSONObject("advanced") != null
+                && tunnel.optJSONObject("advanced").optBoolean("block_root", false);
+    }
+
+    public static boolean isHideServer(JSONObject tunnel) {
+        return tunnel != null && tunnel.optJSONObject("advanced") != null
+                && tunnel.optJSONObject("advanced").optBoolean("hide_server", false);
+    }
+
+    public static boolean isExternalAllowed(JSONObject tunnel) {
+        // Absent = allowed (legacy exports). Explicit false blocks re-share.
+        return tunnel == null || tunnel.optJSONObject("advanced") == null
+                || tunnel.optJSONObject("advanced").optBoolean("external", true);
+    }
+
+    public static boolean isRemoveBanner(JSONObject tunnel) {
+        return tunnel != null && tunnel.optJSONObject("advanced") != null
+                && tunnel.optJSONObject("advanced").optBoolean("remove_banner", false);
+    }
+
+    public static String customBanner(JSONObject tunnel) {
+        if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
+            return "";
+        }
+        if (!tunnel.optJSONObject("advanced").optBoolean("custom_banner", false)) {
+            return "";
+        }
+        return tunnel.optJSONObject("advanced").optString("user_note", "").trim();
+    }
+
+    public static boolean isRooted() {
+        for (String p : new String[]{"/system/xbin/su", "/system/bin/su", "/sbin/su",
+                "/system/sd/xbin/su", "/data/local/xbin/su"}) {
+            try {
+                if (new java.io.File(p).exists()) {
+                    return true;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return false;
     }
 
     // --- export ---
 
     public static class Restrictions {
         public boolean lockConfiguration = false;
+        public boolean external = true;
+        public boolean hideServer = false;
+        public boolean hideUpass = false;
+        public boolean blockRoot = false;
+        public boolean removeBanner = false;
+        public boolean customBanner = false;
         public String expiresAt = "";
+        public String userNote = "";
         public List<String> allowedHardwareIds = new ArrayList<>();
     }
 
     /** Build the .epha / clipboard JSON for the given tunnel objects. */
-    public static String buildExport(List<JSONObject> tunnels, Restrictions r) throws Exception {
+    public static String buildExport(List<JSONObject> tunnels, Restrictions r, String filename)
+            throws Exception {
         JSONArray arr = new JSONArray();
         for (JSONObject t : tunnels) {
             JSONObject copy = new JSONObject(t.toString());
@@ -160,6 +215,26 @@ public final class ProfileTransfer {
                 }
                 adv.put("lock_hwids", sb.toString());
             }
+            adv.put("external", r.external);
+            if (r.hideServer) {
+                adv.put("hide_server", true);
+            }
+            if (r.hideUpass) {
+                adv.put("hide_upass", true);
+            }
+            if (r.blockRoot) {
+                adv.put("block_root", true);
+            }
+            if (r.removeBanner) {
+                adv.put("remove_banner", true);
+            }
+            if (r.customBanner) {
+                adv.put("custom_banner", true);
+            }
+            if (r.userNote != null && !r.userNote.isEmpty()) {
+                adv.put("user_note", r.userNote.length() > 600
+                        ? r.userNote.substring(0, 600) : r.userNote);
+            }
             arr.put(copy);
         }
         JSONObject root = new JSONObject();
@@ -167,9 +242,19 @@ public final class ProfileTransfer {
         root.put("application", APPLICATION);
         root.put("exportedAt", new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(new Date()));
         root.put("containsSecrets", true);
+        if (filename != null && !filename.isEmpty()) {
+            root.put("filename", filename);
+        }
         JSONObject rr = new JSONObject();
         rr.put("lockConfiguration", r.lockConfiguration);
+        rr.put("external", r.external);
+        rr.put("hideServer", r.hideServer);
+        rr.put("hideUpass", r.hideUpass);
+        rr.put("blockRoot", r.blockRoot);
+        rr.put("removeBanner", r.removeBanner);
+        rr.put("customBanner", r.customBanner);
         rr.put("expiresAt", r.expiresAt);
+        rr.put("userNote", r.userNote == null ? "" : r.userNote);
         JSONArray hw = new JSONArray();
         for (String id : r.allowedHardwareIds) {
             hw.put(id);
@@ -231,6 +316,13 @@ public final class ProfileTransfer {
         boolean lockCfg = rr != null && rr.optBoolean("lockConfiguration", false);
         String exp = "";
         List<String> hwids = new ArrayList<>();
+        boolean external = rr == null || rr.optBoolean("external", true);
+        boolean hideServer = rr != null && rr.optBoolean("hideServer", false);
+        boolean hideUpass = rr != null && rr.optBoolean("hideUpass", false);
+        boolean blockRoot = rr != null && rr.optBoolean("blockRoot", false);
+        boolean removeBanner = rr != null && rr.optBoolean("removeBanner", false);
+        boolean customBanner = rr != null && rr.optBoolean("customBanner", false);
+        String userNote = rr != null ? rr.optString("userNote", "") : "";
         if (rr != null) {
             String e = rr.optString("expiresAt", "").trim();
             if (e.matches("\\d{4}-\\d{2}-\\d{2}")) {
@@ -292,6 +384,32 @@ public final class ProfileTransfer {
             } else if (copy.optJSONObject("advanced") != null
                     && copy.optJSONObject("advanced").optBoolean("locked", false)) {
                 out.locked = true;
+            }
+            // Per-profile display/policy flags travel in advanced too.
+            JSONObject adv2 = copy.optJSONObject("advanced");
+            if (adv2 == null) {
+                adv2 = new JSONObject();
+                copy.put("advanced", adv2);
+            }
+            adv2.put("external", external);
+            if (hideServer) {
+                adv2.put("hide_server", true);
+            }
+            if (hideUpass) {
+                adv2.put("hide_upass", true);
+            }
+            if (blockRoot) {
+                adv2.put("block_root", true);
+            }
+            if (removeBanner) {
+                adv2.put("remove_banner", true);
+            }
+            if (customBanner) {
+                adv2.put("custom_banner", true);
+            }
+            if (userNote != null && !userNote.isEmpty()) {
+                adv2.put("user_note",
+                        userNote.length() > 600 ? userNote.substring(0, 600) : userNote);
             }
             out.tunnels.add(copy);
         }

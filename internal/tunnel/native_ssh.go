@@ -32,8 +32,12 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	hasPass := cfg.Auth.Password != ""
 	hasKey := strings.TrimSpace(cfg.Auth.PrivateKey) != ""
 	hasPhrase := cfg.Auth.Passphrase != ""
+	user := cfg.Auth.Username
+	if advBool(cfg.Advanced, "hide_upass", false) {
+		user = "••••"
+	}
 	Tracef("[ssh] dial begin addr=%s user=%q passwordSet=%v keySet=%v passphraseSet=%v proxy=%q payloadLen=%d",
-		addr, cfg.Auth.Username, hasPass, hasKey, hasPhrase,
+		addr, user, hasPass, hasKey, hasPhrase,
 		cfg.SSH.Proxy, len(cfg.SSH.Payload))
 	auth := make([]ssh.AuthMethod, 0, 2)
 	if hasPass {
@@ -65,8 +69,12 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
 		// Pre-auth server banner (MOTD header): surfaced in the journal
-		// like the reference app's SSH_BANNER card.
+		// like the reference app's SSH_BANNER card. Skipped for locked
+		// "Remove Banner" profiles.
 		BannerCallback: func(message string) error {
+			if advBool(cfg.Advanced, "remove_banner", false) {
+				return nil
+			}
 			if m := cleanServerText(message, 300); m != "" {
 				Journalf("ssh-banner", "%s", m)
 			}
@@ -101,11 +109,16 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		Tracef("[ssh] handshake OK")
 	}
 	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
-		Journalf("ssh-banner", "server version: %s", v)
+		if !advBool(cfg.Advanced, "remove_banner", false) {
+			Journalf("ssh-banner", "server version: %s", v)
+		}
 	}
 	// Post-auth server message (MOTD): best-effort shell read, silent on
 	// restricted shells. Mirrors the reference SSH_SERVER_MESSAGE card.
-	logServerMessage(client)
+	// Skipped for locked "Remove Banner" profiles.
+	if !advBool(cfg.Advanced, "remove_banner", false) {
+		logServerMessage(client)
+	}
 	return client, nil
 }
 
@@ -484,6 +497,14 @@ func socksPortOf(addr string) int {
 	return port
 }
 
+// hideUser masks the username for locked "Hide UPass" profiles.
+func hideUser(cfg *config.TunnelConfig, user string) string {
+	if advBool(cfg.Advanced, "hide_upass", false) {
+		return "••••"
+	}
+	return user
+}
+
 // serveSocks5 runs a minimal SOCKS5 server (CONNECT, no auth) on ln; every
 // connection is forwarded through sshClient. It stops when ctx is done.
 func serveSocks5(ctx context.Context, ln net.Listener, sshClient *ssh.Client) {
@@ -635,7 +656,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 	Tracef("[ssh] ssh %q@%s:%d via proxy %q",
-		t.config.Auth.Username, t.config.Server.Host, t.config.Server.Port, t.config.SSH.Proxy)
+		hideUser(t.config, t.config.Auth.Username), t.config.Server.Host, t.config.Server.Port, t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
 		Errorf("ssh", "host or username empty")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
