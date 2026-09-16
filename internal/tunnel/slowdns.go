@@ -100,6 +100,7 @@ func checkResolver(resolver string) error {
 	}
 	return nil
 }
+
 // DnsttArgs builds the official dnstt-client command line.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	return []string{
