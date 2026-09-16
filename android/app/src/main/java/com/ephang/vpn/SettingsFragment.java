@@ -163,9 +163,16 @@ public class SettingsFragment extends Fragment {
         String gov = "";
         try {
             gov = VpnlibHelper.version();
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
+            // Native Go call can throw Error (not Exception) when the Go
+            // runtime isn't loaded yet: never crash the fragment for it.
         }
-        version.setText("Ephang VPN 1.0.0  •  core " + gov);
+        // VpnlibHelper.version() can crash at native level (gomobile call
+        // failure → JNI throw caught here) or at parse level. Shield both.
+        if (gov == null) {
+            gov = "";
+        }
+        version.setText("Ephang VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
         return v;
     }
 
