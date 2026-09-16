@@ -199,7 +199,6 @@ public class SettingsFragment extends Fragment {
             gov = "";
         }
         version.setText("Ephang VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
-        return v;
     }
 
     private void saveDnsFields(EditText dns1, EditText dns2) {
