@@ -30,8 +30,34 @@ public class SettingsFragment extends Fragment {
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        View v = inflater.inflate(R.layout.fragment_settings, container, false);
+        View v;
+        try {
+            v = inflater.inflate(R.layout.fragment_settings, container, false);
+        } catch (Exception e) {
+            // Inflating the layout failed (resource issue): dark fallback
+            // with the error instead of crashing the activity.
+            TextView fallback = new TextView(container.getContext());
+            fallback.setText("Settings error: " + e.getMessage());
+            fallback.setTextColor(0xFFFFFFFF);
+            return fallback;
+        }
+        try {
+            initSettingsView(v);
+        } catch (Exception | Error e) {
+            // Best-effort UI: never crash the host activity for a broken
+            // settings fragment (log the real cause to kighmu).
+            TasVpnService.logEvent("error", "settings", "init failed: " + e);
+            TextView fallback = new TextView(container.getContext());
+            fallback.setText("Settings unavailable: " + e.getMessage());
+            fallback.setTextColor(0xFFFFFFFF);
+            return fallback;
+        }
+        return v;
+    }
+
+    private void initSettingsView(View v) {
         VPNApplication app = VPNApplication.getInstance();
+        View portInput = v.findViewById(R.id.settings_port);
 
         // Device identity (no permission needed).
         String androidId = "";
