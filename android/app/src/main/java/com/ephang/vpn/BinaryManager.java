@@ -291,9 +291,6 @@ public class BinaryManager {
         } catch (Exception ignored) {
         }
     }
-        return d.getAbsolutePath();
-    }
-
     /** Tunnel list (id/name/type) via the Go parser (reliable, offline). */
     public static List<Map<String, String>> listTunnels(Context ctx) {
         List<Map<String, String>> out = new ArrayList<>();
