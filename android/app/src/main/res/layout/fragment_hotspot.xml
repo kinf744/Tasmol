@@ -69,6 +69,37 @@
             android:textSize="13sp"
             android:typeface="monospace" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="CIBLE (défaut : SOCKS du VPN)"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <EditText
+            android:id="@+id/hotspot_target_host"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="127.0.0.1 (ou proxy d'une autre app VPN)"
+            android:inputType="text"
+            android:text="127.0.0.1"
+            android:textColor="@color/npv_text"
+            android:textColorHint="@color/npv_dim"
+            android:typeface="monospace" />
+
+        <EditText
+            android:id="@+id/hotspot_target_port"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:hint="port (ex: 10808)"
+            android:inputType="number"
+            android:textColor="@color/npv_text"
+            android:textColorHint="@color/npv_dim"
+            android:typeface="monospace" />
+
         <Button
             android:id="@+id/hotspot_toggle"
             android:layout_width="match_parent"

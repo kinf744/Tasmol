@@ -78,6 +78,12 @@ type startParams struct {
 	// to true; explicit false passes DNS through the upstream untouched
 	// ("Protection DNS" off in Settings).
 	DNSProtect *bool `json:"dns_protect"`
+	// DNSSecondary feeds generated xray dns sections (Settings, custom DNS).
+	DNSSecondary string `json:"dns_secondary"`
+	// TCPNoDelay enables TCP_NODELAY on relayed sockets (Settings).
+	TCPNoDelay *bool `json:"tcp_nodelay"`
+	// DnsttTCP switches SlowDNS to -tcp (Settings, "Boost SlowDNS").
+	DnsttTCP *bool `json:"dnstt_tcp"`
 	// RoundRobin is the comma-separated id list of the profiles sharing
 	// the session through Xray's built-in roundrobin balancer. Empty (or a
 	// single id) means single-profile mode: no balancer is initialized.
@@ -222,6 +228,10 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
 	tunnel.TmpDir = p.TmpDir
+	tunnel.DNSPrimary = strings.TrimSpace(p.DNSIP)
+	tunnel.DNSSecondary = strings.TrimSpace(p.DNSSecondary)
+	tunnel.TCPNoDelay = p.TCPNoDelay == nil || *p.TCPNoDelay
+	tunnel.DnsttUseTCP = p.DnsttTCP != nil && *p.DnsttTCP
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
@@ -246,6 +256,10 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
 	tunnel.TmpDir = p.TmpDir
+	tunnel.DNSPrimary = strings.TrimSpace(p.DNSIP)
+	tunnel.DNSSecondary = strings.TrimSpace(p.DNSSecondary)
+	tunnel.TCPNoDelay = p.TCPNoDelay == nil || *p.TCPNoDelay
+	tunnel.DnsttUseTCP = p.DnsttTCP != nil && *p.DnsttTCP
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 	c.cfgMgr = cfgMgr

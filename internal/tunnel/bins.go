@@ -33,6 +33,20 @@ var BinNames map[string]string
 // cannot rely on an openssh binary, so mobile mode enables this.
 var NativeSSH bool
 
+// TCPNoDelay enables TCP_NODELAY on relayed sockets (lower latency,
+// slightly more packets). Wired from Settings.
+var TCPNoDelay = true
+
+// DnsttUseTCP makes SlowDNS use -tcp instead of -udp toward the resolver
+// ("Boost SlowDNS"): carriers that throttle/filter UDP DNS get a faster,
+// more reliable tunnel over TCP.
+var DnsttUseTCP = false
+
+// DNSPrimary/DNSSecondary feed generated Xray dns sections (Settings,
+// custom DNS). Empty = defaults 1.1.1.1/8.8.8.8.
+var DNSPrimary string
+var DNSSecondary string
+
 // TmpDir is a writable app-private directory (Android cache dir) for
 // temp tunnel configs. Android has no /tmp and the process CWD is
 // read-only, so os.MkdirTemp("") fails there.
@@ -190,6 +204,20 @@ func LiveForward(id string) int {
 	return p
 }
 
+// XrayDNSServers returns the custom DNS pair for generated xray configs
+// (Settings), falling back per entry when invalid.
+func XrayDNSServers() []string {
+	p := strings.TrimSpace(DNSPrimary)
+	if net.ParseIP(p) == nil {
+		p = "1.1.1.1"
+	}
+	s := strings.TrimSpace(DNSSecondary)
+	if net.ParseIP(s) == nil {
+		s = "8.8.8.8"
+	}
+	return []string{p, s}
+}
+
 // PickFreePort asks the kernel for a free loopback TCP port (exported
 // wrapper around pickFreePort for the vpnlib front builder).
 func PickFreePort() (int, error) {
@@ -324,6 +352,8 @@ func SocksAddr(cfg *config.TunnelConfig) string {
 // that may still deliver data (notably the uz SOCKS server, which logs
 // "connection reset by peer" otherwise).
 func relayTCP(a, b net.Conn) {
+	setNoDelay(a)
+	setNoDelay(b)
 	done := make(chan struct{}, 2)
 	go func() {
 		_, _ = io.Copy(b, a)
@@ -347,6 +377,16 @@ func closeWrite(c net.Conn) {
 		return
 	}
 	c.Close()
+}
+
+// setNoDelay enables TCP_NODELAY when the setting allows it.
+func setNoDelay(c net.Conn) {
+	if !TCPNoDelay {
+		return
+	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetNoDelay(true)
+	}
 }
 
 // waitForTCP polls addr until a TCP connection succeeds or timeout elapses.

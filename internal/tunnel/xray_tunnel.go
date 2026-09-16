@@ -87,7 +87,7 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 			"rules":          t.config.Routing.Rules,
 		},
 		"dns": map[string]interface{}{
-			"servers": []string{"1.1.1.1", "8.8.8.8"},
+			"servers": XrayDNSServers(),
 		},
 	}
 

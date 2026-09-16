@@ -57,7 +57,7 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 		},
 		"outbounds": outbounds,
 		"dns": map[string]interface{}{
-			"servers": []string{"1.1.1.1", "8.8.8.8"},
+			"servers": XrayDNSServers(),
 		},
 		"routing": map[string]interface{}{
 			// UseIP: the front resolves member domains through its

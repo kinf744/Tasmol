@@ -217,6 +217,69 @@ public class VPNApplication extends Application {
         prefs.edit().putInt("set_reconnect_delay", v).apply();
     }
 
+    public String getCustomDnsPrimary() {
+        String v = prefs.getString("set_dns_primary", "8.8.8.8");
+        return v == null || v.isEmpty() ? "8.8.8.8" : v;
+    }
+
+    public void setCustomDnsPrimary(String v) {
+        prefs.edit().putString("set_dns_primary", v == null ? "" : v.trim()).apply();
+    }
+
+    public String getCustomDnsSecondary() {
+        String v = prefs.getString("set_dns_secondary", "1.1.1.1");
+        return v == null || v.isEmpty() ? "1.1.1.1" : v;
+    }
+
+    public void setCustomDnsSecondary(String v) {
+        prefs.edit().putString("set_dns_secondary", v == null ? "" : v.trim()).apply();
+    }
+
+    public int getCustomMtu() {
+        int v = prefs.getInt("set_mtu", 1500);
+        if (v < 1280) {
+            v = 1280;
+        }
+        if (v > 9000) {
+            v = 9000;
+        }
+        return v;
+    }
+
+    public void setCustomMtu(int v) {
+        if (v < 1280) {
+            v = 1280;
+        }
+        if (v > 9000) {
+            v = 9000;
+        }
+        prefs.edit().putInt("set_mtu", v).apply();
+    }
+
+    public boolean isWakeLockEnabled() {
+        return prefs.getBoolean("set_wakelock", true);
+    }
+
+    public void setWakeLockEnabled(boolean v) {
+        prefs.edit().putBoolean("set_wakelock", v).apply();
+    }
+
+    public boolean isSlowDnsBoostEnabled() {
+        return prefs.getBoolean("set_slowdns_boost", false);
+    }
+
+    public void setSlowDnsBoostEnabled(boolean v) {
+        prefs.edit().putBoolean("set_slowdns_boost", v).apply();
+    }
+
+    public boolean isTcpNoDelayEnabled() {
+        return prefs.getBoolean("set_tcp_nodelay", true);
+    }
+
+    public void setTcpNoDelayEnabled(boolean v) {
+        prefs.edit().putBoolean("set_tcp_nodelay", v).apply();
+    }
+
     public void resetSettings() {
         prefs.edit()
                 .putBoolean("set_dns_protection", true)
@@ -226,6 +289,12 @@ public class VPNApplication extends Application {
                 .putBoolean("set_verbose_diag", false)
                 .putBoolean("set_confirm_disconnect", true)
                 .putInt("set_reconnect_delay", 5)
+                .putString("set_dns_primary", "8.8.8.8")
+                .putString("set_dns_secondary", "1.1.1.1")
+                .putInt("set_mtu", 1500)
+                .putBoolean("set_wakelock", true)
+                .putBoolean("set_slowdns_boost", false)
+                .putBoolean("set_tcp_nodelay", true)
                 .apply();
     }
 

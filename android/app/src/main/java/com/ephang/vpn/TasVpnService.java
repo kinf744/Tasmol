@@ -204,10 +204,11 @@ public class TasVpnService extends VpnService {
 
                     Builder builder = new Builder()
                             .setSession("Ephang VPN")
-                            .setMtu(1500)
+                            .setMtu(VPNApplication.getInstance().getCustomMtu())
                             .addAddress("10.8.0.2", 32)
                             .addRoute("0.0.0.0", 0)
-                            .addDnsServer("8.8.8.8")
+                            .addDnsServer(validDnsOrDefault(
+                                    VPNApplication.getInstance().getCustomDnsPrimary()))
                             // Exclude our own UID so upstream sockets (xray, zivpn,
                             // dnstt, ssh, SOCKS dials) never loop into the TUN.
                             .addDisallowedApplication(getPackageName());
@@ -244,6 +245,7 @@ public class TasVpnService extends VpnService {
                     ctrl = null;
                     activeTunnelId = tid;
                     VPNApplication.getInstance().setActiveTunnelId(tid);
+                    acquireWakeLock();
 
                     notifyText("Connected");
                     Log.i(TAG, "VPN session running");
@@ -309,6 +311,47 @@ public class TasVpnService extends VpnService {
         return gen != sessionGen.get();
     }
 
+    private static String validDnsOrDefault(String ip) {
+        if (ip != null && ip.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+            return ip;
+        }
+        return "8.8.8.8";
+    }
+
+    private android.os.PowerManager.WakeLock wakeLock = null;
+
+    private synchronized void acquireWakeLock() {
+        releaseWakeLock();
+        VPNApplication app = VPNApplication.getInstance();
+        if (app == null || !app.isWakeLockEnabled()) {
+            return;
+        }
+        try {
+            android.os.PowerManager pm =
+                    (android.os.PowerManager) getSystemService(POWER_SERVICE);
+            if (pm == null) {
+                return;
+            }
+            wakeLock = pm.newWakeLock(
+                    android.os.PowerManager.PARTIAL_WAKE_LOCK, "EphangVPN:session");
+            wakeLock.setReferenceCounted(false);
+            wakeLock.acquire(12 * 60 * 60 * 1000L);
+        } catch (Exception e) {
+            Log.w(TAG, "wakelock failed", e);
+        }
+    }
+
+    private synchronized void releaseWakeLock() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) {
+                wakeLock.release();
+            }
+        } catch (Exception ignored) {
+        } finally {
+            wakeLock = null;
+        }
+    }
+
     private void stopSession() {
         // Invalidate any in-flight connect first.
         sessionGen.incrementAndGet();
@@ -352,6 +395,7 @@ public class TasVpnService extends VpnService {
                 tunFd = null;
             }
             logEvent("connection", "app", "disconnected");
+            releaseWakeLock();
             stopForeground(true);
             stopSelf();
         }, "ephang-disconnect").start();
@@ -360,6 +404,7 @@ public class TasVpnService extends VpnService {
     @Override
     public void onDestroy() {
         stopSession();
+        releaseWakeLock();
         super.onDestroy();
     }
 

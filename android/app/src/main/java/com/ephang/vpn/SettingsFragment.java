@@ -1,11 +1,8 @@
 package com.ephang.vpn;
 
-import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.view.LayoutInflater;
@@ -23,15 +20,9 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.fragment.app.Fragment;
 
-import java.io.File;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
 
 /** Settings menu (Picko-style, adapted): network, reconnect, UI, device. */
 public class SettingsFragment extends Fragment {
-    private static final int REQ_IMPORT = 2001;
-    private static final int REQ_EXPORT = 2002;
 
     private TextView delayText;
 
@@ -84,6 +75,12 @@ public class SettingsFragment extends Fragment {
                 app::setVerboseDiagnosticsEnabled);
         bindSwitch(v, R.id.settings_confirm, app.isConfirmDisconnectEnabled(),
                 app::setConfirmDisconnectEnabled);
+        bindSwitch(v, R.id.settings_wakelock, app.isWakeLockEnabled(),
+                app::setWakeLockEnabled);
+        bindSwitch(v, R.id.settings_boost, app.isSlowDnsBoostEnabled(),
+                app::setSlowDnsBoostEnabled);
+        bindSwitch(v, R.id.settings_tcpnodelay, app.isTcpNoDelayEnabled(),
+                app::setTcpNoDelayEnabled);
 
         Switch dark = v.findViewById(R.id.settings_dark);
         dark.setChecked(app.isDarkModeEnabled());
@@ -108,6 +105,33 @@ public class SettingsFragment extends Fragment {
             delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
         });
 
+        final TextView mtuText = v.findViewById(R.id.settings_mtu);
+        mtuText.setText(String.valueOf(app.getCustomMtu()));
+        v.findViewById(R.id.settings_mtu_minus).setOnClickListener(view -> {
+            int m = app.getCustomMtu() - 100;
+            app.setCustomMtu(m);
+            mtuText.setText(String.valueOf(app.getCustomMtu()));
+            toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
+        });
+        v.findViewById(R.id.settings_mtu_plus).setOnClickListener(view -> {
+            int m = app.getCustomMtu() + 100;
+            app.setCustomMtu(m);
+            mtuText.setText(String.valueOf(app.getCustomMtu()));
+            toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
+        });
+
+        final EditText dns1 = v.findViewById(R.id.settings_dns_primary);
+        final EditText dns2 = v.findViewById(R.id.settings_dns_secondary);
+        dns1.setText(app.getCustomDnsPrimary());
+        dns2.setText(app.getCustomDnsSecondary());
+        android.view.View.OnFocusChangeListener saveDns = (view, hasFocus) -> {
+            if (!hasFocus) {
+                saveDnsFields(dns1, dns2);
+            }
+        };
+        dns1.setOnFocusChangeListener(saveDns);
+        dns2.setOnFocusChangeListener(saveDns);
+
         EditText port = v.findViewById(R.id.settings_port);
         port.setText(String.valueOf(app.getManagePort()));
         v.findViewById(R.id.settings_save_port).setOnClickListener(view -> {
@@ -123,20 +147,6 @@ public class SettingsFragment extends Fragment {
             }
         });
 
-        v.findViewById(R.id.settings_import).setOnClickListener(view -> {
-            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("*/*");
-            startActivityForResult(i, REQ_IMPORT);
-        });
-        v.findViewById(R.id.settings_export).setOnClickListener(view -> {
-            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("application/octet-stream");
-            i.putExtra(Intent.EXTRA_TITLE, "ephang-vpn-config.yaml");
-            startActivityForResult(i, REQ_EXPORT);
-        });
-
         v.findViewById(R.id.settings_reset).setOnClickListener(view ->
                 new AlertDialog.Builder(requireContext())
                         .setTitle("Réinitialiser les réglages ?")
@@ -149,26 +159,6 @@ public class SettingsFragment extends Fragment {
                         .setNegativeButton("Annuler", null)
                         .show());
 
-        v.findViewById(R.id.settings_reset_config).setOnClickListener(view ->
-                new AlertDialog.Builder(requireContext())
-                        .setTitle("Supprimer tous les serveurs ?")
-                        .setPositiveButton("Supprimer", (d, w) -> {
-                            try {
-                                File cfg = BinaryManager.configPath(requireContext());
-                                if (cfg.exists() && !cfg.delete()) {
-                                    toast("Échec");
-                                    return;
-                                }
-                                app.setActiveTunnelId("");
-                                app.setSelectedIds(null);
-                                toast("Serveurs supprimés");
-                            } catch (Exception e) {
-                                toast("Échec : " + e.getMessage());
-                            }
-                        })
-                        .setNegativeButton("Annuler", null)
-                        .show());
-
         TextView version = v.findViewById(R.id.settings_version);
         String gov = "";
         try {
@@ -177,6 +167,50 @@ public class SettingsFragment extends Fragment {
         }
         version.setText("Ephang VPN 1.0.0  •  core " + gov);
         return v;
+    }
+
+    private void saveDnsFields(EditText dns1, EditText dns2) {
+        VPNApplication app = VPNApplication.getInstance();
+        String p = dns1.getText().toString().trim();
+        String s = dns2.getText().toString().trim();
+        if (!p.isEmpty() && !isIpLiteral(p)) {
+            toast("DNS primaire invalide");
+            dns1.setText(app.getCustomDnsPrimary());
+            return;
+        }
+        if (!s.isEmpty() && !isIpLiteral(s)) {
+            toast("DNS secondaire invalide");
+            dns2.setText(app.getCustomDnsSecondary());
+            return;
+        }
+        if (!p.isEmpty()) {
+            app.setCustomDnsPrimary(p);
+        }
+        if (!s.isEmpty()) {
+            app.setCustomDnsSecondary(s);
+        }
+        toast("DNS enregistré - prochaine connexion");
+    }
+
+    private static boolean isIpLiteral(String ip) {
+        if (ip == null) {
+            return false;
+        }
+        String[] parts = ip.split("\\.", -1);
+        if (parts.length == 4) {
+            try {
+                for (String q : parts) {
+                    int n = Integer.parseInt(q);
+                    if (n < 0 || n > 255) {
+                        return false;
+                    }
+                }
+                return true;
+            } catch (NumberFormatException e) {
+                return false;
+            }
+        }
+        return ip.contains(":") && ip.length() >= 3;
     }
 
     private interface BoolSetter {
@@ -197,7 +231,13 @@ public class SettingsFragment extends Fragment {
         ((Switch) v.findViewById(R.id.settings_boot)).setChecked(app.isLaunchOnBootEnabled());
         ((Switch) v.findViewById(R.id.settings_verbose)).setChecked(app.isVerboseDiagnosticsEnabled());
         ((Switch) v.findViewById(R.id.settings_confirm)).setChecked(app.isConfirmDisconnectEnabled());
+        ((Switch) v.findViewById(R.id.settings_wakelock)).setChecked(app.isWakeLockEnabled());
+        ((Switch) v.findViewById(R.id.settings_boost)).setChecked(app.isSlowDnsBoostEnabled());
+        ((Switch) v.findViewById(R.id.settings_tcpnodelay)).setChecked(app.isTcpNoDelayEnabled());
         delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
+        ((TextView) v.findViewById(R.id.settings_mtu)).setText(String.valueOf(app.getCustomMtu()));
+        ((EditText) v.findViewById(R.id.settings_dns_primary)).setText(app.getCustomDnsPrimary());
+        ((EditText) v.findViewById(R.id.settings_dns_secondary)).setText(app.getCustomDnsSecondary());
     }
 
     private static boolean isRooted() {
@@ -211,50 +251,6 @@ public class SettingsFragment extends Fragment {
             }
         }
         return false;
-    }
-
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
-            return;
-        }
-        Uri uri = data.getData();
-        try {
-            File cfg = BinaryManager.configPath(requireContext());
-            if (requestCode == REQ_IMPORT) {
-                try (InputStream in = requireContext().getContentResolver().openInputStream(uri)) {
-                    byte[] content = readAll(in);
-                    if (content.length == 0) {
-                        throw new IllegalStateException("fichier vide");
-                    }
-                    Files.write(cfg.toPath(), content);
-                    TasVpnService.logEvent("config imported (" + content.length + " bytes)");
-                    toast("Config importée - reconnectez pour appliquer");
-                }
-            } else if (requestCode == REQ_EXPORT) {
-                if (!cfg.exists()) {
-                    toast("Rien à exporter");
-                    return;
-                }
-                try (OutputStream out = requireContext().getContentResolver().openOutputStream(uri)) {
-                    Files.copy(cfg.toPath(), out);
-                    toast("Config exportée");
-                }
-            }
-        } catch (Exception e) {
-            toast("Échec : " + e.getMessage());
-        }
-    }
-
-    private static byte[] readAll(InputStream in) throws Exception {
-        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-        byte[] tmp = new byte[8192];
-        int n;
-        while ((n = in.read(tmp)) > 0) {
-            buf.write(tmp, 0, n);
-        }
-        return buf.toByteArray();
     }
 
     private void toast(String msg) {

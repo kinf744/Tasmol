@@ -117,7 +117,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	}
 	dnsCfg := t.config.Routing.DNS
 	if len(dnsCfg.Servers) == 0 && len(dnsCfg.Hosts) == 0 {
-		dnsCfg.Servers = []string{"1.1.1.1", "8.8.8.8"}
+		dnsCfg.Servers = XrayDNSServers()
 	}
 
 	xrayConfig := map[string]interface{}{

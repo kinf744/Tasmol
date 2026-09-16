@@ -87,6 +87,14 @@ func cleanDnsttKey(key string) string {
 	return key
 }
 
+// DnsttFlag returns the resolver transport flag (-udp default, -tcp boosted).
+func DnsttFlag() string {
+	if DnsttUseTCP {
+		return "-tcp"
+	}
+	return "-udp"
+}
+
 // checkResolver rejects malformed resolvers (e.g. "8.8.8.8:53tomp" from a
 // mistyped field) with a clear error instead of a 20s forward timeout.
 func checkResolver(resolver string) error {
@@ -101,10 +109,16 @@ func checkResolver(resolver string) error {
 	return nil
 }
 
-// DnsttArgs builds the official dnstt-client command line.
+// DnsttArgs builds the official dnstt-client command line. Boost SlowDNS
+// switches the resolver transport from -udp to -tcp (reliable/fast where
+// carriers throttle UDP DNS).
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
+	flag := "-udp"
+	if DnsttUseTCP {
+		flag = "-tcp"
+	}
 	return []string{
-		"-udp", DnsttResolver(cfg),
+		flag, DnsttResolver(cfg),
 		"-pubkey", cleanDnsttKey(strings.TrimSpace(DnsttPubKey(cfg))),
 		DnsttDomain(cfg),
 		fmt.Sprintf("127.0.0.1:%d", fwdPort),
@@ -133,8 +147,8 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	Tracef("[slowdns] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinSlowDNS)
 	args := DnsttArgs(cfg, fwdPort)
-	Tracef("[slowdns] binary=%q args=-udp %s -pubkeyLen=%d %s 127.0.0.1:%d",
-		bin, DnsttResolver(cfg), len(cleanDnsttKey(DnsttPubKey(cfg))), DnsttDomain(cfg), fwdPort)
+	Tracef("[slowdns] binary=%q args=%s %s -pubkeyLen=%d %s 127.0.0.1:%d",
+		bin, DnsttFlag(), DnsttResolver(cfg), len(cleanDnsttKey(DnsttPubKey(cfg))), DnsttDomain(cfg), fwdPort)
 	cmd := exec.CommandContext(ctx, bin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

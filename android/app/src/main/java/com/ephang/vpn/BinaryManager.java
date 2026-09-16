@@ -191,7 +191,7 @@ public class BinaryManager {
 
         p.put("native_ssh", true);
         p.put("tun_fd", tunFd);
-        p.put("mtu", 1500);
+        p.put("mtu", VPNApplication.getInstance().getCustomMtu());
         p.put("manage_port", VPNApplication.getInstance().getManagePort());
         p.put("active_tunnel", tunnelId == null ? "" : tunnelId);
         p.put("auto_follow", true);
@@ -207,8 +207,11 @@ public class BinaryManager {
         p.put("log_dir", downloadDir());
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
         // is unreachable through the tunnel).
-        p.put("dns_ip", "8.8.8.8");
+        p.put("dns_ip", VPNApplication.getInstance().getCustomDnsPrimary());
         p.put("dns_protect", VPNApplication.getInstance().isDnsProtectionEnabled());
+        p.put("dns_secondary", VPNApplication.getInstance().getCustomDnsSecondary());
+        p.put("tcp_nodelay", VPNApplication.getInstance().isTcpNoDelayEnabled());
+        p.put("dnstt_tcp", VPNApplication.getInstance().isSlowDnsBoostEnabled());
         return p.toString();
     }
 

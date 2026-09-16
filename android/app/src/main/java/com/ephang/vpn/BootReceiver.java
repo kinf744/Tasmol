@@ -12,7 +12,7 @@ public class BootReceiver extends BroadcastReceiver {
             "android.intent.action.QUICKBOOT_POWERON".equals(intent.getAction())) {
 
             VPNApplication app = (VPNApplication) context.getApplicationContext();
-            if (!app.isAutoStartEnabled()) {
+            if (!app.isLaunchOnBootEnabled() && !app.isAutoStartEnabled()) {
                 return;
             }
             String tunnelId = app.getActiveTunnelId();
