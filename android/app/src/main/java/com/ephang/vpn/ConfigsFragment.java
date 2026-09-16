@@ -1,5 +1,7 @@
 package com.ephang.vpn;
 
+import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
@@ -29,6 +31,9 @@ import java.util.List;
 
 /** CONFIGS tab (NPV Tunnel style): last ping, active card, saved group. */
 public class ConfigsFragment extends Fragment {
+    private static final int REQ_IMPORT_SHARE = 3001;
+    private static final int REQ_EXPORT_SHARE = 3002;
+    private String pendingExport = null;
     private TextView lastPingText;
     private LinearLayout activeCard;
     private TextView activeName;
@@ -70,12 +75,11 @@ public class ConfigsFragment extends Fragment {
             }
 
             @Override
-            public void onShare(JSONObject tunnel) {
-                shareTunnel(tunnel);
-            }
-
-            @Override
             public void onEdit(JSONObject tunnel) {
+                if (ProfileTransfer.isLocked(tunnel)) {
+                    toast("Profil verrouillé : modification impossible");
+                    return;
+                }
                 Intent i = new Intent(getContext(), TunnelEditorActivity.class);
                 i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, tunnel.optString("id", ""));
                 startActivity(i);
@@ -83,6 +87,10 @@ public class ConfigsFragment extends Fragment {
 
             @Override
             public void onClone(JSONObject tunnel) {
+                if (ProfileTransfer.isLocked(tunnel)) {
+                    toast("Profil verrouillé : clonage impossible");
+                    return;
+                }
                 cloneTunnel(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
             }
 
@@ -92,6 +100,9 @@ public class ConfigsFragment extends Fragment {
             }
         });
         list.setAdapter(adapter);
+
+        v.findViewById(R.id.configs_share).setOnClickListener(view -> showShareMenu());
+        v.findViewById(R.id.configs_import).setOnClickListener(view -> showImportChoice());
 
         v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
         // Connection happens from Home only: tapping the header card
@@ -319,25 +330,39 @@ public class ConfigsFragment extends Fragment {
         reload();
     }
 
-    /** Long-press a card: Ping / Share / Clone / Edit / Delete (no connect here). */
+    /** Long-press a card: Ping / Clone / Edit / Delete (no connect here).
+     *  Locked profiles expose Ping + Delete only. */
     private void showActions(JSONObject tunnel) {
         String id = tunnel.optString("id", "");
         String name = tunnel.optString("name", "Server");
-        String[] options = {"Ping", "Share", "Clone", "Edit", "Delete"};
+        boolean locked = ProfileTransfer.isLocked(tunnel);
+        java.util.List<String> opts = new java.util.ArrayList<>();
+        opts.add("Ping");
+        if (!locked) {
+            opts.add("Clone");
+            opts.add("Edit");
+        }
+        opts.add("Delete");
+        String[] options = opts.toArray(new String[0]);
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle(name)
+                .setTitle(name + (locked ? " (verrouillé)" : ""))
                 .setItems(options, (d, which) -> {
                     switch (options[which]) {
                         case "Ping":
                             pingOne(tunnel);
                             break;
-                        case "Share":
-                            shareTunnel(tunnel);
-                            break;
                         case "Clone":
-                            cloneTunnel(id, name);
+                            if (ProfileTransfer.isLocked(tunnel)) {
+                                toast("Profil verrouillé : clonage impossible");
+                            } else {
+                                cloneTunnel(id, name);
+                            }
                             break;
                         case "Edit": {
+                            if (ProfileTransfer.isLocked(tunnel)) {
+                                toast("Profil verrouillé : modification impossible");
+                                break;
+                            }
                             Intent i = new Intent(getContext(), TunnelEditorActivity.class);
                             i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, id);
                             startActivity(i);
@@ -388,12 +413,238 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    private void shareTunnel(JSONObject tunnel) {
-        Intent i = new Intent(Intent.ACTION_SEND);
-        i.setType("text/plain");
-        i.putExtra(Intent.EXTRA_TEXT, tunnel.toString());
-        i.putExtra(Intent.EXTRA_SUBJECT, tunnel.optString("name", "Server"));
-        startActivity(Intent.createChooser(i, "Share via"));
+    /** Share menu for the SELECTED profiles (header card). Works only with
+     *  1+ selected. Options: lock, expiry, hardware ids, then two buttons:
+     *  export to .epha file, or export to clipboard (ephang://). */
+    private void showShareMenu() {
+        java.util.LinkedHashSet<String> selected =
+                VPNApplication.getInstance().getSelectedIds();
+        if (selected.isEmpty()) {
+            toast("Sélectionnez d'abord 1+ profils (cadre vert)");
+            return;
+        }
+        final List<JSONObject> tunnels =
+                ProfileTransfer.selectedTunnels(requireContext(), selected);
+        if (tunnels.isEmpty()) {
+            toast("Sélection vide");
+            return;
+        }
+
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(requireContext());
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        layout.setPadding(pad, pad, pad, pad);
+
+        final android.widget.CheckBox lockBox = new android.widget.CheckBox(requireContext());
+        lockBox.setText("Verrouiller (ni modification ni clonage après import)");
+        lockBox.setTextColor(0xFFFFFFFF);
+        layout.addView(lockBox);
+
+        final android.widget.EditText expiryInput = new android.widget.EditText(requireContext());
+        expiryInput.setHint("Expiration AAAA-MM-JJ (optionnel)");
+        expiryInput.setTextColor(0xFFFFFFFF);
+        expiryInput.setHintTextColor(0xFF616161);
+        layout.addView(expiryInput);
+
+        final android.widget.EditText hwidInput = new android.widget.EditText(requireContext());
+        hwidInput.setHint("Hardware IDs autorisés, séparés par virgule (optionnel)");
+        hwidInput.setTextColor(0xFFFFFFFF);
+        hwidInput.setHintTextColor(0xFF616161);
+        layout.addView(hwidInput);
+
+        android.widget.TextView summary = new android.widget.TextView(requireContext());
+        summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
+        summary.setTextColor(0xFF9E9E9E);
+        summary.setPadding(0, pad / 2, 0, 0);
+        layout.addView(summary);
+
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Partager la sélection")
+                .setView(layout)
+                .setPositiveButton("Fichier .epha", (d, w) -> {
+                    ProfileTransfer.Restrictions r = readRestrictions(
+                            lockBox.isChecked(),
+                            expiryInput.getText().toString(),
+                            hwidInput.getText().toString());
+                    if (r == null) {
+                        return;
+                    }
+                    exportToFile(tunnels, r);
+                })
+                .setNeutralButton("Clipboard", (d, w) -> {
+                    ProfileTransfer.Restrictions r = readRestrictions(
+                            lockBox.isChecked(),
+                            expiryInput.getText().toString(),
+                            hwidInput.getText().toString());
+                    if (r == null) {
+                        return;
+                    }
+                    exportToClipboard(tunnels, r);
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    /** Validate lock options; null = invalid (toast shown). */
+    private ProfileTransfer.Restrictions readRestrictions(boolean lock, String expiry, String hwids) {
+        ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
+        r.lockConfiguration = lock;
+        String exp = expiry == null ? "" : expiry.trim();
+        if (!exp.isEmpty() && !exp.matches("\\d{4}-\\d{2}-\\d{2}")) {
+            toast("Expiration invalide (AAAA-MM-JJ)");
+            return null;
+        }
+        r.expiresAt = exp;
+        if (hwids != null) {
+            for (String part : hwids.split("[,;\\n]+")) {
+                String id = part.trim().replaceAll("\\s+", "").toUpperCase(java.util.Locale.US);
+                if (!id.isEmpty() && !id.matches("[A-F0-9]{32}")) {
+                    toast("Hardware ID invalide : " + part.trim());
+                    return null;
+                }
+                if (!id.isEmpty() && !r.allowedHardwareIds.contains(id)) {
+                    r.allowedHardwareIds.add(id);
+                }
+            }
+        }
+        return r;
+    }
+
+    private void exportToFile(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
+        try {
+            String json = ProfileTransfer.buildExport(tunnels, r);
+            pendingExport = json;
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE, "ephang-" + tunnels.size() + "-profils.epha");
+            startActivityForResult(i, REQ_EXPORT_SHARE);
+        } catch (Exception e) {
+            toast("Export impossible : " + e.getMessage());
+        }
+    }
+
+    private void exportToClipboard(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
+        try {
+            String json = ProfileTransfer.buildExport(tunnels, r);
+            String link = ProfileTransfer.toClipboard(json);
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) requireContext()
+                    .getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("ephang", link));
+            TasVpnService.logEvent("exported " + tunnels.size() + " profile(s) to clipboard"
+                    + (r.lockConfiguration ? " (locked)" : ""));
+            toast("Lien copié (" + tunnels.size() + " profil(s))");
+        } catch (Exception e) {
+            toast("Export impossible : " + e.getMessage());
+        }
+    }
+
+    /** Import entry: file (.epha) or clipboard (ephang://). */
+    private void showImportChoice() {
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Importer des profils")
+                .setItems(new String[]{"Fichier .epha", "Clipboard (ephang://...)"}, (d, which) -> {
+                    if (which == 0) {
+                        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        i.addCategory(Intent.CATEGORY_OPENABLE);
+                        i.setType("*/*");
+                        startActivityForResult(i, REQ_IMPORT_SHARE);
+                    } else {
+                        showClipboardImport();
+                    }
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private void showClipboardImport() {
+        final android.widget.EditText input = new android.widget.EditText(requireContext());
+        input.setHint("ephang://...");
+        input.setTextColor(0xFFFFFFFF);
+        input.setHintTextColor(0xFF616161);
+        input.setMinLines(3);
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Coller le lien")
+                .setView(input)
+                .setPositiveButton("Importer", (d, w) -> doImport(input.getText().toString()))
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private void doImport(String raw) {
+        ProfileTransfer.ImportResult res;
+        try {
+            res = ProfileTransfer.parseImport(raw);
+        } catch (Exception e) {
+            toast("Import impossible : " + e.getMessage());
+            return;
+        }
+        int added = 0;
+        try {
+            String cfgPath = cfgPath();
+            for (JSONObject t : res.tunnels) {
+                String r = VpnlibHelper.configAdd(cfgPath, t.toString());
+                if (r != null && r.startsWith("{") && new JSONObject(r).has("error")) {
+                    res.skipped++;
+                    continue;
+                }
+                added++;
+            }
+        } catch (Exception e) {
+            toast("Import impossible : " + e.getMessage());
+            return;
+        }
+        TasVpnService.logEvent("imported " + added + " profile(s)"
+                + (res.locked ? " (locked)" : "")
+                + (res.skipped > 0 ? ", " + res.skipped + " skipped" : ""));
+        toast("Importés : " + added + (res.locked ? " (verrouillés)" : "")
+                + (res.skipped > 0 ? " - ignorés : " + res.skipped : ""));
+        reload();
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMPORT_SHARE) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+                return;
+            }
+            try (java.io.InputStream in =
+                         requireContext().getContentResolver().openInputStream(data.getData())) {
+                byte[] content = readAllBytes(in);
+                doImport(new String(content, java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                toast("Import impossible : " + e.getMessage());
+            }
+            return;
+        }
+        if (requestCode == REQ_EXPORT_SHARE) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null
+                    || pendingExport == null) {
+                pendingExport = null;
+                return;
+            }
+            try (java.io.OutputStream out = requireContext().getContentResolver()
+                    .openOutputStream(data.getData())) {
+                out.write(pendingExport.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                TasVpnService.logEvent("exported profiles to .epha file");
+                toast("Fichier .epha enregistré");
+            } catch (Exception e) {
+                toast("Export impossible : " + e.getMessage());
+            } finally {
+                pendingExport = null;
+            }
+        }
+    }
+
+    private static byte[] readAllBytes(java.io.InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        int n;
+        while ((n = in.read(tmp)) > 0) {
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
     }
 
     private void pingOne(JSONObject tunnel) {

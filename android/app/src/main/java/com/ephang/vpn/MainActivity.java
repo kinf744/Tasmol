@@ -16,6 +16,8 @@ import androidx.fragment.app.Fragment;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
+import org.json.JSONObject;
+
 import java.util.Map;
 
 /**
@@ -354,6 +356,14 @@ public class MainActivity extends AppCompatActivity {
                     .setNegativeButton("Cancel", null)
                     .show();
             return;
+        }
+        // Locked profiles: refuse expired or foreign-device bindings.
+        for (JSONObject t : ProfileTransfer.selectedTunnels(this, selected)) {
+            String reason = ProfileTransfer.lockReason(this, t);
+            if (reason != null && !reason.isEmpty()) {
+                showToast(t.optString("name", "Server") + " : " + reason);
+                return;
+            }
         }
         // Home connects ALL selected profiles at once (single mode for 1,
         // round-robin for 2+).

@@ -96,6 +96,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
         findViewById(R.id.btn_parse_link).setOnClickListener(v -> parseLink());
 
         if (editId != null) {
+            if (isStoredLocked(editId)) {
+                toast("Profil verrouillé : modification impossible");
+                finish();
+                return;
+            }
             loadTunnel(editId);
         }
         refreshSections();
@@ -436,6 +441,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
             toast("Name is required");
             return;
         }
+        if (editId != null && isStoredLocked(editId)) {
+            toast("Profil verrouillé : modification impossible");
+            return;
+        }
         try {
             // xray_slowdns is link-driven: the link is parsed now (or the
             // stored profile reused for legacy/manual setups) and provides
@@ -677,6 +686,22 @@ public class TunnelEditorActivity extends AppCompatActivity {
         } catch (Exception e) {
             toast("Save failed: " + e.getMessage());
         }
+    }
+
+    /** True when the stored profile is locked (defense in depth). */
+    private boolean isStoredLocked(String id) {
+        try {
+            String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath).trim());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if (id.equals(t.optString("id", ""))) {
+                    return ProfileTransfer.isLocked(t);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return false;
     }
 
     /** Read one stored server.* field of the profile being edited ("" if none). */

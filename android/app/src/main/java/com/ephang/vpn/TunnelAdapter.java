@@ -22,8 +22,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         void onActions(JSONObject tunnel);
 
-        void onShare(JSONObject tunnel);
-
         void onEdit(JSONObject tunnel);
 
         void onClone(JSONObject tunnel);
@@ -100,12 +98,23 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         // Selection frame says it all: no separate round-robin badge.
         h.rr.setVisibility(View.GONE);
 
+        // Locked (imported) profiles: no edit, no clone. Ever.
+        boolean locked = ProfileTransfer.isLocked(t);
+        h.edit.setVisibility(locked ? View.GONE : View.VISIBLE);
+        h.clone.setVisibility(locked ? View.GONE : View.VISIBLE);
+        if (locked) {
+            h.rr.setVisibility(View.VISIBLE);
+            h.rr.setText("LOCK");
+            h.rr.setTextColor(0xFFFF5252);
+        } else {
+            h.rr.setVisibility(View.GONE);
+        }
+
         h.card.setOnClickListener(v -> listener.onTap(t));
         h.card.setOnLongClickListener(v -> {
             listener.onActions(t);
             return true;
         });
-        h.share.setOnClickListener(v -> listener.onShare(t));
         h.edit.setOnClickListener(v -> listener.onEdit(t));
         h.clone.setOnClickListener(v -> listener.onClone(t));
         h.delete.setOnClickListener(v -> listener.onDelete(t));
@@ -123,7 +132,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final TextView type;
         final TextView ping;
         final TextView rr;
-        final View share;
         final View edit;
         final View clone;
         final View delete;
@@ -136,7 +144,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             type = v.findViewById(R.id.item_type);
             ping = v.findViewById(R.id.item_ping);
             rr = v.findViewById(R.id.item_rr);
-            share = v.findViewById(R.id.item_share);
             edit = v.findViewById(R.id.item_edit);
             clone = v.findViewById(R.id.item_clone);
             delete = v.findViewById(R.id.item_delete);
