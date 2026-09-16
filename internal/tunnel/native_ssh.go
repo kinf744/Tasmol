@@ -138,7 +138,7 @@ func logServerMessage(client *ssh.Client) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		sess, err := client.OpenSession()
+		sess, err := client.NewSession()
 		if err != nil {
 			return
 		}
