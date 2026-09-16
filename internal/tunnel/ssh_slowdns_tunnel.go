@@ -127,9 +127,9 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 		Errorf("ssh-slowdns-proc", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
-	if t.config.Server.PublicKey == "" {
+	if DnsttPubKey(t.config) == "" {
 		Errorf("ssh-slowdns-proc", "slowdns public key empty")
-		return fmt.Errorf("slowdns server public key is required (server.public_key)")
+		return fmt.Errorf("slowdns server public key is required (server.public_key or advanced.slowdns_pubkey)")
 	}
 	if t.config.Auth.Username == "" {
 		Errorf("ssh-slowdns-proc", "ssh username empty")

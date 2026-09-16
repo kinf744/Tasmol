@@ -158,9 +158,9 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		Errorf("xray-slowdns", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
-	if t.config.Server.PublicKey == "" {
+	if DnsttPubKey(t.config) == "" {
 		Errorf("xray-slowdns", "slowdns public key empty")
-		return fmt.Errorf("slowdns server public key is required (server.public_key)")
+		return fmt.Errorf("slowdns server public key is required (server.public_key or advanced.slowdns_pubkey)")
 	}
 	if t.config.Auth.UUID == "" && !HasOutboundJSON(t.config) {
 		Errorf("xray-slowdns", "no uuid and no outbound_json")
