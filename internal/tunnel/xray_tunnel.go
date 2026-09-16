@@ -248,11 +248,11 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		t.setError(fmt.Sprintf("xray SOCKS not ready: %v", readyErr))
 		return fmt.Errorf("xray socks not ready: %w", readyErr)
 	}
-	Journalf("xray", "SOCKS %s ready", socksAddr)
+	Tracef("[xray] SOCKS %s ready", socksAddr)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Connf("xray", "RUNNING name=%q", t.config.Name)
+	Tracef("[xray] RUNNING name=%q", t.config.Name)
 
 	go t.monitorProcess()
 

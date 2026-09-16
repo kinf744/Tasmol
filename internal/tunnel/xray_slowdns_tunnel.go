@@ -196,7 +196,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	Tracef("[xray-slowdns] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
 
 	// dnstt first: Xray dials the local forward once it answers.
-	Journalf("xray-slowdns", "phase 1/2: dnstt forward :%d", t.fwdPort())
+	Tracef("[xray-slowdns] phase 1/2: dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
@@ -242,7 +242,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 
-	Journalf("xray-slowdns", "phase 2/2: starting xray")
+	Tracef("[xray-slowdns] phase 2/2: starting xray")
 	t.xrayCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
 	if BinDir != "" {
 		t.xrayCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
@@ -289,7 +289,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		t.setError(fmt.Sprintf("Xray SOCKS not ready: %v", socksErr))
 		return fmt.Errorf("xray socks not ready: %w", socksErr)
 	}
-	Connf("xray-slowdns", "SOCKS ready, RUNNING name=%q", t.config.Name)
+	Tracef("[xray-slowdns] SOCKS ready, RUNNING name=%q", t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning

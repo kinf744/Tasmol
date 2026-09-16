@@ -147,7 +147,7 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start SSH: %w", err)
 	}
-	Connf("ssh-proc", "process started pid=%d, RUNNING name=%q", t.cmd.Process.Pid, t.config.Name)
+	Tracef("[ssh-proc] process started pid=%d, RUNNING name=%q", t.cmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning

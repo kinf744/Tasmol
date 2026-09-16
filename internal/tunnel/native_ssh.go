@@ -88,7 +88,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			conn.Close()
 			return nil, err
 		}
-		Journalf("ssh", "handshake OK via proxy")
+		Tracef("[ssh] handshake OK via proxy")
 		client = ssh.NewClient(c, chans, reqs)
 	} else {
 		Tracef("[ssh] direct dial %s ...", addr)
@@ -98,7 +98,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			Errorf("ssh", "direct dial/handshake: %v", err)
 			return nil, err
 		}
-		Journalf("ssh", "handshake OK")
+		Tracef("[ssh] handshake OK")
 	}
 	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
 		Journalf("ssh-banner", "server version: %s", v)
@@ -339,7 +339,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		return nil, err
 	}
 	if proxyHost == host && proxyPort == port {
-		Warnf("ssh", "proxy == target (%s): the proxy would CONNECT to itself; check ssh.proxy vs server host/port", addr)
+		Tracef("[ssh] WARNING proxy == target (%s): the proxy would CONNECT to itself; check ssh.proxy vs server host/port", addr)
 	}
 	if strings.Contains(strings.ToLower(payloadTpl), "[delay") {
 		Tracef("[ssh] note: [delay*] timing tokens stripped (sent continuously)")
@@ -634,7 +634,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		Tracef("[ssh] already running, skip")
 		return nil
 	}
-	Journalf("ssh", "ssh %q@%s:%d via proxy %q",
+	Tracef("[ssh] ssh %q@%s:%d via proxy %q",
 		t.config.Auth.Username, t.config.Server.Host, t.config.Server.Port, t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
 		Errorf("ssh", "host or username empty")
@@ -677,7 +677,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Journalf("ssh", "SOCKS listening on %s", socksAddr)
+	Tracef("[ssh] SOCKS listening on %s", socksAddr)
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
@@ -688,7 +688,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Connf("ssh", "RUNNING name=%q", t.config.Name)
+	Tracef("[ssh] RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }
@@ -841,7 +841,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 
 	// dnstt first (shared helper with output capture).
-	Journalf("ssh-slowdns", "phase 1/2: dnstt forward :%d", fwdPort)
+	Tracef("[ssh-slowdns] phase 1/2: dnstt forward :%d", fwdPort)
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, fwdPort)
 	t.mu.Lock()
@@ -854,7 +854,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.slowdnscmd = dnsttCmd
-	Journalf("ssh-slowdns", "phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
+	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
 	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
 		Errorf("ssh-slowdns", "ssh dial: %v", dialErr)
@@ -886,7 +886,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Journalf("ssh-slowdns", "SOCKS listening on %s", socksAddr)
+	Tracef("[ssh-slowdns] SOCKS listening on %s", socksAddr)
 
 	t.ctx = ctx
 	t.client = sshClient
@@ -897,7 +897,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Connf("ssh-slowdns", "RUNNING name=%q", t.config.Name)
+	Tracef("[ssh-slowdns] RUNNING name=%q", t.config.Name)
 	go t.monitor()
 	return nil
 }

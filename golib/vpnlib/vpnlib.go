@@ -273,12 +273,12 @@ func (c *Controller) Start(paramsJSON string) string {
 	// data plane dials the single active SOCKS directly (no balancer).
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
 	if len(c.rrIDs) >= 2 {
-		tunnel.Connf("session", "mode=round-robin profiles=%v", c.rrIDs)
+		tunnel.Tracef("[rr] mode=round-robin with %d profiles", len(c.rrIDs))
 	} else {
 		tunnel.Connf("session", "mode=single active=%q", c.activeID)
 	}
 	if len(c.rrIDs) >= 2 {
-		tunnel.Journalf("rr", "round-robin mode with %d profiles", len(c.rrIDs))
+		tunnel.Tracef("[rr] members confirmed: %d profiles", len(c.rrIDs))
 		if err := c.ensureHelpersNLocked(c.rrIDs); err != nil {
 			c.cleanupLocked()
 			return errJSON(err)
@@ -407,14 +407,14 @@ func (c *Controller) ensureHelpersLocked(id string) error {
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
 	if t.Status() != tunnel.StatusRunning {
-		tunnel.Journalf("session", "starting helper %q (type=%s)", t.Name(), t.Type())
+		tunnel.Journalf("session", "starting helper %q", t.Name())
 		if err := t.Start(c.ctx); err != nil {
 			tunnel.Errorf("session", "helper %q failed: %v", t.Name(), err)
 			return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
 		}
-		tunnel.Connf("session", "helper %q running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+		tunnel.Tracef("[session] helper %q running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 	} else {
-		tunnel.Connf("session", "helper %q already running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+		tunnel.Tracef("[session] helper %q already running, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 	}
 	return nil
 }
@@ -452,7 +452,7 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 	for attempt := 1; attempt <= 3; attempt++ {
 		tunnel.Tracef("[rr] starting %s (attempt %d/3)", t.Name(), attempt)
 		if err = t.Start(c.ctx); err == nil {
-			tunnel.Journalf("rr", "%s up, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+			tunnel.Tracef("[rr] %s up, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 			return nil
 		}
 		_ = t.Stop(context.Background())
@@ -470,7 +470,7 @@ func (c *Controller) ensureHelpersNLocked(ids []string) error {
 	var lastErr error
 	for _, id := range ids {
 		if err := c.ensureHelperRetryLocked(id); err != nil {
-			tunnel.Warnf("rr", "dropping profile %s: %v", id, err)
+			tunnel.Tracef("[rr] dropping profile %s: %v", id, err)
 			lastErr = err
 			continue
 		}
@@ -630,7 +630,7 @@ func (c *Controller) startDataplaneLocked() error {
 	c.stack = st
 	c.tun = tun
 	c.dialer = d
-	tunnel.Connf("dataplane", "gVisor stack up, session RUNNING")
+	tunnel.Tracef("[dataplane] gVisor stack up, session RUNNING")
 	return nil
 }
 
@@ -662,7 +662,7 @@ func (c *Controller) switchUpstreamLocked() error {
 		return fmt.Errorf("tunnel socks not ready (%s): %w", socksAddr, err)
 	}
 	c.dialer.set(upstream)
-	tunnel.Connf("dataplane", "upstream switched to %s", socksAddr)
+	tunnel.Tracef("[dataplane] upstream switched to %s", socksAddr)
 	return nil
 }
 
@@ -700,7 +700,7 @@ func (c *Controller) followRoundRobinLocked() {
 		}
 	}
 	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs) || revived) {
-		tunnel.Journalf("rr", "rebuilding front with %d profiles", len(alive))
+		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
 		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
 			tunnel.Errorf("rr", "rebuild failed: %v", err)
 			return
@@ -713,7 +713,7 @@ func (c *Controller) followRoundRobinLocked() {
 		return
 	}
 	if len(alive) < 2 && c.frontAlive {
-		tunnel.Warnf("rr", "degraded: %d/2+ profiles alive", len(alive))
+		tunnel.Tracef("[rr] degraded: %d/2+ profiles alive", len(alive))
 	}
 }
 

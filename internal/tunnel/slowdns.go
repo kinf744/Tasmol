@@ -159,7 +159,7 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("slowdns forward not ready: %w", err)
 	}
-	Journalf("slowdns", "forward 127.0.0.1:%d ready", fwdPort)
+	Tracef("[slowdns] forward 127.0.0.1:%d ready", fwdPort)
 	return cmd, nil
 }
 

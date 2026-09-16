@@ -339,7 +339,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
 			return fmt.Errorf("zivpn range %s not ready: %w", rng, err)
 		}
-		Journalf("zivpn", "[%d] SOCKS %d ready", i, uzPort)
+		Tracef("[zivpn][%d] SOCKS %d ready", i, uzPort)
 		up.started = true
 	}
 
@@ -376,7 +376,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return err
 	}
-	Journalf("zivpn", "LB listening on 127.0.0.1:%d", lbPort)
+	Tracef("[zivpn] LB listening on 127.0.0.1:%d", lbPort)
 	t.procs = procs
 	t.lbLn = ln
 	t.lbPort = lbPort
@@ -399,7 +399,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Connf("zivpn", "RUNNING name=%q ranges=%d lb=%s", t.config.Name, len(procs), fmt.Sprintf("127.0.0.1:%d", lbPort))
+	Tracef("[zivpn] RUNNING name=%q ranges=%d lb=%s", t.config.Name, len(procs), fmt.Sprintf("127.0.0.1:%d", lbPort))
 
 	go t.monitorProcs()
 

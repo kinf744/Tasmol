@@ -189,7 +189,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 		t.setError(fmt.Sprintf("SSH start failed: %v", err))
 		return fmt.Errorf("failed to start SSH through SlowDNS: %w", err)
 	}
-	Connf("ssh-slowdns-proc", "ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
+	Tracef("[ssh-slowdns-proc] ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
 		t.sshCmd.Process.Pid, t.slowdnscmd.Process.Pid, t.config.Name)
 
 	t.startTime = time.Now()
