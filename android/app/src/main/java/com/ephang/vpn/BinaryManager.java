@@ -212,7 +212,7 @@ public class BinaryManager {
     }
 
     /** Public Download directory (where kighmu.txt is written). */
-    public static File downloadDir() {
+    public static String downloadDir() {
         File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         if (d == null) {
             return "";
