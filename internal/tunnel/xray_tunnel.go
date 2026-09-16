@@ -147,8 +147,8 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	hasUUID := t.config.Auth.UUID != ""
 	hasJSON := HasOutboundJSON(t.config)
-	Tracef("[xray] inputs uuidSet=%v outboundJSON=%v host=%q port=%d",
-		hasUUID, hasJSON, t.config.Server.Host, t.config.Server.Port)
+	Journalf("xray", "vless %s:%d uuid=%v",
+		t.config.Server.Host, t.config.Server.Port, hasUUID)
 	if t.config.Auth.UUID == "" && !hasJSON {
 		Errorf("xray", "no uuid and no outbound_json")
 		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
@@ -248,7 +248,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		t.setError(fmt.Sprintf("xray SOCKS not ready: %v", readyErr))
 		return fmt.Errorf("xray socks not ready: %w", readyErr)
 	}
-	Tracef("[xray] SOCKS %s ready", socksAddr)
+	Journalf("xray", "SOCKS %s ready", socksAddr)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning

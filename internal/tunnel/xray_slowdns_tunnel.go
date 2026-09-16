@@ -152,9 +152,8 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return nil
 	}
 
-	Tracef("[xray-slowdns] inputs nsDomain=%q resolver=%q pubkeyLen=%d uuidSet=%v outboundJSON=%v fwdPort=%d socksPort=%d",
-		t.nsDomain(), t.resolver(), len(cleanDnsttKey(DnsttPubKey(t.config))),
-		t.config.Auth.UUID != "", HasOutboundJSON(t.config), t.fwdPort(), t.socksPort())
+	Journalf("xray-slowdns", "slowdns ns=%q uuid=%v key=%d chars",
+		t.nsDomain(), t.config.Auth.UUID != "", len(cleanDnsttKey(DnsttPubKey(t.config))))
 	if t.nsDomain() == "" {
 		Errorf("xray-slowdns", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
@@ -197,7 +196,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	Tracef("[xray-slowdns] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
 
 	// dnstt first: Xray dials the local forward once it answers.
-	Tracef("[xray-slowdns] phase 1/2: starting dnstt forward :%d", t.fwdPort())
+	Journalf("xray-slowdns", "phase 1/2: dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
 	t.mu.Lock()
@@ -243,7 +242,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 
-	Tracef("[xray-slowdns] phase 2/2: starting xray, BinDir=%q", BinDir)
+	Journalf("xray-slowdns", "phase 2/2: starting xray")
 	t.xrayCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
 	if BinDir != "" {
 		t.xrayCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)

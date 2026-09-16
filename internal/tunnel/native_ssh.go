@@ -65,7 +65,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	}
 
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
-		Tracef("[ssh] hop via HTTP proxy %s", cfg.SSH.Proxy)
+		Journalf("ssh", "hop via HTTP proxy %s", cfg.SSH.Proxy)
 		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
 		if err != nil {
 			Errorf("ssh", "proxy hop: %v", err)
@@ -77,7 +77,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			conn.Close()
 			return nil, err
 		}
-		Tracef("[ssh] handshake OK via proxy")
+		Journalf("ssh", "handshake OK via proxy")
 		return ssh.NewClient(c, chans, reqs), nil
 	}
 	Tracef("[ssh] direct dial %s ...", addr)
@@ -86,7 +86,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		Errorf("ssh", "direct dial/handshake: %v", err)
 		return nil, err
 	}
-	Tracef("[ssh] handshake OK")
+	Journalf("ssh", "handshake OK")
 	return client, nil
 }
 
@@ -287,7 +287,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		conn.Close()
 		return nil, fmt.Errorf("proxy read: %w", err)
 	}
-	Tracef("[ssh] proxy status: %s", strings.TrimSpace(status))
+	Journalf("ssh", "proxy status: %s", strings.TrimSpace(status))
 	code := proxyStatusCode(status)
 	// Reference-engine rule: hard proxy errors always fail; a CONNECT
 	// additionally demands 200, or 101 (WS-panel "tunnel open" convention).
@@ -515,9 +515,8 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		Tracef("[ssh] already running, skip")
 		return nil
 	}
-	Tracef("[ssh] inputs host=%q port=%d user=%q socks=%s proxy=%q",
-		t.config.Server.Host, t.config.Server.Port, t.config.Auth.Username,
-		t.socksAddr(), t.config.SSH.Proxy)
+	Journalf("ssh", "ssh %q@%s:%d via proxy %q",
+		t.config.Auth.Username, t.config.Server.Host, t.config.Server.Port, t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
 		Errorf("ssh", "host or username empty")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
@@ -559,7 +558,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Tracef("[ssh] SOCKS listening on %s", socksAddr)
+	Journalf("ssh", "SOCKS listening on %s", socksAddr)
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
@@ -690,9 +689,8 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		Tracef("[ssh-slowdns] already running, skip")
 		return nil
 	}
-	Tracef("[ssh-slowdns] inputs nsDomain=%q resolver=%q pubkeyLen=%d user=%q fwdPort=%d socks=%s",
-		t.nsDomain(), t.resolver(), len(strings.TrimSpace(t.config.Server.PublicKey)),
-		t.config.Auth.Username, t.fwdPort(), t.socksAddr())
+	Journalf("ssh-slowdns", "slowdns ns=%q user=%q key=%d chars",
+		t.nsDomain(), t.config.Auth.Username, len(strings.TrimSpace(t.config.Server.PublicKey)))
 	if t.nsDomain() == "" {
 		Errorf("ssh-slowdns", "nameserver domain empty")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
@@ -724,7 +722,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 
 	// dnstt first (shared helper with output capture).
-	Tracef("[ssh-slowdns] phase 1/2: starting dnstt forward :%d", fwdPort)
+	Journalf("ssh-slowdns", "phase 1/2: dnstt forward :%d", fwdPort)
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, fwdPort)
 	t.mu.Lock()
@@ -737,7 +735,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.slowdnscmd = dnsttCmd
-	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
+	Journalf("ssh-slowdns", "phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
 	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
 		Errorf("ssh-slowdns", "ssh dial: %v", dialErr)
@@ -769,7 +767,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
-	Tracef("[ssh-slowdns] SOCKS listening on %s", socksAddr)
+	Journalf("ssh-slowdns", "SOCKS listening on %s", socksAddr)
 
 	t.ctx = ctx
 	t.client = sshClient

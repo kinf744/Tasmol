@@ -99,8 +99,8 @@ func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 // its output to the activity log and blocks until the local forward port
 // answers. Call it WITHOUT holding the tunnel mutex (it may wait ~20s).
 func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*exec.Cmd, error) {
-	Tracef("[slowdns] StartDnstt begin nsDomain=%q resolver=%q pubkeyLen=%d fwdPort=%d",
-		DnsttDomain(cfg), DnsttResolver(cfg), len(strings.TrimSpace(DnsttPubKey(cfg))), fwdPort)
+	Journalf("slowdns", "dnstt ns=%q resolver=%q key=%d chars",
+		DnsttDomain(cfg), DnsttResolver(cfg), len(strings.TrimSpace(DnsttPubKey(cfg))))
 	if DnsttDomain(cfg) == "" {
 		Errorf("slowdns", "nameserver domain empty")
 		return nil, fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
@@ -139,7 +139,7 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 		cmd.Process.Kill()
 		return nil, fmt.Errorf("slowdns forward not ready: %w", err)
 	}
-	Tracef("[slowdns] forward 127.0.0.1:%d ready", fwdPort)
+	Journalf("slowdns", "forward 127.0.0.1:%d ready", fwdPort)
 	return cmd, nil
 }
 

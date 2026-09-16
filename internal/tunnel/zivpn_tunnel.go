@@ -267,7 +267,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	}
 	ip := t.resolveServerIP()
 	password := t.authPassword()
-	Tracef("[zivpn] basePort=%d ranges=%v ip=%q password=%q", basePort, ranges, ip, password)
+	Journalf("zivpn", "udp %s ranges=%v", ip, ranges)
 
 	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := TmpDir
@@ -339,7 +339,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
 			return fmt.Errorf("zivpn range %s not ready: %w", rng, err)
 		}
-		Tracef("[zivpn][%d] SOCKS %d ready", i, uzPort)
+		Journalf("zivpn", "[%d] SOCKS %d ready", i, uzPort)
 		up.started = true
 	}
 
@@ -376,7 +376,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		t.setError(err.Error())
 		return err
 	}
-	Tracef("[zivpn] LB listening on 127.0.0.1:%d", lbPort)
+	Journalf("zivpn", "LB listening on 127.0.0.1:%d", lbPort)
 	t.procs = procs
 	t.lbLn = ln
 	t.lbPort = lbPort

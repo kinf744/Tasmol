@@ -72,6 +72,13 @@ func Connf(component, format string, args ...interface{}) {
 	logLine("connection", component, format, args...)
 }
 
+// Journalf logs one concise journal step: the in-app Journal view shows
+// journal+connection+warning+error only (the full firehose stays available
+// in Verbose mode). One line per real tunnel step, no internals.
+func Journalf(component, format string, args ...interface{}) {
+	logLine("journal", component, format, args...)
+}
+
 // Warnf logs a suspicious but non-fatal journal line.
 func Warnf(component, format string, args ...interface{}) {
 	logLine("warning", component, format, args...)

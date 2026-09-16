@@ -276,7 +276,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		tunnel.Connf("session", "mode=single active=%q", c.activeID)
 	}
 	if len(c.rrIDs) >= 2 {
-		tunnel.Tracef("[rr] round-robin mode with %d profiles: %v", len(c.rrIDs), c.rrIDs)
+		tunnel.Journalf("rr", "round-robin mode with %d profiles", len(c.rrIDs))
 		if err := c.ensureHelpersNLocked(c.rrIDs); err != nil {
 			c.cleanupLocked()
 			return errJSON(err)
@@ -405,7 +405,7 @@ func (c *Controller) ensureHelpersLocked(id string) error {
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
 	if t.Status() != tunnel.StatusRunning {
-		tunnel.Infof("session", "starting helper %q (type=%s id=%s)", t.Name(), t.Type(), t.ID())
+		tunnel.Journalf("session", "starting helper %q (type=%s)", t.Name(), t.Type())
 		if err := t.Start(c.ctx); err != nil {
 			tunnel.Errorf("session", "helper %q failed: %v", t.Name(), err)
 			return fmt.Errorf("start tunnel %s: %w", t.Name(), err)
@@ -450,7 +450,7 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 	for attempt := 1; attempt <= 3; attempt++ {
 		tunnel.Tracef("[rr] starting %s (attempt %d/3)", t.Name(), attempt)
 		if err = t.Start(c.ctx); err == nil {
-			tunnel.Tracef("[rr] %s up, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
+			tunnel.Journalf("rr", "%s up, socks=%s", t.Name(), tunnel.SocksAddr(t.Config()))
 			return nil
 		}
 		_ = t.Stop(context.Background())
@@ -698,7 +698,7 @@ func (c *Controller) followRoundRobinLocked() {
 		}
 	}
 	if len(alive) >= 2 && (!c.frontAlive || !sameIDSet(alive, c.rrIDs) || revived) {
-		tunnel.Tracef("[rr] rebuilding front with %d profiles", len(alive))
+		tunnel.Journalf("rr", "rebuilding front with %d profiles", len(alive))
 		if err := c.rebuildBalancerFrontLocked(alive); err != nil {
 			tunnel.Errorf("rr", "rebuild failed: %v", err)
 			return
@@ -711,7 +711,7 @@ func (c *Controller) followRoundRobinLocked() {
 		return
 	}
 	if len(alive) < 2 && c.frontAlive {
-		tunnel.Tracef("[rr] degraded: %d/2+ profiles alive", len(alive))
+		tunnel.Warnf("rr", "degraded: %d/2+ profiles alive", len(alive))
 	}
 }
 

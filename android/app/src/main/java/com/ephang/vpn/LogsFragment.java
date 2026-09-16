@@ -32,11 +32,13 @@ public class LogsFragment extends Fragment {
     private static final Pattern LINE_RE =
             Pattern.compile("^(\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)\\s+(.*)$", Pattern.DOTALL);
     private static final Pattern TAGGED_RE =
-            Pattern.compile("^\\[(info|connection|warning|error)\\] \\[([^\\]]*)\\] ?(.*)$",
+            Pattern.compile("^\\[(info|journal|connection|warning|error)\\] \\[([^\\]]*)\\] ?(.*)$",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private TextView logText;
     private ScrollView scroller;
+    private android.widget.Button modeBtn;
+    private boolean verbose = false;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable tick = new Runnable() {
         @Override
@@ -59,6 +61,12 @@ public class LogsFragment extends Fragment {
             refresh();
         });
         v.findViewById(R.id.logs_share).setOnClickListener(view -> shareJournal());
+        modeBtn = v.findViewById(R.id.logs_mode);
+        modeBtn.setOnClickListener(view -> {
+            verbose = !verbose;
+            modeBtn.setText(verbose ? "Verbose" : "Journal");
+            refresh();
+        });
         refresh();
         return v;
     }
@@ -107,7 +115,9 @@ public class LogsFragment extends Fragment {
         }
     }
 
-    /** Parse "[time] [level] [component] message" rows into colored spans. */
+    /** Parse "[time] [level] [component] message" rows into colored spans.
+     *  Journal mode (default) shows journal+connection+warning+error only
+     *  (capped to the last 300); Verbose shows the full firehose. */
     private CharSequence renderJournal(String raw) {
         int grey = ContextCompat.getColor(requireContext(), R.color.npv_grey);
         int dim = ContextCompat.getColor(requireContext(), R.color.npv_dim);
@@ -115,7 +125,7 @@ public class LogsFragment extends Fragment {
         int red = ContextCompat.getColor(requireContext(), R.color.npv_red);
         int yellow = ContextCompat.getColor(requireContext(), R.color.npv_yellow);
         int cyan = ContextCompat.getColor(requireContext(), R.color.npv_cyan);
-        SpannableStringBuilder sb = new SpannableStringBuilder();
+        java.util.ArrayList<String[]> rows = new java.util.ArrayList<>();
         for (String line : raw.split("\n")) {
             line = line.trim();
             if (line.isEmpty()) {
@@ -137,6 +147,21 @@ public class LogsFragment extends Fragment {
                 comp = tm.group(2);
                 msg = tm.group(3).trim();
             }
+            if (!verbose && level.equals("info")) {
+                continue;
+            }
+            rows.add(new String[]{time, level, comp, msg});
+        }
+        // Cap journal volume (Picko-style): last 300 relevant rows.
+        if (!verbose && rows.size() > 300) {
+            rows = new java.util.ArrayList<>(rows.subList(rows.size() - 300, rows.size()));
+        }
+        SpannableStringBuilder sb = new SpannableStringBuilder();
+        for (String[] r : rows) {
+            String time = r[0];
+            String level = r[1];
+            String comp = r[2];
+            String msg = r[3];
             int tagColor = dim;
             int msgColor = text;
             switch (level) {
@@ -152,6 +177,10 @@ public class LogsFragment extends Fragment {
                     tagColor = cyan;
                     msgColor = text;
                     break;
+                case "journal":
+                    tagColor = cyan;
+                    msgColor = text;
+                    break;
                 default:
                     tagColor = dim;
                     msgColor = text;
@@ -164,6 +193,9 @@ public class LogsFragment extends Fragment {
                 appendSpan(sb, "[" + level + "] ", tagColor);
             }
             appendSpan(sb, msg + "\n", msgColor);
+        }
+        if (sb.length() == 0) {
+            return "Journal is empty for this filter.\nConnect to start logging.";
         }
         return sb;
     }
