@@ -180,9 +180,7 @@ public class TasVpnService extends VpnService {
             while (attempt < maxAttempts && !isSuperseded(gen)) {
                 attempt++;
                 startAttempt = attempt;
-                notifyText(maxAttempts > 1
-                        ? "Connecting... (attempt " + attempt + "/" + maxAttempts + ")"
-                        : "Connecting...");
+                notifyText("Connecting...");
                 Object ctrl = null;
                 try {
                     // Ensure bundled official binaries + config are staged.

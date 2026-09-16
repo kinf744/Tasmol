@@ -235,8 +235,7 @@ func (c *Controller) Start(paramsJSON string) string {
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
-	tunnel.Connf("session", "start tunFd=%d mtu=%d active=%q round_robin=%q binDir=%q nativeSSH=%v managePort=%d",
-		p.TunFd, p.MTU, p.ActiveTunnel, p.RoundRobin, p.BinDir, p.NativeSSH, p.ManagePort)
+	tunnel.Connf("session", "starting session")
 
 	cfgMgr, err := config.NewManager(p.ConfigPath)
 	if err != nil {
@@ -1259,8 +1258,8 @@ func ConfigAdd(configPath, tunnelJSON string) string {
 	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
 		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
 	}
-	tunnel.Tracef("[config] add type=%s name=%q pubkeyLen=%d port_range=%q",
-		tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
+	tunnel.Tracef("[config] add type=%s name=%q pubkeyLen=%d",
+		tc.Type, tc.Name, len(tc.Server.PublicKey))
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
 		return errJSON(err)
@@ -1280,8 +1279,8 @@ func ConfigUpdate(configPath, id, tunnelJSON string) string {
 		return errJSON(fmt.Errorf("invalid tunnel: %w", err))
 	}
 	tc.ID = id
-	tunnel.Tracef("[config] update id=%s type=%s name=%q pubkeyLen=%d port_range=%q",
-		id, tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
+	tunnel.Tracef("[config] update id=%s type=%s name=%q pubkeyLen=%d",
+		id, tc.Type, tc.Name, len(tc.Server.PublicKey))
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
 		return errJSON(err)
@@ -1319,8 +1318,8 @@ func ListTunnels(configPath string) string {
 	// logged on every list so save-vs-load can be compared in kighmu.txt.
 	for _, tc := range out {
 		if tc.Type == config.TunnelSSHSlowDNS || tc.Type == config.TunnelXraySlowDNS || tc.Type == config.TunnelZivpn {
-			tunnel.Tracef("[config] list id=%s type=%s name=%q pubkeyLen=%d port_range=%q",
-				tc.ID, tc.Type, tc.Name, len(tc.Server.PublicKey), tc.Server.PortRange)
+			tunnel.Tracef("[config] list id=%s type=%s name=%q pubkeyLen=%d",
+				tc.ID, tc.Type, tc.Name, len(tc.Server.PublicKey))
 		}
 	}
 	if out == nil {

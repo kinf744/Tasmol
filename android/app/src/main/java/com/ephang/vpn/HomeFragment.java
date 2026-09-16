@@ -100,11 +100,7 @@ public class HomeFragment extends Fragment {
             // with the attempt counter across the retry loop.
             if (TasVpnService.isStarting()) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
-                int attempt = TasVpnService.getStartAttempt();
-                int max = TasVpnService.getMaxStartAttempts();
-                statusText.setText(max > 1 && attempt > 0
-                        ? "[ CONNECTING " + attempt + "/" + max + " ]"
-                        : "[ CONNECTING ]");
+                statusText.setText("[ CONNECTING ]");
                 statusText.setTextColor(red);
                 uptimeText.setText("--:--:--");
                 downText.setText("0 B");

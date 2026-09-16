@@ -156,7 +156,7 @@ func normalizePortRanges(pr string) ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no valid port range in %q (use 6000-19999 or 6000-7750,7751-9500)", pr)
+		return nil, fmt.Errorf("no valid port range (use 6000-19999 or 6000-7750,7751-9500)")
 	}
 	if len(out) > maxUzRanges {
 		return nil, fmt.Errorf("too many port ranges (%d, max %d)", len(out), maxUzRanges)
@@ -267,7 +267,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	}
 	ip := t.resolveServerIP()
 	password := t.authPassword()
-	Journalf("zivpn", "udp %s ranges=%v", ip, ranges)
+	Journalf("zivpn", "udp %s (%d range(s))", ip, len(ranges))
 
 	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := TmpDir
@@ -399,7 +399,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
-	Tracef("[zivpn] RUNNING name=%q ranges=%d lb=%s", t.config.Name, len(procs), fmt.Sprintf("127.0.0.1:%d", lbPort))
+	Tracef("[zivpn] RUNNING name=%q ranges=%d", t.config.Name, len(procs))
 
 	go t.monitorProcs()
 

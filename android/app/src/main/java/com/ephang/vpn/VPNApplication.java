@@ -189,7 +189,7 @@ public class VPNApplication extends Application {
     }
 
     public boolean isConfirmDisconnectEnabled() {
-        return prefs.getBoolean("set_confirm_disconnect", true);
+        return prefs.getBoolean("set_confirm_disconnect", false);
     }
 
     public void setConfirmDisconnectEnabled(boolean v) {
@@ -287,7 +287,7 @@ public class VPNApplication extends Application {
                 .putBoolean("set_auto_reconnect", true)
                 .putBoolean("set_launch_on_boot", false)
                 .putBoolean("set_verbose_diag", false)
-                .putBoolean("set_confirm_disconnect", true)
+                .putBoolean("set_confirm_disconnect", false)
                 .putInt("set_reconnect_delay", 5)
                 .putString("set_dns_primary", "8.8.8.8")
                 .putString("set_dns_secondary", "1.1.1.1")
