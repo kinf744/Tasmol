@@ -1071,9 +1071,9 @@ func (c *Controller) GetStatus() string {
 // with every tunnel type (SSH has no UDP support either).
 // All other traffic uses the upstream directly.
 type swapDialer struct {
-	v           atomic.Value // stores t2proxy.Dialer
-	dnsIP       netip.Addr
-	protectDNS  bool
+	v          atomic.Value // stores t2proxy.Dialer
+	dnsIP      netip.Addr
+	protectDNS bool
 }
 
 func newSwapDialer(dnsIP string, protectDNS bool) *swapDialer {
