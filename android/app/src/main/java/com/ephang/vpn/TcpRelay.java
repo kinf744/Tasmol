@@ -108,10 +108,10 @@ public final class TcpRelay {
         } finally {
             try {
                 to.shutdownOutput();
-            } catch (Exception ignored) {
+            } catch (Exception e) {
                 try {
                     to.close();
-                } catch (Exception ignored) {
+                } catch (Exception ignored2) {
                 }
             }
         }
