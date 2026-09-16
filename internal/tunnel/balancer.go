@@ -21,10 +21,11 @@ const RoundRobinOutboundTag = "rr"
 // toward its already-running local helper (native SSH, dnstt+SSH,
 // dnstt+Xray forward, uz_core balancer).
 //
-// NOTE: Xray 26.x wants "strategy" as an OBJECT ({"type": ...}), and only
-// "random" is guaranteed across versions: a plain "roundrobin" string
-// aborts startup with "cannot unmarshal string into ...StrategyConfig".
-// Random spreads connections evenly across members: same scaling.
+// NOTE: Xray 26.x wants "strategy" as an OBJECT with camelCase type:
+// {"type": "roundRobin"} rotates through members in order. A plain
+// "roundrobin" string aborts startup ("cannot unmarshal string into
+// ...StrategyConfig" / "unknown config id"). Verified against
+// XTLS/Xray-core infra/conf/router_strategy.go.
 func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte, error) {
 	if len(profiles) < 2 {
 		return nil, fmt.Errorf("round-robin needs at least 2 profiles, got %d", len(profiles))
@@ -74,7 +75,7 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 				map[string]interface{}{
 					"tag":      RoundRobinOutboundTag,
 					"selector": []string{"lb-"},
-					"strategy": map[string]interface{}{"type": "random"},
+					"strategy": map[string]interface{}{"type": "roundRobin"},
 				},
 			},
 		},
