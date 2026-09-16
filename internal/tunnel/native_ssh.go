@@ -7,9 +7,11 @@ import (
 	"io"
 	"net"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -62,8 +64,17 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		Auth:            auth,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
+		// Pre-auth server banner (MOTD header): surfaced in the journal
+		// like the reference app's SSH_BANNER card.
+		BannerCallback: func(message string) error {
+			if m := cleanServerText(message, 300); m != "" {
+				Journalf("ssh-banner", "%s", m)
+			}
+			return nil
+		},
 	}
 
+	var client *ssh.Client
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
 		Journalf("ssh", "hop via HTTP proxy %s", cfg.SSH.Proxy)
 		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
@@ -78,16 +89,124 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			return nil, err
 		}
 		Journalf("ssh", "handshake OK via proxy")
-		return ssh.NewClient(c, chans, reqs), nil
+		client = ssh.NewClient(c, chans, reqs)
+	} else {
+		Tracef("[ssh] direct dial %s ...", addr)
+		var err error
+		client, err = ssh.Dial("tcp", addr, sshCfg)
+		if err != nil {
+			Errorf("ssh", "direct dial/handshake: %v", err)
+			return nil, err
+		}
+		Journalf("ssh", "handshake OK")
 	}
-	Tracef("[ssh] direct dial %s ...", addr)
-	client, err := ssh.Dial("tcp", addr, sshCfg)
-	if err != nil {
-		Errorf("ssh", "direct dial/handshake: %v", err)
-		return nil, err
+	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
+		Journalf("ssh-banner", "server version: %s", v)
 	}
-	Journalf("ssh", "handshake OK")
+	// Post-auth server message (MOTD): best-effort shell read, silent on
+	// restricted shells. Mirrors the reference SSH_SERVER_MESSAGE card.
+	logServerMessage(client)
 	return client, nil
+}
+
+// ansiRe strips ANSI terminal escapes from server text.
+var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
+
+// cleanServerText makes server-sent text journal-safe: no ANSI, no control
+// bytes, trimmed, capped.
+func cleanServerText(s string, max int) string {
+	s = ansiRe.ReplaceAllString(s, "")
+	var b strings.Builder
+	for _, r := range s {
+		if r == '\n' || r == '\t' || (r >= 32 && r != 127) {
+			b.WriteRune(r)
+		}
+	}
+	s = strings.TrimSpace(b.String())
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
+}
+
+// logServerMessage captures up to a few MOTD lines through a throwaway shell
+// session (3s budget). Any failure is silent: some servers forbid shells.
+// The session is always closed (even on timeout) so server-side session
+// slots never leak across reconnects.
+func logServerMessage(client *ssh.Client) {
+	var sessPtr atomic.Pointer[ssh.Session]
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		sess, err := client.OpenSession()
+		if err != nil {
+			return
+		}
+		sessPtr.Store(sess)
+		defer sess.Close()
+		stdout, err := sess.StdoutPipe()
+		if err != nil {
+			return
+		}
+		if err := sess.Shell(); err != nil {
+			return
+		}
+		buf := make([]byte, 0, 4096)
+		tmp := make([]byte, 512)
+		for len(buf) < 4096 {
+			n, err := stdout.Read(tmp)
+			if n > 0 {
+				buf = append(buf, tmp[:n]...)
+				if promptSeen(buf) {
+					break
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		lines := 0
+		for _, ln := range strings.Split(string(buf), "\n") {
+			if lines >= 8 {
+				break
+			}
+			if m := cleanServerText(ln, 200); m != "" && !isShellPrompt(m) {
+				Journalf("ssh-message", "%s", m)
+				lines++
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		if sess := sessPtr.Load(); sess != nil {
+			_ = sess.Close()
+		}
+		<-done
+	}
+}
+
+// promptSeen stops the MOTD read once a shell prompt line appears.
+func promptSeen(buf []byte) bool {
+	s := string(buf)
+	i := strings.LastIndexByte(s, '\n')
+	if i < 0 {
+		i = 0
+	} else {
+		i++
+	}
+	last := strings.TrimRight(s[i:], " \t\r\n")
+	return strings.HasSuffix(last, "$") || strings.HasSuffix(last, "#") || strings.HasSuffix(last, ">")
+}
+
+// isShellPrompt drops prompt echo lines (user@host, trailing $/#) from the
+// journal; the message body is what matters.
+func isShellPrompt(line string) bool {
+	t := strings.TrimSpace(line)
+	if strings.Contains(t, "@") {
+		return true
+	}
+	return strings.HasSuffix(t, "$") || strings.HasSuffix(t, "#")
 }
 
 // renderPayload expands a payload template like HTTP Injector / HTTP
