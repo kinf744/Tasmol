@@ -41,6 +41,12 @@ public class TasVpnService extends VpnService {
     // The Home tab shows a red CONNECTING status while this is set.
     private static volatile boolean starting = false;
     private static volatile int startGen = -1;
+    // Connection attempts: CONNECTING stays on across retries until the
+    // session is up or the user disconnects (disconnect supersedes via
+    // sessionGen, nuclear kill ends the process outright).
+    private static final int MAX_START_ATTEMPTS = 10;
+    private static final long RETRY_DELAY_MS = 3000;
+    private static volatile int startAttempt = 0;
 
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
     private static final int MAX_LOG_LINES = 200;
@@ -101,6 +107,14 @@ public class TasVpnService extends VpnService {
         return starting;
     }
 
+    public static int getStartAttempt() {
+        return startAttempt;
+    }
+
+    public static int getMaxStartAttempts() {
+        return MAX_START_ATTEMPTS;
+    }
+
     private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
             new java.util.concurrent.atomic.AtomicInteger(0);
 
@@ -141,98 +155,129 @@ public class TasVpnService extends VpnService {
         final int gen = sessionGen.incrementAndGet();
         starting = true;
         startGen = gen;
+        startAttempt = 0;
         new Thread(() -> startSessionBackground(gen, requestedId), "ephang-connect").start();
     }
 
     private void startSessionBackground(int gen, String tunnelId) {
-        Object ctrl = null;
+        Exception lastFailure = null;
+        int attempt = 0;
         try {
-            // Ensure bundled official binaries + config are staged.
-            BinaryManager.ensureReady(this);
-
-            if (tunnelId == null || tunnelId.isEmpty()) {
-                tunnelId = VPNApplication.getInstance().getActiveTunnelId();
-            }
-            if (tunnelId == null || tunnelId.isEmpty()) {
-                tunnelId = BinaryManager.firstTunnelId(this);
-            }
-            if (tunnelId == null || tunnelId.isEmpty()) {
-                throw new IllegalStateException("no tunnel configured: add one in the app first");
-            }
-            if (isSuperseded(gen)) {
-                return;
-            }
-
-            Builder builder = new Builder()
-                    .setSession("Ephang VPN")
-                    .setMtu(1500)
-                    .addAddress("10.8.0.2", 32)
-                    .addRoute("0.0.0.0", 0)
-                    .addDnsServer("8.8.8.8")
-                    // Exclude our own UID so upstream sockets (xray, zivpn,
-                    // dnstt, ssh, SOCKS dials) never loop into the TUN.
-                    .addDisallowedApplication(getPackageName());
-
-            tunFd = builder.establish();
-            if (tunFd == null) {
-                throw new IllegalStateException("VpnService.Builder.establish() returned null");
-            }
-            int fd = tunFd.detachFd();
-
-            String params = BinaryManager.buildStartParams(this, tunnelId, fd);
-            Log.i(TAG, "starting data plane, active=" + tunnelId);
-
-            ctrl = Vpnlib.newController();
-            String err = invokeStart(ctrl, params);
-            if (err != null && !err.isEmpty()) {
+            while (attempt < MAX_START_ATTEMPTS && !isSuperseded(gen)) {
+                attempt++;
+                startAttempt = attempt;
+                notifyText("Connecting... (attempt " + attempt + "/" + MAX_START_ATTEMPTS + ")");
+                Object ctrl = null;
                 try {
-                    tunFd.close();
-                } catch (Exception ignored) {
+                    // Ensure bundled official binaries + config are staged.
+                    BinaryManager.ensureReady(this);
+
+                    String tid = tunnelId;
+                    if (tid == null || tid.isEmpty()) {
+                        tid = VPNApplication.getInstance().getActiveTunnelId();
+                    }
+                    if (tid == null || tid.isEmpty()) {
+                        tid = BinaryManager.firstTunnelId(this);
+                    }
+                    if (tid == null || tid.isEmpty()) {
+                        throw new IllegalStateException("no tunnel configured: add one in the app first");
+                    }
+                    if (isSuperseded(gen)) {
+                        return;
+                    }
+
+                    Builder builder = new Builder()
+                            .setSession("Ephang VPN")
+                            .setMtu(1500)
+                            .addAddress("10.8.0.2", 32)
+                            .addRoute("0.0.0.0", 0)
+                            .addDnsServer("8.8.8.8")
+                            // Exclude our own UID so upstream sockets (xray, zivpn,
+                            // dnstt, ssh, SOCKS dials) never loop into the TUN.
+                            .addDisallowedApplication(getPackageName());
+
+                    tunFd = builder.establish();
+                    if (tunFd == null) {
+                        throw new IllegalStateException("VpnService.Builder.establish() returned null");
+                    }
+                    int fd = tunFd.detachFd();
+
+                    String params = BinaryManager.buildStartParams(this, tid, fd);
+                    Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
+
+                    ctrl = Vpnlib.newController();
+                    String err = invokeStart(ctrl, params);
+                    if (err != null && !err.isEmpty()) {
+                        closeTunQuietly();
+                        throw new IllegalStateException("data plane: " + err);
+                    }
+
+                    if (isSuperseded(gen)) {
+                        // A disconnect (or newer connect) arrived while starting:
+                        // tear down instead of publishing a zombie session.
+                        try {
+                            invokeStop(ctrl);
+                        } catch (Exception ignored) {
+                        }
+                        ctrl = null;
+                        closeTunQuietly();
+                        return;
+                    }
+
+                    controller = ctrl;
+                    ctrl = null;
+                    activeTunnelId = tid;
+                    VPNApplication.getInstance().setActiveTunnelId(tid);
+
+                    notifyText("Connected");
+                    Log.i(TAG, "VPN session running");
+                    logEvent("connection", "app", "connected (" + tid + ")");
+                    return;
+                } catch (Exception e) {
+                    lastFailure = e;
+                    Log.e(TAG, "startSession attempt " + attempt + " failed", e);
+                    if (ctrl != null) {
+                        // Never leak an unpublished controller across attempts.
+                        try {
+                            invokeStop(ctrl);
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    closeTunQuietly();
+                    if (isSuperseded(gen)) {
+                        return;
+                    }
+                    if (attempt < MAX_START_ATTEMPTS) {
+                        logEvent("warning", "app", "connect attempt " + attempt + "/"
+                                + MAX_START_ATTEMPTS + " failed: " + e.getMessage() + " - retrying");
+                        try {
+                            Thread.sleep(RETRY_DELAY_MS);
+                        } catch (InterruptedException ie) {
+                            return;
+                        }
+                    }
                 }
-                tunFd = null;
-                throw new IllegalStateException("data plane: " + err);
             }
-
-            if (isSuperseded(gen)) {
-                // A disconnect (or newer connect) arrived while starting:
-                // tear down instead of publishing a zombie session.
-                try {
-                    invokeStop(ctrl);
-                } catch (Exception ignored) {
-                }
-                try {
-                    tunFd.close();
-                } catch (Exception ignored) {
-                }
-                tunFd = null;
-                return;
-            }
-
-            controller = ctrl;
-            ctrl = null;
-            activeTunnelId = tunnelId;
-            VPNApplication.getInstance().setActiveTunnelId(tunnelId);
-
-            notifyText("Connected");
-            Log.i(TAG, "VPN session running");
-            logEvent("connection", "app", "connected (" + tunnelId + ")");
-        } catch (Exception e) {
-            Log.e(TAG, "startSession failed", e);
-            if (!isSuperseded(gen)) {
-                lastError = e.getMessage();
-                logEvent("error", "app", "connect failed: " + e.getMessage());
+            if (!isSuperseded(gen) && lastFailure != null) {
+                lastError = lastFailure.getMessage();
+                logEvent("error", "app", "connect failed after " + attempt
+                        + " attempts: " + lastFailure.getMessage());
                 stopForeground(true);
                 stopSelf();
             }
         } finally {
-            if (ctrl != null) {
-                // Never leak an unpublished controller.
-                try {
-                    invokeStop(ctrl);
-                } catch (Exception ignored) {
-                }
-            }
             clearStarting(gen);
+        }
+    }
+
+    private void closeTunQuietly() {
+        try {
+            if (tunFd != null) {
+                tunFd.close();
+            }
+        } catch (Exception ignored) {
+        } finally {
+            tunFd = null;
         }
     }
 

@@ -114,10 +114,11 @@ public class MainActivity extends AppCompatActivity {
     // --- VPN connect flow (shared by Home tab and dialogs) ---
 
     public void toggleVpn() {
-        if (TasVpnService.isRunning()) {
+        // Disconnect is always available: while CONNECTING it supersedes
+        // the retry loop (plus nuclear long-press), while connected it
+        // stops the session.
+        if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
             disconnectVpn();
-        } else if (TasVpnService.isStarting()) {
-            showToast("Connecting, please wait...");
         } else {
             pickTunnelAndConnect();
         }

@@ -96,10 +96,15 @@ public class HomeFragment extends Fragment {
         int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
         boolean running = TasVpnService.isRunning();
         if (!running) {
-            // Launching / (re)connecting: stay on CONNECTING in red.
+            // Launching / (re)connecting: stay on CONNECTING in red,
+            // with the attempt counter across the retry loop.
             if (TasVpnService.isStarting()) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
-                statusText.setText("[ CONNECTING ]");
+                int attempt = TasVpnService.getStartAttempt();
+                int max = TasVpnService.getMaxStartAttempts();
+                statusText.setText(attempt > 0
+                        ? "[ CONNECTING " + attempt + "/" + max + " ]"
+                        : "[ CONNECTING ]");
                 statusText.setTextColor(red);
                 uptimeText.setText("--:--:--");
                 downText.setText("0 B");
