@@ -66,7 +66,7 @@
             android:layout_height="wrap_content"
             android:background="@android:color/transparent"
             android:text="PING"
-            android:textColor="@color/npv_cyan"
+            android:textColor="@color/npv_green"
             android:textSize="16sp"
             android:textStyle="bold"
             android:typeface="monospace" />

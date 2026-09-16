@@ -102,7 +102,7 @@ public class HomeFragment extends Fragment {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
                 int attempt = TasVpnService.getStartAttempt();
                 int max = TasVpnService.getMaxStartAttempts();
-                statusText.setText(attempt > 0
+                statusText.setText(max > 1 && attempt > 0
                         ? "[ CONNECTING " + attempt + "/" + max + " ]"
                         : "[ CONNECTING ]");
                 statusText.setTextColor(red);

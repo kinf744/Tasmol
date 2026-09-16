@@ -74,6 +74,10 @@ type startParams struct {
 	// devices often send DNS to link-local/carrier resolvers (e.g.
 	// 169.254.1.2) which are unreachable through the tunnel.
 	DNSIP string `json:"dns_ip"`
+	// DNSProtect enables the port-53 interception. Nil (absent) defaults
+	// to true; explicit false passes DNS through the upstream untouched
+	// ("Protection DNS" off in Settings).
+	DNSProtect *bool `json:"dns_protect"`
 	// RoundRobin is the comma-separated id list of the profiles sharing
 	// the session through Xray's built-in roundrobin balancer. Empty (or a
 	// single id) means single-profile mode: no balancer is initialized.
@@ -121,6 +125,7 @@ type Controller struct {
 	activeID   string
 	autoFollow bool
 	dnsIP      string
+	dnsProtect bool
 	startTime  time.Time
 	logFile    *os.File
 	rrLastTry  map[string]time.Time
@@ -253,6 +258,7 @@ func (c *Controller) Start(paramsJSON string) string {
 	if strings.TrimSpace(c.dnsIP) == "" {
 		c.dnsIP = "8.8.8.8"
 	}
+	c.dnsProtect = p.DNSProtect == nil || *p.DNSProtect
 	c.activeID = p.ActiveTunnel
 
 	if c.activeID == "" {
@@ -611,7 +617,7 @@ func (c *Controller) startDataplaneLocked() error {
 		return fmt.Errorf("socks dialer: %w", err)
 	}
 
-	d := newSwapDialer(c.dnsIP)
+	d := newSwapDialer(c.dnsIP, c.dnsProtect)
 	d.set(upstream)
 
 	tun := t2tunnel.New(d, t2stat.DefaultManager)
@@ -1065,12 +1071,13 @@ func (c *Controller) GetStatus() string {
 // with every tunnel type (SSH has no UDP support either).
 // All other traffic uses the upstream directly.
 type swapDialer struct {
-	v     atomic.Value // stores t2proxy.Dialer
-	dnsIP netip.Addr
+	v           atomic.Value // stores t2proxy.Dialer
+	dnsIP       netip.Addr
+	protectDNS  bool
 }
 
-func newSwapDialer(dnsIP string) *swapDialer {
-	d := &swapDialer{}
+func newSwapDialer(dnsIP string, protectDNS bool) *swapDialer {
+	d := &swapDialer{protectDNS: protectDNS}
 	if ip, err := netip.ParseAddr(strings.TrimSpace(dnsIP)); err == nil {
 		d.dnsIP = ip
 	} else {
@@ -1104,7 +1111,7 @@ func (d *swapDialer) DialUDP(m *t2meta.Metadata) (net.PacketConn, error) {
 	if u == nil {
 		return nil, fmt.Errorf("no upstream proxy selected")
 	}
-	if m.DstPort == 53 && m.DstIP.IsValid() {
+	if m.DstPort == 53 && m.DstIP.IsValid() && d.protectDNS {
 		tunnel.Tracef("[dns] hijack %s -> %s (forced resolver)", m.DstIP, d.dnsIP)
 		return newDNSOverTCPConn(u, m.DstIP, d.dnsIP), nil
 	}

@@ -1,0 +1,490 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/npv_bg"
+    android:fillViewport="true"
+    android:padding="20dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RÉGLAGES"
+            android:textColor="@color/npv_green"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:typeface="monospace" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="APPAREIL"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/card_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Android ID"
+                    android:textColor="@color/npv_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:id="@+id/settings_android_id"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="—"
+                    android:textColor="@color/npv_text"
+                    android:textSize="12sp"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:id="@+id/settings_root"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Intégrité : —"
+                    android:textColor="@color/npv_grey"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/settings_copy_id"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Copier" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="SÉCURITÉ RÉSEAU"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Protection DNS"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Forcer le DNS via le tunnel (anti-fuite)"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_dns" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Arrêter sur perte réseau"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Couper le VPN si le réseau disparaît"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_stop_loss" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="RECONNEXION"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Reconnexion automatique"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="10 tentatives, sinon 1 seul essai"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_reconnect" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Démarrer au lancement"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Proposer la dernière session à l'ouverture"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_boot" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Délai entre essais (s)"
+                    android:textColor="@color/npv_text"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/settings_delay_minus"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:text="−" />
+
+                <TextView
+                    android:id="@+id/settings_delay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_marginEnd="8dp"
+                    android:text="5"
+                    android:textColor="@color/npv_green"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/settings_delay_plus"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:text="+" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="INTERFACE"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Diagnostic détaillé"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Onglet Logs en mode Verbose par défaut"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_verbose" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Confirmer la déconnexion"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Demander avant d'arrêter une session"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_confirm" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Dark mode"
+                        android:textColor="@color/npv_text"
+                        android:textSize="14sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <Switch android:id="@+id/settings_dark" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/settings_port"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="Port de gestion"
+                    android:inputType="number"
+                    android:textColor="@color/npv_text"
+                    android:textColorHint="@color/npv_dim"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/settings_save_port"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="OK" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="CONFIGURATION"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/settings_import"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:layout_weight="1"
+                android:text="Importer" />
+
+            <Button
+                android:id="@+id/settings_export"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="Exporter" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/settings_reset"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Réinitialiser les réglages" />
+
+        <Button
+            android:id="@+id/settings_reset_config"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Supprimer tous les serveurs" />
+
+        <TextView
+            android:id="@+id/settings_version"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="18dp"
+            android:text="Ephang VPN 1.0.0"
+            android:textColor="@color/npv_grey"
+            android:textSize="11sp"
+            android:typeface="monospace" />
+    </LinearLayout>
+</ScrollView>

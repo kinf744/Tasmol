@@ -112,7 +112,19 @@ public class TasVpnService extends VpnService {
     }
 
     public static int getMaxStartAttempts() {
+        VPNApplication app = VPNApplication.getInstance();
+        if (app != null && !app.isAutoReconnectEnabled()) {
+            return 1;
+        }
         return MAX_START_ATTEMPTS;
+    }
+
+    private static long retryDelayMs() {
+        VPNApplication app = VPNApplication.getInstance();
+        if (app == null) {
+            return RETRY_DELAY_MS;
+        }
+        return app.getReconnectDelaySeconds() * 1000L;
     }
 
     private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
@@ -162,11 +174,15 @@ public class TasVpnService extends VpnService {
     private void startSessionBackground(int gen, String tunnelId) {
         Exception lastFailure = null;
         int attempt = 0;
+        final int maxAttempts = getMaxStartAttempts();
+        final long retryDelay = retryDelayMs();
         try {
-            while (attempt < MAX_START_ATTEMPTS && !isSuperseded(gen)) {
+            while (attempt < maxAttempts && !isSuperseded(gen)) {
                 attempt++;
                 startAttempt = attempt;
-                notifyText("Connecting... (attempt " + attempt + "/" + MAX_START_ATTEMPTS + ")");
+                notifyText(maxAttempts > 1
+                        ? "Connecting... (attempt " + attempt + "/" + maxAttempts + ")"
+                        : "Connecting...");
                 Object ctrl = null;
                 try {
                     // Ensure bundled official binaries + config are staged.
@@ -247,11 +263,11 @@ public class TasVpnService extends VpnService {
                     if (isSuperseded(gen)) {
                         return;
                     }
-                    if (attempt < MAX_START_ATTEMPTS) {
+                    if (attempt < maxAttempts) {
                         logEvent("warning", "app", "connect attempt " + attempt + "/"
-                                + MAX_START_ATTEMPTS + " failed: " + e.getMessage() + " - retrying");
+                                + maxAttempts + " failed: " + e.getMessage() + " - retrying");
                         try {
-                            Thread.sleep(RETRY_DELAY_MS);
+                            Thread.sleep(retryDelay);
                         } catch (InterruptedException ie) {
                             return;
                         }

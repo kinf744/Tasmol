@@ -208,6 +208,7 @@ public class BinaryManager {
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
         // is unreachable through the tunnel).
         p.put("dns_ip", "8.8.8.8");
+        p.put("dns_protect", VPNApplication.getInstance().isDnsProtectionEnabled());
         return p.toString();
     }
 

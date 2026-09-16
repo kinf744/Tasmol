@@ -146,6 +146,89 @@ public class VPNApplication extends Application {
         prefs.edit().putBoolean("auto_start", enabled).apply();
     }
 
+    // --- App settings (Settings menu, Picko-style, adapted) ---
+
+    public boolean isDnsProtectionEnabled() {
+        return prefs.getBoolean("set_dns_protection", true);
+    }
+
+    public void setDnsProtectionEnabled(boolean v) {
+        prefs.edit().putBoolean("set_dns_protection", v).apply();
+    }
+
+    public boolean isStopOnNetworkLossEnabled() {
+        return prefs.getBoolean("set_stop_on_loss", true);
+    }
+
+    public void setStopOnNetworkLossEnabled(boolean v) {
+        prefs.edit().putBoolean("set_stop_on_loss", v).apply();
+    }
+
+    public boolean isAutoReconnectEnabled() {
+        return prefs.getBoolean("set_auto_reconnect", true);
+    }
+
+    public void setAutoReconnectEnabled(boolean v) {
+        prefs.edit().putBoolean("set_auto_reconnect", v).apply();
+    }
+
+    public boolean isLaunchOnBootEnabled() {
+        return prefs.getBoolean("set_launch_on_boot", false);
+    }
+
+    public void setLaunchOnBootEnabled(boolean v) {
+        prefs.edit().putBoolean("set_launch_on_boot", v).apply();
+    }
+
+    public boolean isVerboseDiagnosticsEnabled() {
+        return prefs.getBoolean("set_verbose_diag", false);
+    }
+
+    public void setVerboseDiagnosticsEnabled(boolean v) {
+        prefs.edit().putBoolean("set_verbose_diag", v).apply();
+    }
+
+    public boolean isConfirmDisconnectEnabled() {
+        return prefs.getBoolean("set_confirm_disconnect", true);
+    }
+
+    public void setConfirmDisconnectEnabled(boolean v) {
+        prefs.edit().putBoolean("set_confirm_disconnect", v).apply();
+    }
+
+    public int getReconnectDelaySeconds() {
+        int v = prefs.getInt("set_reconnect_delay", 5);
+        if (v < 1) {
+            v = 1;
+        }
+        if (v > 30) {
+            v = 30;
+        }
+        return v;
+    }
+
+    public void setReconnectDelaySeconds(int v) {
+        if (v < 1) {
+            v = 1;
+        }
+        if (v > 30) {
+            v = 30;
+        }
+        prefs.edit().putInt("set_reconnect_delay", v).apply();
+    }
+
+    public void resetSettings() {
+        prefs.edit()
+                .putBoolean("set_dns_protection", true)
+                .putBoolean("set_stop_on_loss", true)
+                .putBoolean("set_auto_reconnect", true)
+                .putBoolean("set_launch_on_boot", false)
+                .putBoolean("set_verbose_diag", false)
+                .putBoolean("set_confirm_disconnect", true)
+                .putInt("set_reconnect_delay", 5)
+                .apply();
+    }
+
     public boolean isDarkModeEnabled() {
         return prefs.getBoolean("dark_mode", true);
     }

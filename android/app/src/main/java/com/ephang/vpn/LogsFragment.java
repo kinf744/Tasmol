@@ -62,6 +62,8 @@ public class LogsFragment extends Fragment {
         });
         v.findViewById(R.id.logs_share).setOnClickListener(view -> shareJournal());
         modeBtn = v.findViewById(R.id.logs_mode);
+        verbose = VPNApplication.getInstance().isVerboseDiagnosticsEnabled();
+        modeBtn.setText(verbose ? "Verbose" : "Journal");
         modeBtn.setOnClickListener(view -> {
             verbose = !verbose;
             modeBtn.setText(verbose ? "Verbose" : "Journal");
@@ -124,7 +126,7 @@ public class LogsFragment extends Fragment {
         int text = ContextCompat.getColor(requireContext(), R.color.npv_text);
         int red = ContextCompat.getColor(requireContext(), R.color.npv_red);
         int yellow = ContextCompat.getColor(requireContext(), R.color.npv_yellow);
-        int cyan = ContextCompat.getColor(requireContext(), R.color.npv_cyan);
+        int cyan = ContextCompat.getColor(requireContext(), R.color.npv_green);
         java.util.ArrayList<String[]> rows = new java.util.ArrayList<>();
         for (String line : raw.split("\n")) {
             line = line.trim();

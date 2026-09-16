@@ -178,7 +178,7 @@
                 android:layout_marginTop="10dp"
                 android:background="@android:color/transparent"
                 android:text="PING"
-                android:textColor="@color/npv_cyan"
+                android:textColor="@color/npv_green"
                 android:textSize="14sp"
                 android:textStyle="bold"
                 android:typeface="monospace" />

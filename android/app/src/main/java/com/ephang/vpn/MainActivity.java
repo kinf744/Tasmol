@@ -16,6 +16,8 @@ import androidx.fragment.app.Fragment;
 
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
+import java.util.Map;
+
 /**
  * Ephang VPN - modern native home (no browser/WebView dependency, fully
  * offline-capable). Bottom tabs: Home / Servers / Tools / Settings.
@@ -71,7 +73,105 @@ public class MainActivity extends AppCompatActivity {
 
         if (savedInstanceState == null) {
             showTab(new HomeFragment(), "home");
+            offerLaunchReconnect();
         }
+        registerNetworkWatch();
+    }
+
+    /** Public fragment swap for sub-screens (Settings / Hotspot under More). */
+    public void showFragment(Fragment fragment, String tag) {
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.fragment_container, fragment, tag)
+                .commit();
+    }
+
+    /** "Démarrer au lancement": offer one-tap reconnect of the last tunnel. */
+    private void offerLaunchReconnect() {
+        if (!app.isLaunchOnBootEnabled()) {
+            return;
+        }
+        if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+            return;
+        }
+        String id = app.getActiveTunnelId();
+        if (id == null || id.isEmpty()) {
+            java.util.LinkedHashSet<String> sel = app.getSelectedIds();
+            if (!sel.isEmpty()) {
+                id = sel.iterator().next();
+            }
+        }
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        String name = id;
+        try {
+            for (Map<String, String> t : BinaryManager.listTunnels(this)) {
+                if (id.equals(t.get("id"))) {
+                    String n = t.get("name");
+                    if (n != null && !n.isEmpty()) {
+                        name = n;
+                    }
+                    break;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        final String target = id;
+        new AlertDialog.Builder(this)
+                .setTitle("Reconnect last session?")
+                .setMessage("Connect \"" + name + "\" now?")
+                .setPositiveButton("Connect", (d, w) -> requestVpnPermission(target))
+                .setNegativeButton("Later", null)
+                .show();
+    }
+
+    private android.net.ConnectivityManager.NetworkCallback networkWatch = null;
+
+    /** "Arrêter sur perte réseau": disconnect cleanly when uplink drops. */
+    private void registerNetworkWatch() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
+            return;
+        }
+        try {
+            android.net.ConnectivityManager cm =
+                    (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            if (cm == null) {
+                return;
+            }
+            networkWatch = new android.net.ConnectivityManager.NetworkCallback() {
+                @Override
+                public void onLost(android.net.Network network) {
+                    if (!app.isStopOnNetworkLossEnabled()) {
+                        return;
+                    }
+                    if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+                        runOnUiThread(() -> {
+                            showToast("Network lost - disconnecting");
+                            disconnectVpn();
+                        });
+                    }
+                }
+            };
+            cm.registerDefaultNetworkCallback(networkWatch);
+        } catch (Exception ignored) {
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        try {
+            if (networkWatch != null
+                    && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                android.net.ConnectivityManager cm =
+                        (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+                if (cm != null) {
+                    cm.unregisterNetworkCallback(networkWatch);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        super.onDestroy();
     }
 
     private void showTab(Fragment fragment, String tag) {
@@ -118,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
         // the retry loop (plus nuclear long-press), while connected it
         // stops the session.
         if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
-            disconnectVpn();
+            requestDisconnect();
         } else {
             pickTunnelAndConnect();
         }
@@ -147,6 +247,21 @@ public class MainActivity extends AppCompatActivity {
             }
         }, 8000);
         handler.postDelayed(this::checkDisconnectStuck, 18000);
+    }
+
+    /** Power-button path: confirm first when the setting requires it. */
+    public void requestDisconnect() {
+        if ((TasVpnService.isRunning() || TasVpnService.isStarting())
+                && app.isConfirmDisconnectEnabled()) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Disconnect VPN?")
+                    .setMessage("Stop the active session?")
+                    .setPositiveButton("Disconnect", (d, w) -> disconnectVpn())
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+        disconnectVpn();
     }
 
     private boolean stuckDialogShowing = false;
