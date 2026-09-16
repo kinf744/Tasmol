@@ -172,6 +172,7 @@ func sanitizeLogLine(line string) string {
 	line = logUUIDRe.ReplaceAllString(line, "[UUID]")
 	line = logLinkRe.ReplaceAllString(line, "[tunnel link]")
 	line = logPassEqRe.ReplaceAllString(line, `$1"••••••"`)
+	line = logPubkeyRe.ReplaceAllString(line, `$1••••••`)
 	return line
 }
 
@@ -180,6 +181,7 @@ var (
 	logUUIDRe   = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b`)
 	logLinkRe   = regexp.MustCompile(`(?i)\b(?:vmess|vless|trojan|ss)://[^\s"'<>]+`)
 	logPassEqRe = regexp.MustCompile(`(?i)\b(password|passwd)\s*=\s*"[^"]*"`)
+	logPubkeyRe = regexp.MustCompile(`(-pubkey\s+)[0-9a-fA-F]{8,}`)
 )
 
 // Start boots the management core, the helpers of the active tunnel and the

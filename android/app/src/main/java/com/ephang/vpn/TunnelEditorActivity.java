@@ -505,6 +505,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     resolver = "8.8.8.8:53";
                     edResolver.setText(resolver);
                 }
+                // Strict host:port shape: a mistyped resolver (ex:
+                // "8.8.8.8:53tomp") kills dnstt with a cryptic error.
+                int rport = -1;
+                try {
+                    String rp = resolver.substring(resolver.lastIndexOf(':') + 1);
+                    if (resolver.lastIndexOf(':') <= 0 || !rp.matches("\\d{1,5}")) {
+                        throw new NumberFormatException();
+                    }
+                    rport = Integer.parseInt(rp);
+                } catch (Exception ignored) {
+                }
+                if (rport < 1 || rport > 65535) {
+                    toast("DNS resolver must be ip:port (ex: 8.8.8.8:53)");
+                    return;
+                }
                 if (type.equals("ssh_slowdns")) {
                     server.put("public_key", pubkey);
                 }

@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -85,6 +87,19 @@ func cleanDnsttKey(key string) string {
 	return key
 }
 
+// checkResolver rejects malformed resolvers (e.g. "8.8.8.8:53tomp" from a
+// mistyped field) with a clear error instead of a 20s forward timeout.
+func checkResolver(resolver string) error {
+	h, p, err := net.SplitHostPort(strings.TrimSpace(resolver))
+	if err != nil || h == "" {
+		return fmt.Errorf("invalid dns resolver %q (want host:port like 8.8.8.8:53)", resolver)
+	}
+	port, err := strconv.Atoi(p)
+	if err != nil || port < 1 || port > 65535 {
+		return fmt.Errorf("invalid dns resolver %q (want host:port like 8.8.8.8:53)", resolver)
+	}
+	return nil
+}
 // DnsttArgs builds the official dnstt-client command line.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	return []string{
@@ -109,12 +124,16 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 		Errorf("slowdns", "public key empty")
 		return nil, fmt.Errorf("slowdns server public key is required (server.public_key)")
 	}
+	if err := checkResolver(DnsttResolver(cfg)); err != nil {
+		Errorf("slowdns", "%v", err)
+		return nil, err
+	}
 
 	Tracef("[slowdns] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinSlowDNS)
 	args := DnsttArgs(cfg, fwdPort)
-	Tracef("[slowdns] binary=%q args=-udp %s -pubkey %.12s... %s 127.0.0.1:%d",
-		bin, DnsttResolver(cfg), DnsttPubKey(cfg), DnsttDomain(cfg), fwdPort)
+	Tracef("[slowdns] binary=%q args=-udp %s -pubkeyLen=%d %s 127.0.0.1:%d",
+		bin, DnsttResolver(cfg), len(cleanDnsttKey(DnsttPubKey(cfg))), DnsttDomain(cfg), fwdPort)
 	cmd := exec.CommandContext(ctx, bin, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
