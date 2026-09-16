@@ -16,13 +16,15 @@ const DefaultFrontPort = 10900
 const RoundRobinOutboundTag = "rr"
 
 // BuildBalancerFront builds a front Xray config routing all TCP+UDP through
-// Xray's built-in round-robin balancer ("strategy": "roundrobin") over one
-// outbound per profile. xray-native profiles get VLESS outbounds, every
-// other type gets a SOCKS outbound toward its already-running local helper
-// (native SSH, dnstt+SSH, dnstt+Xray forward, uz_core balancer).
+// Xray's built-in balancer over one outbound per profile. xray-native
+// profiles get VLESS outbounds, every other type gets a SOCKS outbound
+// toward its already-running local helper (native SSH, dnstt+SSH,
+// dnstt+Xray forward, uz_core balancer).
 //
-// profiles must contain at least 2 configs; single-profile sessions must
-// NOT use a balancer (direct upstream instead).
+// NOTE: Xray 26.x wants "strategy" as an OBJECT ({"type": ...}), and only
+// "random" is guaranteed across versions: a plain "roundrobin" string
+// aborts startup with "cannot unmarshal string into ...StrategyConfig".
+// Random spreads connections evenly across members: same scaling.
 func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte, error) {
 	if len(profiles) < 2 {
 		return nil, fmt.Errorf("round-robin needs at least 2 profiles, got %d", len(profiles))
@@ -72,7 +74,7 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 				map[string]interface{}{
 					"tag":      RoundRobinOutboundTag,
 					"selector": []string{"lb-"},
-					"strategy": "roundrobin",
+					"strategy": map[string]interface{}{"type": "random"},
 				},
 			},
 		},
