@@ -212,11 +212,85 @@ public class BinaryManager {
     }
 
     /** Public Download directory (where kighmu.txt is written). */
-    public static String downloadDir() {
+    public static File downloadDir() {
         File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
         if (d == null) {
             return "";
         }
+        return d.getAbsolutePath();
+    }
+
+    /** Append one line to Download/kighmu.txt (unified connection journal).
+     *  Best-effort: never throws, never blocks the caller long. */
+    public static synchronized void appendKighmu(String line) {
+        try {
+            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (d == null) {
+                return;
+            }
+            if (!d.exists() && !d.mkdirs()) {
+                return;
+            }
+            java.text.SimpleDateFormat fmt =
+                    new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US);
+            String row = fmt.format(new java.util.Date()) + "  " + line + "\n";
+            try (java.io.FileOutputStream out =
+                         new java.io.FileOutputStream(new File(d, "kighmu.txt"), true)) {
+                out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Read the tail of Download/kighmu.txt ("" when missing/unreadable). */
+    public static String readKighmuTail(int maxChars) {
+        try {
+            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (d == null) {
+                return "";
+            }
+            File f = new File(d, "kighmu.txt");
+            if (!f.exists()) {
+                return "";
+            }
+            long len = f.length();
+            long skip = Math.max(0, len - maxChars);
+            try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r")) {
+                raf.seek(skip);
+                byte[] buf = new byte[(int) (len - skip)];
+                int n = raf.read(buf);
+                if (n <= 0) {
+                    return "";
+                }
+                String text = new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8);
+                // Drop the first (possibly partial) line when we skipped.
+                if (skip > 0) {
+                    int nl = text.indexOf('\n');
+                    if (nl >= 0) {
+                        text = text.substring(nl + 1);
+                    }
+                }
+                return text;
+            }
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    /** Truncate Download/kighmu.txt. */
+    public static void clearKighmu() {
+        try {
+            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (d == null) {
+                return;
+            }
+            File f = new File(d, "kighmu.txt");
+            if (f.exists()) {
+                new java.io.FileOutputStream(f, false).close();
+            }
+        } catch (Exception ignored) {
+        }
+    }
         return d.getAbsolutePath();
     }
 

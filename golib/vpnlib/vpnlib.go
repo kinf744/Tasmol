@@ -142,14 +142,15 @@ func errJSON(err error) string {
 }
 
 // makeFileLogger returns a tunnel.LogFunc writing timestamped lines to
-// <logDir>/kighmu.txt (created/truncated on each Start). Returns nil if
-// logDir is empty or unwritable, so logging is always safe.
+// <logDir>/kighmu.txt (appended per session, never truncated, so the Logs
+// tab keeps the history across reconnects). Returns nil if logDir is empty
+// or unwritable, so logging is always safe.
 func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) {
 	if logDir == "" {
 		return nil
 	}
 	path := filepath.Join(logDir, "kighmu.txt")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return nil
 	}

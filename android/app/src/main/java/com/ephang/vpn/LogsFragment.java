@@ -1,20 +1,40 @@
 package com.ephang.vpn;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
-/** LOGS tab (NPV Tunnel style): timestamped event rows, clear button. */
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * LOGS tab: unified connection journal (Download/kighmu.txt, written by the
+ * Go data plane and mirrored Java events). Lines carry [level] [component]:
+ * error red, warning amber, connection cyan tag, info grey tag.
+ */
 public class LogsFragment extends Fragment {
+    private static final int TAIL_CHARS = 120_000;
+    private static final Pattern LINE_RE =
+            Pattern.compile("^(\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)\\s+(.*)$", Pattern.DOTALL);
+    private static final Pattern TAGGED_RE =
+            Pattern.compile("^\\[(info|connection|warning|error)\\] \\[([^\\]]*)\\] ?(.*)$",
+                    Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+
     private TextView logText;
     private ScrollView scroller;
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -35,8 +55,10 @@ public class LogsFragment extends Fragment {
         scroller = v.findViewById(R.id.logs_scroll);
         v.findViewById(R.id.logs_clear).setOnClickListener(view -> {
             TasVpnService.clearLog();
+            BinaryManager.clearKighmu();
             refresh();
         });
+        v.findViewById(R.id.logs_share).setOnClickListener(view -> shareJournal());
         refresh();
         return v;
     }
@@ -54,33 +76,102 @@ public class LogsFragment extends Fragment {
     }
 
     private void refresh() {
-        if (logText == null) {
+        if (logText == null || getContext() == null) {
             return;
         }
-        logText.setText(formatLog(TasVpnService.getLog()));
+        String raw = BinaryManager.readKighmuTail(TAIL_CHARS);
+        if (raw == null || raw.trim().isEmpty()) {
+            logText.setText("No events yet.\nConnect to start the journal.");
+            return;
+        }
+        logText.setText(renderJournal(raw));
         if (scroller != null) {
             scroller.post(() -> scroller.fullScroll(View.FOCUS_DOWN));
         }
     }
 
-    /** Render "HH:mm:ss  message" lines as "HH:mm:ss  > message" rows. */
-    private static String formatLog(String raw) {
-        if (raw == null || raw.trim().isEmpty() || raw.equals("No events yet.")) {
-            return "No events yet.";
+    private void shareJournal() {
+        try {
+            String raw = BinaryManager.readKighmuTail(300_000);
+            if (raw == null || raw.trim().isEmpty()) {
+                Toast.makeText(getContext(), "Nothing to share yet", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, raw);
+            i.putExtra(Intent.EXTRA_SUBJECT, "kighmu.txt");
+            startActivity(Intent.createChooser(i, "Share journal via"));
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Share failed", Toast.LENGTH_SHORT).show();
         }
-        StringBuilder sb = new StringBuilder();
+    }
+
+    /** Parse "[time] [level] [component] message" rows into colored spans. */
+    private CharSequence renderJournal(String raw) {
+        int grey = ContextCompat.getColor(requireContext(), R.color.npv_grey);
+        int dim = ContextCompat.getColor(requireContext(), R.color.npv_dim);
+        int text = ContextCompat.getColor(requireContext(), R.color.npv_text);
+        int red = ContextCompat.getColor(requireContext(), R.color.npv_red);
+        int yellow = ContextCompat.getColor(requireContext(), R.color.npv_yellow);
+        int cyan = ContextCompat.getColor(requireContext(), R.color.npv_cyan);
+        SpannableStringBuilder sb = new SpannableStringBuilder();
         for (String line : raw.split("\n")) {
             line = line.trim();
             if (line.isEmpty()) {
                 continue;
             }
-            int sep = line.indexOf("  ");
-            if (sep > 0) {
-                sb.append(line, 0, sep).append("\n  > ").append(line.substring(sep).trim()).append("\n\n");
-            } else {
-                sb.append("> ").append(line).append("\n\n");
+            String time = "";
+            String rest = line;
+            Matcher lm = LINE_RE.matcher(line);
+            if (lm.matches()) {
+                time = lm.group(1);
+                rest = lm.group(2).trim();
             }
+            String level = "info";
+            String comp = "";
+            String msg = rest;
+            Matcher tm = TAGGED_RE.matcher(rest);
+            if (tm.matches()) {
+                level = tm.group(1).toLowerCase();
+                comp = tm.group(2);
+                msg = tm.group(3).trim();
+            }
+            int tagColor = dim;
+            int msgColor = text;
+            switch (level) {
+                case "error":
+                    tagColor = red;
+                    msgColor = red;
+                    break;
+                case "warning":
+                    tagColor = yellow;
+                    msgColor = yellow;
+                    break;
+                case "connection":
+                    tagColor = cyan;
+                    msgColor = text;
+                    break;
+                default:
+                    tagColor = dim;
+                    msgColor = text;
+                    break;
+            }
+            appendSpan(sb, "[" + time + "] ", grey);
+            if (!comp.isEmpty()) {
+                appendSpan(sb, "[" + comp + "] ", tagColor);
+            } else if (!level.equals("info")) {
+                appendSpan(sb, "[" + level + "] ", tagColor);
+            }
+            appendSpan(sb, msg + "\n", msgColor);
         }
-        return sb.toString().trim();
+        return sb;
+    }
+
+    private static void appendSpan(SpannableStringBuilder sb, String text, int color) {
+        int start = sb.length();
+        sb.append(text);
+        sb.setSpan(new ForegroundColorSpan(color), start, sb.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
     }
 }

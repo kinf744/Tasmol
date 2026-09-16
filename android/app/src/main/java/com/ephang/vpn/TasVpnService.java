@@ -47,12 +47,21 @@ public class TasVpnService extends VpnService {
 
     /** Append a timestamped event to the in-memory connection log. */
     public static synchronized void logEvent(String msg) {
+        logEvent("info", "app", msg);
+    }
+
+    /**
+     * Leveled journal event, mirrored to Download/kighmu.txt so the Logs
+     * tab shows one unified journal (levels: info/connection/warning/error).
+     */
+    public static synchronized void logEvent(String level, String component, String msg) {
         java.text.SimpleDateFormat fmt =
                 new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
         eventLog.addLast(fmt.format(new java.util.Date()) + "  " + msg);
         while (eventLog.size() > MAX_LOG_LINES) {
             eventLog.removeFirst();
         }
+        BinaryManager.appendKighmu("[" + level + "] [" + component + "] " + msg);
     }
 
     public static synchronized String getLog() {
@@ -206,12 +215,12 @@ public class TasVpnService extends VpnService {
 
             notifyText("Connected");
             Log.i(TAG, "VPN session running");
-            logEvent("connected (" + tunnelId + ")");
+            logEvent("connection", "app", "connected (" + tunnelId + ")");
         } catch (Exception e) {
             Log.e(TAG, "startSession failed", e);
             if (!isSuperseded(gen)) {
                 lastError = e.getMessage();
-                logEvent("connect failed: " + e.getMessage());
+                logEvent("error", "app", "connect failed: " + e.getMessage());
                 stopForeground(true);
                 stopSelf();
             }
@@ -261,7 +270,7 @@ public class TasVpnService extends VpnService {
                         f.get(15, java.util.concurrent.TimeUnit.SECONDS);
                     } catch (java.util.concurrent.TimeoutException te) {
                         Log.e(TAG, "controller stop timed out, forcing cleanup");
-                        logEvent("stop hung - forcing cleanup");
+                        logEvent("warning", "app", "stop hung - forcing cleanup");
                         f.cancel(true);
                     } catch (Exception e) {
                         Log.e(TAG, "controller stop failed", e);
@@ -281,7 +290,7 @@ public class TasVpnService extends VpnService {
             } finally {
                 tunFd = null;
             }
-            logEvent("disconnected");
+            logEvent("connection", "app", "disconnected");
             stopForeground(true);
             stopSelf();
         }, "ephang-disconnect").start();
@@ -332,7 +341,7 @@ public class TasVpnService extends VpnService {
             if (err == null || err.isEmpty()) {
                 activeTunnelId = tunnelId;
                 VPNApplication.getInstance().setActiveTunnelId(tunnelId);
-                logEvent("switched to tunnel " + tunnelId);
+                logEvent("connection", "app", "switched to tunnel " + tunnelId);
             }
             return err;
         } catch (Exception e) {
