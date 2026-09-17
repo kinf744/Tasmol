@@ -455,9 +455,8 @@ public class ConfigsFragment extends Fragment {
                 {"hideserver", "Hide Server"}, {"hideupass", "Hide UPass"},
                 {"blockroot", "Block Root"}, {"hwid", "HWID"},
                 {"note", "Note"}, {"expired", "Expired"},
-                {"rmbanner", "Remove Banner"}, {"custombanner", "Custom Banner"},
         };
-        boolean[] defaults = {false, true, false, false, false, false, false, false, false, false};
+        boolean[] defaults = {false, true, false, false, false, false, false, false};
         for (int i = 0; i < opts.length; i++) {
             android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
             cb.setText(opts[i][1]);
@@ -523,7 +522,7 @@ public class ConfigsFragment extends Fragment {
         layout.addView(summary);
 
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Partager la sélection")
+                .setTitle("Export Config")
                 .setView(layout)
                 .setPositiveButton("Fichier .epha", (d, w) -> {
                     ProfileTransfer.Restrictions r = readBackupOptions(
@@ -547,11 +546,12 @@ public class ConfigsFragment extends Fragment {
                 .show();
     }
 
-    /** Green date picker for the Expired option (AAAA-MM-JJ). */
+    /** Green date picker for the Expired option (AAAA-MM-JJ). Material style
+     *  with explicit green buttons (the default can be unreadable). */
     private void showExpiryPicker(final String[] expiry, final android.widget.TextView label) {
         java.util.Calendar cal = java.util.Calendar.getInstance();
         android.app.DatePickerDialog dlg = new android.app.DatePickerDialog(requireContext(),
-                R.style.GreenDatePicker,
+                android.R.style.Theme_Material_Dialog,
                 (view, y, m, day) -> {
                     expiry[0] = String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, day);
                     label.setText("Expiration : " + expiry[0]);
@@ -559,10 +559,22 @@ public class ConfigsFragment extends Fragment {
                 cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
                 cal.get(java.util.Calendar.DAY_OF_MONTH));
         dlg.getDatePicker().setMinDate(System.currentTimeMillis() - 1000);
-        dlg.setOnCancelListener(d -> {
-            // No date chosen: keep the box but require a date at export.
-        });
         dlg.show();
+        // Force readable green buttons: the Material theme otherwise can
+        // render light-on-light text.
+        try {
+            android.widget.Button ok = dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            android.widget.Button cancel = dlg.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
+            if (ok != null) {
+                ok.setTextColor(0xFF00BF9A);
+                ok.setTypeface(null, android.graphics.Typeface.BOLD);
+            }
+            if (cancel != null) {
+                cancel.setTextColor(0xFF00BF9A);
+                cancel.setTypeface(null, android.graphics.Typeface.BOLD);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     /** Validate Backup options; null = invalid (toast shown). */
