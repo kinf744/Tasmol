@@ -101,8 +101,7 @@ public class ConfigsFragment extends Fragment {
         });
         list.setAdapter(adapter);
 
-        v.findViewById(R.id.configs_share).setOnClickListener(view -> showShareMenu());
-        v.findViewById(R.id.configs_import).setOnClickListener(view -> showImportChoice());
+        v.findViewById(R.id.configs_active_menu).setOnClickListener(view -> showShareMenu());
 
         v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
         // Connection happens from Home only: tapping the header card
@@ -418,7 +417,26 @@ public class ConfigsFragment extends Fragment {
     /** Share menu for the SELECTED profiles (header card). Works only with
      *  1+ selected. Options: lock, expiry, hardware ids, then two buttons:
      *  export to .epha file, or export to clipboard (ephang://). */
+    /** Partager + Importer via the card's ⋮ menu (same line as server name). */
     private void showShareMenu() {
+        java.util.LinkedHashSet<String> selected =
+                VPNApplication.getInstance().getSelectedIds();
+        String[] options = {"Partager la sélection", "Importer"};
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Export Config")
+                .setItems(options, (d, which) -> {
+                    if (which == 0) {
+                        showExportMenu();
+                    } else {
+                        showImportChoice();
+                    }
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    /** Show the Backup form for the currently selected profiles. */
+    private void showExportMenu() {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
         if (selected.isEmpty()) {
