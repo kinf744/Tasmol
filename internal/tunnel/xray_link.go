@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -155,8 +154,10 @@ func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 
 // probeCertPins opens one throwaway TLS handshake (no verification) and
 // hashes the presented chain: the hashes feed Xray 26.x
-// "pinnedPeerCertSha256", the supported replacement for the removed
-// "allowInsecure", so self-signed / IP-only certs connect.
+// "pinnedPeerCertChainSha256", the supported replacement for the removed
+// "allowInsecure", so self-signed / IP-only certs connect. Xray expects
+// base64-encoded SHA-256 digests (it matches ANY of them against the
+// peer chain).
 func probeCertPins(addr string, port int, sni string) ([]string, error) {
 	serverName := sni
 	if serverName == "" || isIPLiteral(serverName) {
@@ -176,7 +177,7 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 	seen := map[string]bool{}
 	for _, cert := range conn.ConnectionState().PeerCertificates {
 		sum := sha256.Sum256(cert.Raw)
-		h := hex.EncodeToString(sum[:])
+		h := base64.StdEncoding.EncodeToString(sum[:])
 		if !seen[h] {
 			seen[h] = true
 			pins = append(pins, h)
@@ -223,8 +224,9 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 			Tracef("[xray] cert probe %s:%d failed: %v (strict verification)", addr, port, err)
 			return
 		}
-		// Xray 26.x wants a single hex string (the leaf), not an array.
-		tlsm["pinnedPeerCertSha256"] = pins[0]
+		// Xray matches a handshake when ANY entry matches a chain cert:
+		// pin the whole chain so intermediates/leaf rotations still pass.
+		tlsm["pinnedPeerCertChainSha256"] = pins
 		Tracef("[xray] pinned leaf cert for %s:%d (%d in chain)", addr, port, len(pins))
 	}
 }
@@ -349,17 +351,41 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 	}}, inbounds...)
 	m["inbounds"] = inbounds
 
-	// Xray 26.x aborts on the removed allowInsecure key.
+	// Xray 26.x aborts on the removed allowInsecure key. Also: the bundled
+	// xray is a linux/arm build, and on Android it finds no system CA pool
+	// (x509 android loader requires GOOS=android), so every TLS dial fails
+	// with "certificate signed by unknown authority". Pin the live peer
+	// certificate for each TLS outbound instead (probe happens pre-VPN from
+	// this process, whose resolver works).
 	for _, v := range outs {
 		ob, ok := v.(map[string]interface{})
 		if !ok {
 			continue
 		}
-		if ss, ok := ob["streamSettings"].(map[string]interface{}); ok {
-			if tlsm, ok := ss["tlsSettings"].(map[string]interface{}); ok {
-				delete(tlsm, "allowInsecure")
-			}
+		ss, ok := ob["streamSettings"].(map[string]interface{})
+		if !ok {
+			continue
 		}
+		tlsm, ok := ss["tlsSettings"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		delete(tlsm, "allowInsecure")
+		if _, has := tlsm["pinnedPeerCertChainSha256"]; has {
+			continue
+		}
+		addr, port := outboundDialTarget(ob)
+		if addr == "" || port <= 0 || isLoopback(addr) {
+			continue
+		}
+		sni, _ := tlsm["serverName"].(string)
+		pins, err := probeCertPins(addr, port, sni)
+		if err != nil {
+			Warnf("xray", "full-config TLS probe %s:%d failed: %v (strict verification)", addr, port, err)
+			continue
+		}
+		tlsm["pinnedPeerCertChainSha256"] = pins
+		Tracef("[xray] full-config: pinned cert chain for %s:%d", addr, port)
 	}
 
 	data, err := json.Marshal(m)
@@ -374,6 +400,24 @@ func asList(v interface{}) []interface{} {
 		return l
 	}
 	return nil
+}
+
+// outboundDialTarget extracts address/port from an outbound's
+// settings.vnext[0] (vless/vmess) or settings.servers[0] (trojan/ss/http).
+func outboundDialTarget(ob map[string]interface{}) (string, int) {
+	s, ok := ob["settings"].(map[string]interface{})
+	if !ok {
+		return "", 0
+	}
+	for _, key := range []string{"vnext", "servers"} {
+		for _, v := range asList(s[key]) {
+			if m, ok := v.(map[string]interface{}); ok {
+				addr, _ := m["address"].(string)
+				return addr, parsePortAny(m["port"])
+			}
+		}
+	}
+	return "", 0
 }
 
 // TunnelOutbound returns the outbound object for an Xray-family tunnel:
