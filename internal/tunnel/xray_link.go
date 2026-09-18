@@ -196,7 +196,12 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 // connection — including the probe's DNS lookup — is blocked). The proxy
 // resolves the target name itself, so no local DNS is required, and the
 // probed chain is exactly the one the real traffic will see.
-func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, sni string) ([]string, error) {
+//
+// headers must mirror the chained http outbound's settings.headers: carrier
+// proxies (internet.org/freebasics) reject CONNECTs lacking the magic
+// headers (Host/User-Agent/X-iorg-bsid) with 403, while Xray's own dials
+// pass because they carry them.
+func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, sni string, headers map[string]string) ([]string, error) {
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
 	conn, err := dialer.Dial("tcp", net.JoinHostPort(proxyAddr, strconv.Itoa(proxyPort)))
 	if err != nil {
@@ -209,8 +214,20 @@ func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, s
 	if _, _, err := net.SplitHostPort(target); err != nil {
 		authority = net.JoinHostPort(target, "443")
 	}
-	req := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", authority, authority)
-	if _, err := conn.Write([]byte(req)); err != nil {
+	var b strings.Builder
+	fmt.Fprintf(&b, "CONNECT %s HTTP/1.1\r\n", authority)
+	hostSent := false
+	for k, v := range headers {
+		if strings.EqualFold(k, "host") {
+			hostSent = true
+		}
+		fmt.Fprintf(&b, "%s: %s\r\n", k, v)
+	}
+	if !hostSent {
+		fmt.Fprintf(&b, "Host: %s\r\n", authority)
+	}
+	b.WriteString("\r\n")
+	if _, err := conn.Write([]byte(b.String())); err != nil {
 		return nil, fmt.Errorf("proxy CONNECT write: %w", err)
 	}
 	br := bufio.NewReader(conn)
@@ -267,19 +284,29 @@ func hashPeerChain(conn *tls.Conn) ([]string, error) {
 	return pins, nil
 }
 
-// httpProxyDialTarget extracts the CONNECT proxy address/port from an
-// outbound: protocol "http" with settings.servers[0]. Returns ok=false for
+// httpProxyDialTarget extracts the CONNECT proxy address/port and the
+// settings.headers from an outbound (protocol "http"). Returns ok=false for
 // any other shape.
-func httpProxyDialTarget(ob map[string]interface{}) (string, int, bool) {
+func httpProxyDialTarget(ob map[string]interface{}) (addr string, port int, headers map[string]string, ok bool) {
 	proto, _ := ob["protocol"].(string)
 	if proto != "http" {
-		return "", 0, false
+		return "", 0, nil, false
 	}
-	addr, port := outboundDialTarget(ob)
+	addr, port = outboundDialTarget(ob)
 	if addr == "" || port <= 0 {
-		return "", 0, false
+		return "", 0, nil, false
 	}
-	return addr, port, true
+	if s, sok := ob["settings"].(map[string]interface{}); sok {
+		if hm, hok := s["headers"].(map[string]interface{}); hok {
+			headers = map[string]string{}
+			for k, v := range hm {
+				if vs, ok := v.(string); ok {
+					headers[k] = vs
+				}
+			}
+		}
+	}
+	return addr, port, headers, true
 }
 
 // patchStoredTLS migrates a stored (link-imported or pasted) outbound to
@@ -495,8 +522,8 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 		if ps, ok := ob["proxySettings"].(map[string]interface{}); ok {
 			if tag, _ := ps["tag"].(string); tag != "" {
 				if hop, ok2 := byTag[tag]; ok2 {
-					if pAddr, pPort, isHTTP := httpProxyDialTarget(hop); isHTTP {
-						pins, err = probeCertPinsViaHTTPProxy(pAddr, pPort, target, sni)
+					if pAddr, pPort, headers, isHTTP := httpProxyDialTarget(hop); isHTTP {
+						pins, err = probeCertPinsViaHTTPProxy(pAddr, pPort, target, sni, headers)
 						if err != nil {
 							Warnf("xray", "full-config TLS probe %s via proxy %s:%d failed: %v (strict verification)", target, pAddr, pPort, err)
 							continue
