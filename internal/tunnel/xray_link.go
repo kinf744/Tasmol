@@ -306,6 +306,76 @@ func HasOutboundJSON(cfg *config.TunnelConfig) bool {
 	return raw != nil
 }
 
+// FullXrayConfigJSON returns the stored outbound_json as a complete Xray
+// client config (dns/inbounds/outbounds/policy/...) when it has an
+// "outbounds" array — Picko-style full configs pasted by the user. The
+// local SOCKS inbound is normalized to listen on 127.0.0.1:socksPort,
+// removed-in-26.x "allowInsecure" keys are dropped, everything else is
+// used verbatim (proxy chains, policy, dns...). Not a full config → false.
+func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) {
+	if cfg == nil || cfg.Advanced == nil {
+		return "", false
+	}
+	raw, ok := cfg.Advanced[OutboundJSONKey]
+	if !ok {
+		return "", false
+	}
+	s, ok := raw.(string)
+	if !ok || strings.TrimSpace(s) == "" {
+		return "", false
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return "", false
+	}
+	outs, ok := m["outbounds"].([]interface{})
+	if !ok || len(outs) == 0 {
+		return "", false
+	}
+
+	// Socks inbound: bind the app-dialed local port, exactly one.
+	var inbounds []interface{}
+	for _, v := range asList(m["inbounds"]) {
+		if im, ok := v.(map[string]interface{}); ok && im["protocol"] == "socks" {
+			continue // replaced below
+		}
+		inbounds = append(inbounds, v)
+	}
+	inbounds = append([]interface{}{map[string]interface{}{
+		"listen":   "127.0.0.1",
+		"port":     socksPort,
+		"protocol": "socks",
+		"settings": map[string]interface{}{"udp": true, "auth": "noauth"},
+	}}, inbounds...)
+	m["inbounds"] = inbounds
+
+	// Xray 26.x aborts on the removed allowInsecure key.
+	for _, v := range outs {
+		ob, ok := v.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if ss, ok := ob["streamSettings"].(map[string]interface{}); ok {
+			if tlsm, ok := ss["tlsSettings"].(map[string]interface{}); ok {
+				delete(tlsm, "allowInsecure")
+			}
+		}
+	}
+
+	data, err := json.Marshal(m)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func asList(v interface{}) []interface{} {
+	if l, ok := v.([]interface{}); ok {
+		return l
+	}
+	return nil
+}
+
 // TunnelOutbound returns the outbound object for an Xray-family tunnel:
 // Advanced["outbound_json"] verbatim when present (links, pasted JSON),
 // otherwise the structured VLESS builder.

@@ -9,6 +9,8 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -55,10 +57,16 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edXpass;
     private EditText edMethod;
     private LinearLayout secXrayLink;
-    private EditText edLink;
-    private Button btnParseLink;
-    private TextView lblOutboundJson;
-    private EditText edOutboundJson;
+    private RadioGroup rgXrayMode;
+    private RadioButton rbModeLink;
+    private RadioButton rbModeJson;
+    private EditText edXrayInput;
+    // Per-mode stash so Link/JSON contents survive a radio switch.
+    private String stashLink = "";
+    private String stashJson = "";
+
+    private static final String HINT_LINK = "vless://... / vmess://... / trojan://... / ss://...";
+    private static final String HINT_JSON = "{\"outbounds\":[{\"protocol\":\"vless\",...}]}";
     private LinearLayout secZivpn;
     private EditText edZpass;
     private Spinner edObfs;
@@ -93,7 +101,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
         findViewById(R.id.btn_cancel).setOnClickListener(v -> finish());
         findViewById(R.id.btn_save).setOnClickListener(v -> save());
-        findViewById(R.id.btn_parse_link).setOnClickListener(v -> parseLink());
+
+        // One field, two exclusive modes: switching Link/JSON stashes the
+        // current content and restores the other mode's own content.
+        rgXrayMode.setOnCheckedChangeListener((group, checkedId) -> onXrayModeChanged());
 
         if (editId != null) {
             if (isStoredLocked(editId)) {
@@ -130,10 +141,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edXpass = findViewById(R.id.ed_xpass);
         edMethod = findViewById(R.id.ed_method);
         secXrayLink = findViewById(R.id.sec_xray_link);
-        edLink = findViewById(R.id.ed_link);
-        btnParseLink = findViewById(R.id.btn_parse_link);
-        lblOutboundJson = findViewById(R.id.lbl_outbound_json);
-        edOutboundJson = findViewById(R.id.ed_outbound_json);
+        rgXrayMode = findViewById(R.id.rg_xray_mode);
+        rbModeLink = findViewById(R.id.rb_mode_link);
+        rbModeJson = findViewById(R.id.rb_mode_json);
+        edXrayInput = findViewById(R.id.ed_xray_input);
         secZivpn = findViewById(R.id.sec_zivpn);
         edZpass = findViewById(R.id.ed_zpass);
         edObfs = findViewById(R.id.ed_obfs);
@@ -217,16 +228,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
         secServer.setVisibility(showServer && !isXraySlowDns ? View.VISIBLE : View.GONE);
         secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
-        // xray_slowdns simplified form: link + slowdns fields only (host,
-        // port, Xray auth, outbound JSON and Parse button hidden).
-        int slowLinkVis = isXraySlowDns ? View.GONE : View.VISIBLE;
+        // xray_slowdns is link-only: no JSON mode, radio forced to Link.
+        if (isXraySlowDns) {
+            rbModeJson.setVisibility(View.GONE);
+            if (!rbModeLink.isChecked()) {
+                rbModeLink.setChecked(true);
+            }
+        } else {
+            rbModeJson.setVisibility(View.VISIBLE);
+        }
         boolean showPath = isXray && (network.equals("ws") || network.equals("grpc")
                 || network.equals("xhttp") || network.equals("httpupgrade"));
         secPath.setVisibility(!isXraySlowDns && showPath ? View.VISIBLE : View.GONE);
         secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
-        btnParseLink.setVisibility(slowLinkVis);
-        lblOutboundJson.setVisibility(slowLinkVis);
-        edOutboundJson.setVisibility(slowLinkVis);
+        syncXrayInputVisuals();
 
         edPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
         lblPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
@@ -300,8 +315,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
                 JSONObject adv = t.optJSONObject("advanced");
                 if (adv != null) {
-                    edLink.setText(adv.optString("link", ""));
-                    edOutboundJson.setText(adv.optString("outbound_json", ""));
+                    String link = adv.optString("link", "");
+                    String json = adv.optString("outbound_json", "");
+                    // JSON mode wins when a stored config exists (and the
+                    // type allows it); the link stays stashed for a switch.
+                    boolean jsonMode = !json.isEmpty() && !currentType().equals("xray_slowdns");
+                    if (jsonMode) {
+                        rbModeJson.setChecked(true);
+                    } else {
+                        rbModeLink.setChecked(true);
+                    }
+                    stashLink = link;
+                    stashJson = json;
+                    edXrayInput.setText(jsonMode ? json : link);
+                    lastXrayLinkMode = xrayLinkMode();
                     // xray_slowdns keeps its SlowDNS key in advanced (the
                     // server key belongs to Reality): prefer it on load.
                     if (currentType().equals("xray_slowdns")
@@ -339,64 +366,53 @@ public class TunnelEditorActivity extends AppCompatActivity {
         selectSpinner(spinner, values, value == null ? "" : value);
     }
 
-    private void parseLink() {
-        String link = edLink.getText().toString().trim();
-        if (link.isEmpty()) {
-            toast("Paste a link first");
+    /** True when the Xray input is in Link mode (JSON otherwise). */
+    private boolean xrayLinkMode() {
+        return rbModeLink.isChecked();
+    }
+
+    // Tracks the mode before a radio switch so its content can be stashed.
+    private boolean lastXrayLinkMode = true;
+
+    /** RadioGroup is single-selection by construction: the two modes can
+     *  never be active together. Switching stashes the old mode's content
+     *  and restores the new mode's own content. */
+    private void onXrayModeChanged() {
+        boolean linkMode = xrayLinkMode();
+        if (linkMode == lastXrayLinkMode) {
             return;
         }
+        String current = edXrayInput.getText().toString();
+        if (linkMode) {
+            stashJson = current;
+            edXrayInput.setText(stashLink);
+        } else {
+            stashLink = current;
+            edXrayInput.setText(stashJson);
+        }
+        lastXrayLinkMode = linkMode;
+        syncXrayInputVisuals();
+    }
+
+    private void syncXrayInputVisuals() {
+        if (edXrayInput != null) {
+            edXrayInput.setHint(xrayLinkMode() ? HINT_LINK : HINT_JSON);
+        }
+    }
+
+    /** Parse a subscription link through the Go core; null after a toast. */
+    private JSONObject parseLinkConfig(String link) {
         try {
             String res = VpnlibHelper.parseLink(link);
-            JSONObject t = new JSONObject(res);
-            if (t.has("error")) {
-                toast("Parse failed: " + t.optString("error"));
-                return;
+            JSONObject parsed = new JSONObject(res);
+            if (parsed.has("error")) {
+                toast("Parse failed: " + parsed.optString("error"));
+                return null;
             }
-            if (!t.optString("name", "").isEmpty()) {
-                edName.setText(t.optString("name"));
-            }
-            JSONObject server = t.optJSONObject("server");
-            if (server != null) {
-                if (!server.optString("host", "").isEmpty()) {
-                    edHost.setText(server.optString("host"));
-                }
-                if (server.optInt("port", 0) != 0) {
-                    edPort.setText(String.valueOf(server.optInt("port")));
-                }
-                if (!server.optString("sni", "").isEmpty()) {
-                    edSni.setText(server.optString("sni"));
-                }
-            }
-            JSONObject auth = t.optJSONObject("auth");
-            if (auth != null) {
-                if (!auth.optString("uuid", "").isEmpty()) {
-                    edUuid.setText(auth.optString("uuid"));
-                }
-                if (!auth.optString("flow", "").isEmpty()) {
-                    edFlow.setText(auth.optString("flow"));
-                }
-                if (!auth.optString("password", "").isEmpty()) {
-                    edXpass.setText(auth.optString("password"));
-                }
-                if (!auth.optString("method", "").isEmpty()) {
-                    edMethod.setText(auth.optString("method"));
-                }
-            }
-            JSONObject transport = t.optJSONObject("transport");
-            if (transport != null) {
-                selectSpinner(edNetwork, NETWORKS, transport.optString("network", "tcp"));
-                selectSpinnerByValue(edSecurity, SECURITIES, transport.optString("security", ""));
-                edPath.setText(transport.optString("path", ""));
-                edWshost.setText(transport.optString("host", ""));
-            }
-            JSONObject adv = t.optJSONObject("advanced");
-            if (adv != null && !adv.optString("outbound_json", "").isEmpty()) {
-                edOutboundJson.setText(adv.optString("outbound_json"));
-            }
-            refreshSections();
-            toast("Link parsed");
+            return parsed;
         } catch (Exception e) {
             toast("Parse failed: " + e.getMessage());
+            return null;
         }
     }
 
@@ -406,20 +422,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
      * manual setups). Returns null after showing the reason.
      */
     private JSONObject resolveXraySlowDnsBase() {
-        String link = edLink.getText().toString().trim();
+        String link = edXrayInput.getText().toString().trim();
         if (!link.isEmpty()) {
-            try {
-                String res = VpnlibHelper.parseLink(link);
-                JSONObject parsed = new JSONObject(res);
-                if (parsed.has("error")) {
-                    toast("Parse failed: " + parsed.optString("error"));
-                    return null;
-                }
-                return parsed;
-            } catch (Exception e) {
-                toast("Parse failed: " + e.getMessage());
-                return null;
-            }
+            return parseLinkConfig(link);
         }
         JSONObject stored = storedTunnel();
         if (stored == null) {
@@ -436,7 +441,42 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
     private void save() {
         String type = currentType();
+
+        // Xray: validate/auto-parse the single input now (no Parse button).
+        // Link mode parses through the Go core and uses the parsed profile
+        // as the save base; JSON mode is stored verbatim and just needs
+        // to be a valid object.
+        JSONObject xrayBase = null;
+        String xrayJson = "";
+        if (type.equals("xray")) {
+            String input = edXrayInput.getText().toString().trim();
+            if (input.isEmpty()) {
+                toast(xrayLinkMode() ? "Link is required" : "JSON config is required");
+                return;
+            }
+            if (xrayLinkMode()) {
+                xrayBase = parseLinkConfig(input);
+                if (xrayBase == null) {
+                    return;
+                }
+            } else {
+                try {
+                    new JSONObject(input);
+                } catch (Exception e) {
+                    toast("Invalid JSON: " + e.getMessage());
+                    return;
+                }
+                xrayJson = input;
+            }
+        }
+
         String name = edName.getText().toString().trim();
+        if (name.isEmpty() && xrayBase != null) {
+            name = xrayBase.optString("name", "").trim();
+            if (!name.isEmpty()) {
+                edName.setText(name);
+            }
+        }
         if (name.isEmpty()) {
             toast("Name is required");
             return;
@@ -462,6 +502,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 JSONObject bs = slowBase.optJSONObject("server");
                 if (bs != null) {
                     server = new JSONObject(bs.toString());
+                }
+            } else if (type.equals("xray")) {
+                // Link mode: host/port/sni come from the parsed link. JSON
+                // mode: none needed, the pasted config carries everything.
+                if (xrayBase != null) {
+                    JSONObject xs = xrayBase.optJSONObject("server");
+                    if (xs != null) {
+                        server = new JSONObject(xs.toString());
+                    }
                 }
             } else {
                 server.put("host", edHost.getText().toString().trim());
@@ -549,7 +598,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             }
 
+            // xray never needs manual host/port: link (parsed) or JSON
+            // config carries the endpoint (full configs accepted too).
             if (!type.equals("ssh_slowdns") && !type.equals("xray_slowdns")
+                    && !type.equals("xray")
                     && edHost.getText().toString().trim().isEmpty()) {
                 toast("Host is required");
                 return;
@@ -593,7 +645,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 ssh.put("proxy", edSshProxy.getText().toString().trim());
                 ssh.put("payload", edSshPayload.getText().toString());
             }
-            if (type.equals("xray") || type.equals("xray_slowdns")) {
+            if (type.equals("xray") && xrayBase != null) {
+                JSONObject ba = xrayBase.optJSONObject("auth");
+                if (ba != null) {
+                    auth = new JSONObject(ba.toString());
+                }
+            } else if (type.equals("xray") || type.equals("xray_slowdns")) {
                 auth.put("uuid", edUuid.getText().toString().trim());
                 auth.put("flow", edFlow.getText().toString().trim());
                 auth.put("password", edXpass.getText().toString());
@@ -613,6 +670,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (bt != null) {
                     transport = new JSONObject(bt.toString());
                 }
+            } else if (type.equals("xray") && xrayBase != null) {
+                JSONObject bt = xrayBase.optJSONObject("transport");
+                if (bt != null) {
+                    transport = new JSONObject(bt.toString());
+                }
             } else if (type.equals("xray") || type.equals("xray_slowdns")) {
                 transport.put("network", edNetwork.getSelectedItem().toString());
                 transport.put("security", security);
@@ -626,22 +688,26 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (ba != null) {
                     advanced = new JSONObject(ba.toString());
                 }
-                advanced.put("link", edLink.getText().toString().trim());
+                advanced.put("link", edXrayInput.getText().toString().trim());
                 String slowKey = edPubkey.getText().toString().trim();
                 if (!slowKey.isEmpty()) {
                     advanced.put("slowdns_pubkey", slowKey);
                 }
-            } else if (type.equals("xray") || type.equals("xray_slowdns")) {
-                String manualJson = edOutboundJson.getText().toString().trim();
-                if (!manualJson.isEmpty()) {
-                    new JSONObject(manualJson); // validate
-                    advanced.put("outbound_json", manualJson);
+            } else if (type.equals("xray")) {
+                if (xrayBase != null) {
+                    // Parsed link: keep its outbound JSON, remember the link.
+                    JSONObject ba = xrayBase.optJSONObject("advanced");
+                    if (ba != null) {
+                        advanced = new JSONObject(ba.toString());
+                    }
+                    advanced.put("link", edXrayInput.getText().toString().trim());
+                } else {
+                    // Full client config or single outbound, stored verbatim;
+                    // the Go core detects full configs by the "outbounds" key.
+                    advanced.put("outbound_json", xrayJson);
                 }
-                if (!edLink.getText().toString().trim().isEmpty()) {
-                    advanced.put("link", edLink.getText().toString().trim());
-                }
-                if (type.equals("xray") && !advanced.has("outbound_json")) {
-                    toast("Xray needs a link (Parse) or a JSON config");
+                if (!advanced.has("outbound_json")) {
+                    toast("Xray needs a link or a JSON config");
                     return;
                 }
             }

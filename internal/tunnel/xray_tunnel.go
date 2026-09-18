@@ -55,6 +55,13 @@ func (t *XrayTunnel) Stats() Stats {
 func (t *XrayTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *XrayTunnel) generateConfig() (string, error) {
+	// Full client config pasted by the user (has "outbounds"): use it
+	// verbatim with the SOCKS inbound normalized to our picked port.
+	if full, ok := FullXrayConfigJSON(t.config, t.socksPort); ok {
+		Tracef("[xray] using full client config from outbound_json")
+		return full, nil
+	}
+
 	inbound := map[string]interface{}{
 		"port":     t.socksPort,
 		"listen":   "127.0.0.1",
