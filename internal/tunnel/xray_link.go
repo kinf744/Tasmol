@@ -1,6 +1,8 @@
 package tunnel
 
 import (
+	"bufio"
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/base64"
@@ -163,6 +165,20 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 		serverName = addr
 	}
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	// The system resolver can be blocked (carrier DNS hijack, freebasics
+	// networks): fall back to direct UDP DNS so the probe still succeeds.
+	dialer.Resolver = &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			d := net.Dialer{Timeout: 4 * time.Second}
+			for _, dns := range []string{"8.8.8.8:53", "1.1.1.1:53"} {
+				if c, err := d.DialContext(ctx, "udp", dns); err == nil {
+					return c, nil
+				}
+			}
+			return d.DialContext(ctx, network, address)
+		},
+	}
 	conn, err := tls.DialWithDialer(dialer, "tcp",
 		net.JoinHostPort(addr, strconv.Itoa(port)), &tls.Config{
 			InsecureSkipVerify: true,
@@ -172,6 +188,69 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 		return nil, err
 	}
 	defer conn.Close()
+	return hashPeerChain(conn)
+}
+
+// probeCertPinsViaHTTPProxy is probeCertPins through an HTTP CONNECT proxy
+// (proxySettings.tag chains, e.g. freebasics carriers where every direct
+// connection — including the probe's DNS lookup — is blocked). The proxy
+// resolves the target name itself, so no local DNS is required, and the
+// probed chain is exactly the one the real traffic will see.
+func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, sni string) ([]string, error) {
+	dialer := &net.Dialer{Timeout: 8 * time.Second}
+	conn, err := dialer.Dial("tcp", net.JoinHostPort(proxyAddr, strconv.Itoa(proxyPort)))
+	if err != nil {
+		return nil, fmt.Errorf("proxy dial: %w", err)
+	}
+	defer conn.Close()
+	conn.SetDeadline(time.Now().Add(10 * time.Second))
+
+	authority := target
+	if _, _, err := net.SplitHostPort(target); err != nil {
+		authority = net.JoinHostPort(target, "443")
+	}
+	req := fmt.Sprintf("CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", authority, authority)
+	if _, err := conn.Write([]byte(req)); err != nil {
+		return nil, fmt.Errorf("proxy CONNECT write: %w", err)
+	}
+	br := bufio.NewReader(conn)
+	status, err := br.ReadString('\n')
+	if err != nil {
+		return nil, fmt.Errorf("proxy CONNECT read: %w", err)
+	}
+	if !strings.Contains(status, " 200") {
+		return nil, fmt.Errorf("proxy CONNECT rejected: %s", strings.TrimSpace(status))
+	}
+	// Drain remaining CONNECT response headers.
+	for {
+		line, err := br.ReadString('\n')
+		if err != nil {
+			return nil, fmt.Errorf("proxy CONNECT headers: %w", err)
+		}
+		if line == "\r\n" || line == "\n" {
+			break
+		}
+	}
+
+	serverName := sni
+	if serverName == "" {
+		if host, _, err := net.SplitHostPort(authority); err == nil {
+			serverName = host
+		} else {
+			serverName = authority
+		}
+	}
+	tlsConn := tls.Client(conn, &tls.Config{
+		InsecureSkipVerify: true,
+		ServerName:         serverName,
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		return nil, fmt.Errorf("TLS through proxy: %w", err)
+	}
+	return hashPeerChain(tlsConn)
+}
+
+func hashPeerChain(conn *tls.Conn) ([]string, error) {
 	var pins []string
 	seen := map[string]bool{}
 	for _, cert := range conn.ConnectionState().PeerCertificates {
@@ -186,6 +265,21 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 		return nil, fmt.Errorf("no peer certificates")
 	}
 	return pins, nil
+}
+
+// httpProxyDialTarget extracts the CONNECT proxy address/port from an
+// outbound: protocol "http" with settings.servers[0]. Returns ok=false for
+// any other shape.
+func httpProxyDialTarget(ob map[string]interface{}) (string, int, bool) {
+	proto, _ := ob["protocol"].(string)
+	if proto != "http" {
+		return "", 0, false
+	}
+	addr, port := outboundDialTarget(ob)
+	if addr == "" || port <= 0 {
+		return "", 0, false
+	}
+	return addr, port, true
 }
 
 // patchStoredTLS migrates a stored (link-imported or pasted) outbound to
@@ -357,6 +451,17 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 	// with "certificate signed by unknown authority". Pin the live peer
 	// certificate for each TLS outbound instead (probe happens pre-VPN from
 	// this process, whose resolver works).
+	// Index outbounds by tag so proxySettings.tag chains can be resolved:
+	// the probe must follow the SAME path as the real traffic.
+	byTag := map[string]map[string]interface{}{}
+	for _, v := range outs {
+		if ob, ok := v.(map[string]interface{}); ok {
+			if tag, _ := ob["tag"].(string); tag != "" {
+				byTag[tag] = ob
+			}
+		}
+	}
+
 	for _, v := range outs {
 		ob, ok := v.(map[string]interface{})
 		if !ok {
@@ -379,13 +484,37 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 			continue
 		}
 		sni, _ := tlsm["serverName"].(string)
-		pins, err := probeCertPins(addr, port, sni)
-		if err != nil {
-			Warnf("xray", "full-config TLS probe %s:%d failed: %v (strict verification)", addr, port, err)
-			continue
+		target := net.JoinHostPort(addr, strconv.Itoa(port))
+
+		var pins []string
+		var err error
+		// Chained through an HTTP proxy (proxySettings.tag)? Probe through
+		// it: on freebasics-style networks direct dialing and local DNS are
+		// blocked, so a direct probe always fails even though the real path
+		// works.
+		if ps, ok := ob["proxySettings"].(map[string]interface{}); ok {
+			if tag, _ := ps["tag"].(string); tag != "" {
+				if hop, ok2 := byTag[tag]; ok2 {
+					if pAddr, pPort, isHTTP := httpProxyDialTarget(hop); isHTTP {
+						pins, err = probeCertPinsViaHTTPProxy(pAddr, pPort, target, sni)
+						if err != nil {
+							Warnf("xray", "full-config TLS probe %s via proxy %s:%d failed: %v (strict verification)", target, pAddr, pPort, err)
+							continue
+						}
+						Tracef("[xray] full-config: pinned cert chain for %s via proxy %s:%d", target, pAddr, pPort)
+					}
+				}
+			}
+		}
+		if pins == nil && err == nil {
+			pins, err = probeCertPins(addr, port, sni)
+			if err != nil {
+				Warnf("xray", "full-config TLS probe %s:%d failed: %v (strict verification)", addr, port, err)
+				continue
+			}
+			Tracef("[xray] full-config: pinned cert chain for %s:%d", addr, port)
 		}
 		tlsm["pinnedPeerCertSha256"] = pins
-		Tracef("[xray] full-config: pinned cert chain for %s:%d", addr, port)
 	}
 
 	data, err := json.Marshal(m)
