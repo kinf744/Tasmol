@@ -153,11 +153,10 @@ func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 }
 
 // probeCertPins opens one throwaway TLS handshake (no verification) and
-// hashes the presented chain: the hashes feed Xray 26.x
-// "pinnedPeerCertChainSha256", the supported replacement for the removed
-// "allowInsecure", so self-signed / IP-only certs connect. Xray expects
-// base64-encoded SHA-256 digests (it matches ANY of them against the
-// peer chain).
+// hashes the presented chain into base64-encoded SHA-256 digests that feed
+// Xray 26.x "pinnedPeerCertSha256" (the supported replacement for the
+// removed "allowInsecure"), so self-signed / IP-only certs connect. Xray
+// matches ANY entry against the peer chain (leaf or CA).
 func probeCertPins(addr string, port int, sni string) ([]string, error) {
 	serverName := sni
 	if serverName == "" || isIPLiteral(serverName) {
@@ -224,10 +223,11 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 			Tracef("[xray] cert probe %s:%d failed: %v (strict verification)", addr, port, err)
 			return
 		}
-		// Xray matches a handshake when ANY entry matches a chain cert:
-		// pin the whole chain so intermediates/leaf rotations still pass.
-		tlsm["pinnedPeerCertChainSha256"] = pins
-		Tracef("[xray] pinned leaf cert for %s:%d (%d in chain)", addr, port, len(pins))
+		// Xray matches a handshake when ANY pinned hash matches a chain
+		// cert (leaf or any CA in the chain). Pin the whole chain so
+		// intermediates/leaf rotations still pass verification.
+		tlsm["pinnedPeerCertSha256"] = pins
+		Tracef("[xray] pinned cert chain for %s:%d (%d in chain)", addr, port, len(pins))
 	}
 }
 
@@ -371,7 +371,7 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 			continue
 		}
 		delete(tlsm, "allowInsecure")
-		if _, has := tlsm["pinnedPeerCertChainSha256"]; has {
+		if _, has := tlsm["pinnedPeerCertSha256"]; has {
 			continue
 		}
 		addr, port := outboundDialTarget(ob)
@@ -384,7 +384,7 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 			Warnf("xray", "full-config TLS probe %s:%d failed: %v (strict verification)", addr, port, err)
 			continue
 		}
-		tlsm["pinnedPeerCertChainSha256"] = pins
+		tlsm["pinnedPeerCertSha256"] = pins
 		Tracef("[xray] full-config: pinned cert chain for %s:%d", addr, port)
 	}
 
