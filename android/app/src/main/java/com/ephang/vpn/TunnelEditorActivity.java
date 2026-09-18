@@ -85,6 +85,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edSni;
     private EditText edRealityPubkey;
     private EditText edShortid;
+    private LinearLayout secChain;
+    private EditText edProxyTag;
+    private Switch edTransportLayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,6 +166,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edSni = findViewById(R.id.ed_sni);
         edRealityPubkey = findViewById(R.id.ed_reality_pubkey);
         edShortid = findViewById(R.id.ed_shortid);
+        secChain = findViewById(R.id.sec_chain);
+        edProxyTag = findViewById(R.id.ed_proxy_tag);
+        edTransportLayer = findViewById(R.id.ed_transport_layer);
     }
 
     private void setupSpinners() {
@@ -241,6 +247,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 || network.equals("xhttp") || network.equals("httpupgrade"));
         secPath.setVisibility(!isXraySlowDns && showPath ? View.VISIBLE : View.GONE);
         secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
+        secChain.setVisibility(isXray || isSlowDNS ? View.VISIBLE : View.GONE);
         syncXrayInputVisuals();
 
         edPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
@@ -312,6 +319,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edWshost.setText(transport.optString("host", ""));
                     selectSpinner(edObfs, OBFSS, transport.optString("obfs", "salamander"));
                     edObfsParam.setText(transport.optString("obfs_param", "zivpn"));
+                    edTransportLayer.setChecked(transport.optBoolean("transport_layer", false));
                 }
                 JSONObject adv = t.optJSONObject("advanced");
                 if (adv != null) {
@@ -329,6 +337,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     stashJson = json;
                     edXrayInput.setText(jsonMode ? json : link);
                     lastXrayLinkMode = xrayLinkMode();
+                    JSONObject ps = adv.optJSONObject("proxy_settings");
+                    if (ps != null) {
+                        edProxyTag.setText(ps.optString("tag", ""));
+                    }
                     // xray_slowdns keeps its SlowDNS key in advanced (the
                     // server key belongs to Reality): prefer it on load.
                     if (currentType().equals("xray_slowdns")
@@ -681,6 +693,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 transport.put("path", edPath.getText().toString().trim());
                 transport.put("host", edWshost.getText().toString().trim());
             }
+            if ((type.equals("xray") || type.equals("xray_slowdns"))
+                    && edTransportLayer.isChecked()) {
+                transport.put("transport_layer", true);
+            }
 
             JSONObject advanced = new JSONObject();
             if (type.equals("xray_slowdns") && slowBase != null) {
@@ -710,6 +726,17 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     toast("Xray needs a link or a JSON config");
                     return;
                 }
+            }
+
+            // Proxy chaining: transport-layer proxy / proxySettings.tag.
+            String proxyTag = edProxyTag.getText().toString().trim();
+            if (!proxyTag.isEmpty()) {
+                JSONObject existing = advanced.optJSONObject("proxy_settings");
+                JSONObject ps = existing != null ? new JSONObject(existing.toString()) : new JSONObject();
+                ps.put("tag", proxyTag);
+                advanced.put("proxy_settings", ps);
+            } else if (advanced.optJSONObject("proxy_settings") != null) {
+                advanced.remove("proxy_settings");
             }
 
             JSONObject tunnel = new JSONObject();

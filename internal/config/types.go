@@ -100,6 +100,10 @@ type TransportConfig struct {
 	ALPN        []string          `yaml:"alpn,omitempty" json:"alpn,omitempty"`
 	Obfs        string            `yaml:"obfs,omitempty" json:"obfs,omitempty"`
 	ObfsParam   string            `yaml:"obfs_param,omitempty" json:"obfs_param,omitempty"`
+	// TransportLayer enables Xray's transport-layer proxy chaining via the
+	// socket's transportLayer flag (SockOpt). The companion proxySettings.tag
+	// is taken from Advanced["proxy_settings"].
+	TransportLayer bool               `yaml:"transport_layer,omitempty" json:"transport_layer,omitempty"`
 }
 
 type RoutingConfig struct {

@@ -422,10 +422,14 @@ func outboundDialTarget(ob map[string]interface{}) (string, int) {
 
 // TunnelOutbound returns the outbound object for an Xray-family tunnel:
 // Advanced["outbound_json"] verbatim when present (links, pasted JSON),
-// otherwise the structured VLESS builder.
+// otherwise the structured VLESS builder. Transport-layer chaining options
+// (proxySettings.tag, TransportLayer) are layered onto the result regardless
+// of its source, and any extra outbounds declared via Advanced["outbounds"]
+// are included as siblings by the config generators.
 func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	// Domains are unresolvable by the xray child: dial a self-resolved IP.
 	addr = resolveEndpoint(cfg, addr)
+	var ob map[string]interface{}
 	if cfg.Advanced != nil {
 		if raw, ok := cfg.Advanced[OutboundJSONKey]; ok {
 			var m map[string]interface{}
@@ -449,11 +453,15 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 				addr = resolveDialAddr(cfg, addr)
 				rewriteOutboundAddr(m, addr, port)
 				patchStoredTLS(m, cfg, addr, port)
-				return m
+				ob = m
 			}
 		}
 	}
-	return BuildVlessOutbound(cfg, addr, port)
+	if ob == nil {
+		ob = BuildVlessOutbound(cfg, addr, port)
+	}
+	applyOutboundChainOptions(ob, cfg)
+	return ob
 }
 
 // SlowDNSOutbound is TunnelOutbound with the server address rewritten to
@@ -502,6 +510,108 @@ func rewriteAddrList(v interface{}, addr string, port int) bool {
 		}
 	}
 	return false
+}
+
+// proxySettingsTag returns the proxySettings.tag declared under
+// Advanced["proxy_settings"], if any. The tag names a sibling outbound
+// (e.g. a balancer lb-N member) that this outbound should chain through.
+func proxySettingsTag(cfg *config.TunnelConfig) string {
+	if cfg == nil || cfg.Advanced == nil {
+		return ""
+	}
+	ps, ok := cfg.Advanced["proxy_settings"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	tag, _ := ps["tag"].(string)
+	return strings.TrimSpace(tag)
+}
+
+// applyOutboundChainOptions layers transport-layer chaining onto an outbound:
+//   - Advanced["proxy_settings"].tag -> outbound.proxySettings.tag (only when
+//     the outbound doesn't already carry its own proxySettings);
+//   - Transport.TransportLayer -> streamSettings.sockopt.transportLayer = true.
+//
+// It guards the Xray-confirmed invariant that proxySettings.tag must NOT be
+// combined with sockopt.dialerProxy (the binary aborts with
+// "proxySettings.tag is conflicted with sockopt.dialerProxy"), so the
+// transportLayer flag is only added when no dialerProxy is already present.
+func applyOutboundChainOptions(ob map[string]interface{}, cfg *config.TunnelConfig) {
+	if ob == nil || cfg == nil {
+		return
+	}
+	if tag := proxySettingsTag(cfg); tag != "" {
+		// proxySettings.tag conflicts with sockopt.dialerProxy (Xray aborts
+		// with "proxySettings.tag is conflicted with sockopt.dialerProxy"),
+		// so don't inject one when the outbound already dials via a proxy.
+		if ob["proxySettings"] == nil && !hasDialerProxy(ob) {
+			ob["proxySettings"] = map[string]interface{}{"tag": tag}
+			Tracef("[xray] outbound %s chained via proxySettings.tag=%q", obTag(ob), tag)
+		}
+	}
+	if !cfg.Transport.TransportLayer {
+		return
+	}
+	ss, _ := ob["streamSettings"].(map[string]interface{})
+	if ss == nil {
+		return
+	}
+	sockopt, _ := ss["sockopt"].(map[string]interface{})
+	if _, conflicted := sockopt["dialerProxy"]; conflicted {
+		Warnf("xray", "TransportLayer skipped: sockopt.dialerProxy conflicts with proxySettings.tag")
+		return
+	}
+	if sockopt == nil {
+		sockopt = map[string]interface{}{}
+		ss["sockopt"] = sockopt
+	}
+	if _, set := sockopt["transportLayer"]; !set {
+		sockopt["transportLayer"] = true
+		Tracef("[xray] outbound %s enabled streamSettings.sockopt.transportLayer", obTag(ob))
+	}
+}
+
+func obTag(ob map[string]interface{}) string {
+	if t, _ := ob["tag"].(string); t != "" {
+		return t
+	}
+	return "<untagged>"
+}
+
+// hasDialerProxy reports whether the outbound already specifies a
+// sockopt.dialerProxy (which conflicts with proxySettings.tag).
+func hasDialerProxy(ob map[string]interface{}) bool {
+	ss, ok := ob["streamSettings"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	sockopt, _ := ss["sockopt"].(map[string]interface{})
+	_, exists := sockopt["dialerProxy"]
+	return exists
+}
+
+// extraOutbounds returns sibling outbounds declared under
+// Advanced["outbounds"] ([]interface{} or a JSON string). These are emitted
+// alongside the main outbound so that a proxySettings.tag can resolve to an
+// outbound defined on the same profile (e.g. a secondary proxy hop).
+func extraOutbounds(cfg *config.TunnelConfig) []interface{} {
+	if cfg == nil || cfg.Advanced == nil {
+		return nil
+	}
+	raw, ok := cfg.Advanced["outbounds"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []interface{}:
+		return v
+	case string:
+		var arr []interface{}
+		if err := json.Unmarshal([]byte(v), &arr); err == nil {
+			return arr
+		}
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

@@ -83,12 +83,21 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		strategy = "UseIP"
 	}
 
+	outbounds := []interface{}{outbound}
+	for _, eo := range extraOutbounds(t.config) {
+		if m, ok := eo.(map[string]interface{}); ok && m != nil {
+			outbounds = append(outbounds, m)
+		} else {
+			outbounds = append(outbounds, eo)
+		}
+	}
+
 	xrayConfig := map[string]interface{}{
 		"log": map[string]interface{}{
 			"loglevel": "warning",
 		},
 		"inbounds":  []interface{}{inbound},
-		"outbounds": []interface{}{outbound},
+		"outbounds": outbounds,
 		"routing": map[string]interface{}{
 			"domainStrategy": strategy,
 			"rules":          t.config.Routing.Rules,

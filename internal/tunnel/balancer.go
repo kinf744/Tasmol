@@ -39,6 +39,18 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 			return nil, fmt.Errorf("profile %s: %w", tc.Name, err)
 		}
 		outbounds = append(outbounds, ob)
+		// Sibling outbounds declared on the profile (e.g. an alternate
+		// proxy hop) so proxySettings.tag can resolve inside the front.
+		for _, eo := range extraOutbounds(tc) {
+			if m, ok := eo.(map[string]interface{}); ok && m != nil {
+				if t, _ := m["tag"].(string); t == "" {
+					m["tag"] = fmt.Sprintf("lb-%d-eb", i)
+				}
+				outbounds = append(outbounds, m)
+			} else {
+				outbounds = append(outbounds, eo)
+			}
+		}
 	}
 
 	doc := map[string]interface{}{
