@@ -217,6 +217,27 @@ public final class ApiSession {
         if ("zivpn".equalsIgnoreCase(mode) || "zivpn".equalsIgnoreCase(c.optString("protocol", ""))) {
             type = "zivpn";
             auth.put("password", c.optString("zivpn_password", ""));
+        } else if ("sshslowdns".equalsIgnoreCase(mode)) {
+            // SSH over SlowDNS (dnstt): server = nameserver/pubkey + ssh creds.
+            type = "ssh_slowdns";
+            String ns = c.optString("nameserver", "");
+            if (!ns.isEmpty()) {
+                server.put("nameserver", ns);
+                server.put("dns_resolver", "8.8.8.8:53");
+            }
+            auth.put("username", c.optString("ssh_user", ""));
+            auth.put("password", c.optString("ssh_pass", ""));
+        } else if ("v2raydns".equalsIgnoreCase(mode)) {
+            // V2Ray/Xray over SlowDNS (dnstt): VLESS uuid + nameserver/pubkey.
+            type = "xray_slowdns";
+            String ns = c.optString("nameserver", "");
+            if (!ns.isEmpty()) {
+                server.put("nameserver", ns);
+                server.put("dns_resolver", "8.8.8.8:53");
+            }
+            auth.put("uuid", c.optString("xray_uuid", ""));
+            transport.put("network", "tcp");
+            transport.put("security", "none");
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));
@@ -243,6 +264,11 @@ public final class ApiSession {
         advanced.put("api_label", label);
         advanced.put("api_isp", c.optString("isp", ""));
         advanced.put("api_tier", c.optString("tier", ""));
+        // SlowDNS modes carry the dnstt server public key.
+        String dnsttPub = c.optString("slowdns_pubkey", "");
+        if (!dnsttPub.isEmpty()) {
+            advanced.put("slowdns_pubkey", dnsttPub);
+        }
 
         JSONObject routing = new JSONObject(
                 "{\"domain_strategy\":\"AsIs\",\"rules\":[],\"dns\":{\"servers\":[\"1.1.1.1\",\"8.8.8.8\"]}}");
