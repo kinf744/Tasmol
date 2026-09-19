@@ -219,8 +219,9 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	bin := LookupBin(BinDir, BinXray)
 	Tracef("[xray] resolved binary=%q", bin)
 	t.cmd = exec.CommandContext(ctx, bin, "run", "-config", t.configPath)
+	t.cmd.Env = append(os.Environ(), androidCAEnv()...)
 	if BinDir != "" {
-		t.cmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
+		t.cmd.Env = append(t.cmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
 	}
 	Tracef("[xray] binary=%q config=%s", t.cmd.Path, configContent)
 

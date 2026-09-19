@@ -204,6 +204,22 @@ func LiveForward(id string) int {
 	return p
 }
 
+// androidCAEnv returns SSL_CERT_DIR pointing at Android's system CA store.
+// The bundled xray is a linux/arm build: on Android, Go's linux x509 loader
+// looks for roots in /etc/ssl/certs & co. — none exist inside the app
+// sandbox — so EVERY TLS outbound fails with "certificate signed by
+// unknown authority". Go honors SSL_CERT_DIR, and Android keeps its root
+// CAs (OpenSSL-hashed files, the exact format the loader expects) in
+// /system/etc/security/cacerts, which is world-readable. This restores
+// real certificate verification for all TLS outbounds; the live-chain
+// pinning (pinnedPeerCertSha256) stays as an extra layer.
+func androidCAEnv() []string {
+	if st, err := os.Stat("/system/etc/security/cacerts"); err == nil && st.IsDir() {
+		return []string{"SSL_CERT_DIR=/system/etc/security/cacerts"}
+	}
+	return nil
+}
+
 // XrayDNSServers returns the custom DNS pair for generated xray configs
 // (Settings), falling back per entry when invalid.
 func XrayDNSServers() []string {

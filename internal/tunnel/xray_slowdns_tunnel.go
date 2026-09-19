@@ -244,8 +244,9 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 
 	Tracef("[xray-slowdns] phase 2/2: starting xray")
 	t.xrayCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", t.configPath)
+	t.xrayCmd.Env = append(os.Environ(), androidCAEnv()...)
 	if BinDir != "" {
-		t.xrayCmd.Env = append(os.Environ(), "XRAY_LOCATION_ASSET="+BinDir)
+		t.xrayCmd.Env = append(t.xrayCmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
 	}
 	Tracef("[xray-slowdns] binary=%q config=%s", t.xrayCmd.Path, configContent)
 	stdout, err := t.xrayCmd.StdoutPipe()
