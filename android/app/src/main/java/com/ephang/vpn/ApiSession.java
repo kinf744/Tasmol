@@ -263,6 +263,10 @@ public final class ApiSession {
             if (!host.isEmpty()) {
                 transport.put("host", host);
             }
+            String path = c.optString("path", "");
+            if (!path.isEmpty()) {
+                transport.put("path", path);
+            }
         }
 
         JSONObject advanced = new JSONObject();

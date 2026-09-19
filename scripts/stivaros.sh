@@ -61,6 +61,18 @@ readonly V2RAY_BIN="/usr/local/bin/v2ray"
 readonly V2RAY_DIR="/etc/v2ray"
 readonly V2RAY_PORT=5401
 
+# Orange illimité: SNI/adresse FIXES, seul le host XHTTP est administrable
+# (exactement UN host à la fois, partagé par toutes les configs orange).
+readonly ORANGE_ADDR="reprise.orange-business.com"
+readonly ORANGE_HOST_FILE="$INSTALL_DIR/orange_host.txt"
+
+# Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
+readonly XRAY_STATS_ADDR="127.0.0.1:10085"
+readonly V2RAY_STATS_ADDR="127.0.0.1:10086"
+readonly QUOTA_STATE="$INSTALL_DIR/quota_state.json"
+readonly QUOTA_SCRIPT="$API_DIR/quota.py"
+readonly QUOTA_TIMER="stivaros-quota.timer"
+
 # ── Couleurs / sortie ──────────────────────────────────────────────────
 if [[ -t 1 ]]; then
     RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
@@ -277,25 +289,39 @@ install_xray() {
   "log": { "loglevel": "warning",
            "access": "/var/log/xray/access.log",
            "error": "/var/log/xray/error.log" },
-  "inbounds": [{
-    "port": 443,
-    "protocol": "vless",
-    "settings": { "clients": [{"id": "$XRAY_UUID_DEFAULT"}], "decryption": "none" },
-    "streamSettings": {
-      "network": "xhttp",
-      "security": "tls",
-      "tlsSettings": { "certificates": [{
-          "certificateFile": "$XRAY_DIR/xray.crt",
-          "keyFile": "$XRAY_DIR/xray.key" }] },
-      "xhttpSettings": { "path": "$XRAY_PATH" }
+  "stats": {},
+  "api": { "tag": "api", "services": ["StatsService"] },
+  "policy": {
+    "levels": { "0": { "statsUserUplink": true, "statsUserDownlink": true } },
+    "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
+  },
+  "inbounds": [
+    {
+      "port": 443,
+      "protocol": "vless",
+      "settings": { "clients": [{"id": "$XRAY_UUID_DEFAULT", "email": "default"}], "decryption": "none" },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "tls",
+        "tlsSettings": { "certificates": [{
+            "certificateFile": "$XRAY_DIR/xray.crt",
+            "keyFile": "$XRAY_DIR/xray.key" }] },
+        "xhttpSettings": { "path": "$XRAY_PATH" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
     },
-    "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
-  }],
+    {
+      "tag": "api", "listen": "127.0.0.1", "port": 10085,
+      "protocol": "dokodemo-door",
+      "settings": { "address": "127.0.0.1" }
+    }
+  ],
   "outbounds": [
     { "protocol": "freedom", "tag": "direct" },
     { "protocol": "blackhole", "tag": "blocked" }
   ],
   "routing": { "rules": [
+    { "type": "field", "inboundTag": ["api"], "outboundTag": "api" },
     { "type": "field", "ip": ["geoip:private"], "outboundTag": "blocked" },
     { "type": "field", "protocol": ["bittorrent"], "outboundTag": "blocked" }
   ] }
@@ -363,7 +389,8 @@ if default not in uuids:
     uuids.insert(0, default)
 with open("/etc/xray/config.json") as f:
     cfg = json.load(f)
-cfg["inbounds"][0]["settings"]["clients"] = [{"id": u} for u in uuids]
+cfg["inbounds"][0]["settings"]["clients"] = [
+    {"id": u, "email": u, "level": 0} for u in uuids]
 tmp = "/etc/xray/config.json.tmp"
 with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
@@ -394,6 +421,8 @@ install_zivpn() {
     [[ -f "$ZIVPN_USER_FILE" ]] || : > "$ZIVPN_USER_FILE"
     chmod 600 "$ZIVPN_USER_FILE"
 
+    local stats_token
+    stats_token=$(generate_secret)
     cat > "$ZIVPN_CONFIG" << EOF
 {
   "listen": ":$ZIVPN_PORT",
@@ -405,6 +434,9 @@ install_zivpn() {
   "disable_mtu_discovery": false,
   "max_conn_client": 4096,
   "exclude_port": [53, 5300, 4466, 36712, 20000],
+  "quotaStateFile": "/etc/zivpn/quota-state.json",
+  "statsAPI": { "listen": "127.0.0.1:10088", "token": "$stats_token" },
+  "quota": {},
   "auth": { "mode": "passwords", "config": ["zi"] }
 }
 EOF
@@ -487,12 +519,39 @@ zivpn_update_passwords() {
     pw=$(awk -F'|' 'NF>=2 {print $2}' "$ZIVPN_USER_FILE" 2>/dev/null | sort -u | paste -sd, -)
     [[ -z "$pw" ]] && pw="zi"
     tmp=$(mktemp)
-    if jq --arg p "$pw" '.auth.config = ($p | split(","))' "$ZIVPN_CONFIG" > "$tmp" 2>/dev/null \
-       && jq empty "$tmp" 2>/dev/null; then
-        chmod 600 "$tmp"; mv "$tmp" "$ZIVPN_CONFIG"
+    # auth.config = passwords actifs ; quota = map mot-de-passe -> "NGB"
+    # (enforcement natif zivpn, compté par authID = password).
+    DB_PATH="$DB_PATH" python3 - "$ZIVPN_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
+import json, os, sqlite3, sys
+
+cfg_path, tmp = sys.argv[1], sys.argv[2]
+with open(cfg_path) as f:
+    cfg = json.load(f)
+quota = {}
+try:
+    conn = sqlite3.connect(os.environ["DB_PATH"])
+    rows = conn.execute("""
+        SELECT v.zivpn_password, u.quota_mb FROM vpn_configs v
+        JOIN users u ON v.user_id = u.id
+        WHERE v.mode = 'zivpn' AND v.zivpn_password != ''
+          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
+    """).fetchall()
+    conn.close()
+    for pw, mb in rows:
+        if mb and mb > 0:
+            quota[pw] = f"{mb / 1024:.1f}GB"
+except Exception:
+    pass
+cfg["quota"] = quota
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+    if [[ -s "$tmp" ]] && jq --arg p "$pw" '.auth.config = ($p | split(","))' "$tmp" > "$tmp.2" 2>/dev/null \
+       && jq empty "$tmp.2" 2>/dev/null; then
+        chmod 600 "$tmp.2"; mv "$tmp.2" "$ZIVPN_CONFIG"; rm -f "$tmp"
         tunnel_active zivpn && systemctl restart zivpn
     else
-        rm -f "$tmp"
+        rm -f "$tmp" "$tmp.2"
         error "Config ZIVPN invalide — inchangée"
         return 1
     fi
@@ -544,6 +603,12 @@ install_v2ray() {
   "log": { "loglevel": "warning",
            "access": "/var/log/v2ray/access.log",
            "error": "/var/log/v2ray/error.log" },
+  "stats": {},
+  "api": { "tag": "api", "services": ["StatsService"] },
+  "policy": {
+    "levels": { "0": { "statsUserUplink": true, "statsUserDownlink": true } },
+    "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
+  },
   "inbounds": [
     { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "vless",
       "settings": { "clients": [], "decryption": "none" },
@@ -552,9 +617,14 @@ install_v2ray() {
     { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "trojan",
       "settings": { "clients": [] },
       "streamSettings": { "network": "tcp", "security": "none" },
-      "tag": "TROJAN-TCP" }
+      "tag": "TROJAN-TCP" },
+    { "tag": "api", "listen": "127.0.0.1", "port": 10086,
+      "protocol": "dokodemo-door", "settings": { "address": "127.0.0.1" } }
   ],
-  "outbounds": [{ "protocol": "freedom", "settings": {} }]
+  "outbounds": [{ "protocol": "freedom", "settings": {} }],
+  "routing": { "rules": [
+    { "type": "field", "inboundTag": ["api"], "outboundTag": "api" }
+  ] }
 }
 EOF
     chmod 600 "$V2RAY_DIR/config.json"
@@ -610,7 +680,7 @@ try:
         JOIN users u ON v.user_id = u.id
         WHERE u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
     """).fetchall()
-    clients = [{"id": r[0], "password": r[0], "level": 0, "email": ""}
+    clients = [{"id": r[0], "password": r[0], "level": 0, "email": r[0]}
                for r in rows if r[0]]
     conn.close()
 except Exception:
@@ -816,7 +886,9 @@ def init_db():
             app_version TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')),
             expires_at TEXT,
-            active INTEGER DEFAULT 1
+            active INTEGER DEFAULT 1,
+            quota_mb INTEGER DEFAULT 0,
+            bytes_used INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS vpn_configs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -839,9 +911,13 @@ def init_db():
     """)
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
-                     ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''")]:
+                     ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
+                     ("path", "TEXT DEFAULT ''"),
+                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
+        # quota_mb/bytes_used ciblent la table users
+        table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
         try:
-            conn.execute(f"ALTER TABLE vpn_configs ADD COLUMN {col} {ddl}")
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         except Exception:
             pass
     conn.commit()
@@ -939,6 +1015,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "V2Ray + SlowDNS"
                 elif mode == "sshslowdns":
                     label = "SSH + SlowDNS"
+                elif mode == "xray" and isp == "orange":
+                    label = "Orange Illimité"
                 elif mode == "xray" and isp == "mtn" and tier == "150":
                     label = "MTN 150Mo"
                 elif mode == "xray" and isp == "mtn" and tier == "100":
@@ -957,6 +1035,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     "sni": cfg["sni"], "host": cfg["host"] or cfg["server_address"],
                     "flow": cfg["flow"] or "", "tier": tier, "mode": mode, "isp": isp,
                     "xray_uuid": cfg["xray_uuid"] or "",
+                    "path": cfg["path"] or "",
                     "config_id": cfg["id"],
                 }
                 if mode == "zivpn":
@@ -1072,12 +1151,66 @@ EOF
     systemctl daemon-reload
     systemctl enable --now stivaros-api
     systemctl restart stivaros-api
+    install_quota_engine
 
     command -v ufw &>/dev/null && ufw allow "$API_PORT/tcp" 2>/dev/null || true
 
     msg "API active sur le port $API_PORT"
     echo -e "${YELLOW}  Clé API (à conserver) : $secret${NC}"
     log "API installée (port $API_PORT)"
+    pause
+}
+
+# ══════════════════════════════════════════════════════════════════════
+#  CONFIG ORANGE ILLIMITÉ (host unique, administrable)
+# ══════════════════════════════════════════════════════════════════════
+
+orange_host_get() { [[ -f "$ORANGE_HOST_FILE" ]] && head -1 "$ORANGE_HOST_FILE" | tr -d '[:space:]' || true; }
+
+# Définit (ou remplace) LE host Orange; propage à toutes les configs
+# orange existantes. Un seul host possible: l'ancien est écrasé.
+orange_host_set() {
+    local h="$1"
+    valid_domain "$h" || { error "Host invalide: $h"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$h" > "$ORANGE_HOST_FILE"; chmod 600 "$ORANGE_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='$(sqlq "$h")' WHERE isp='orange' AND mode='xray';"
+    msg "Host Orange défini: $h (${BOLD}remplacé partout${NC})"
+    log "orange host -> $h"
+}
+
+orange_host_delete() {
+    rm -f "$ORANGE_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='' WHERE isp='orange' AND mode='xray';"
+    warn "Host Orange supprimé (les configs orange sont incomplètes tant qu'aucun host n'est défini)"
+}
+
+orange_menu() {
+    banner; echo -e "${BOLD}Config Orange Illimité — host XHTTP${NC}\n"
+    echo -e "  SNI/adresse (fixes) : ${CYAN}$ORANGE_ADDR${NC}"
+    echo -e "  Path                : ${CYAN}$XRAY_PATH${NC}"
+    local cur
+    cur=$(orange_host_get)
+    echo -e "  Host actuel         : ${CYAN}${cur:-<aucun>}${NC}"
+    echo
+    echo "  1) Ajouter / remplacer le host"
+    echo "  2) Supprimer le host"
+    echo "  0) Retour"
+    echo
+    local c
+    read -r -p "Choix: " c
+    case "$c" in
+        1)
+            local h
+            read -r -p "Host (ex: xxx.platformsh.site): " h
+            [[ -n "$h" ]] && orange_host_set "$h"
+            ;;
+        2)
+            confirm "Supprimer le host Orange ?" && orange_host_delete
+            ;;
+    esac
     pause
 }
 
@@ -1117,6 +1250,9 @@ create_user() {
     valid_date "$expires" || { error "Date invalide"; pause; return 1; }
     [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
         || { error "Date d'expiration dans le passé"; pause; return 1; }
+    local quota_mb
+    read -r -p "Quota data en Mo (0 = illimité): " quota_mb
+    [[ "$quota_mb" =~ ^[0-9]+$ ]] || { error "Quota invalide"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin.
     echo
@@ -1149,8 +1285,8 @@ create_user() {
     e_ns4=$(sqlq "$ns4"); e_nv4=$(sqlq "$nv4"); e_pub=$(sqlq "$dnstt_pub")
 
     sqlite3 -batch "$DB_PATH" << SQL
-INSERT INTO users (uuid, phone, name, activation_code, expires_at, active)
-VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1);
+INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb)
+VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb);
 
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid)
 SELECT id, '$e_srv', 443, 'vless', 'xhttp', 1, '$e_srv', '$e_srv', 'mtn', '', '', '150', '$xray_uuid' FROM users WHERE uuid='$uuid';
@@ -1161,6 +1297,11 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
 SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+
+-- Orange illimité: SNI/adresse fixes, host XHTTP administrable (menu 8),
+-- uuid propre au compte, path = path du tunnel Xray.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH' FROM users WHERE uuid='$uuid';
 
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
 SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
@@ -1261,6 +1402,265 @@ delete_users() {
 }
 
 # ══════════════════════════════════════════════════════════════════════
+#  QUOTA DATA (synchrone, tous tunnels, blocage automatique)
+#
+#  Sources de comptage:
+#    - Xray  : API stats locale (xray api statsquery, compteurs par email=uuid)
+#    - V2Ray : même mécanisme (v2ray api statsquery)
+#    - ZIVPN : enforcement NATIF (map quota par mot de passe) + lecture du
+#              quota-state.json pour l'affichage
+#  Les compteurs des process repartent à 0 à chaque restart: on accumule
+#  les deltas dans users.bytes_used (state: /opt/stivaros/quota_state.json).
+#  Quota atteint -> compte bloqué partout (users.active=0 + retrait des
+#  credentials dans chaque tunnel + lock du compte SSH système).
+# ══════════════════════════════════════════════════════════════════════
+
+install_quota_engine() {
+    cat > "$QUOTA_SCRIPT" << 'PYEOF'
+#!/usr/bin/env python3
+"""Stivaros quota engine: accumulate per-account traffic and block over-quota."""
+import json, os, sqlite3, subprocess, sys
+
+DB = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
+STATE = os.environ.get("STIVAROS_QUOTA_STATE", "/opt/stivaros/quota_state.json")
+XRAY = "/usr/local/bin/xray"
+V2RAY = "/usr/local/bin/v2ray"
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def save_state(s):
+    tmp = STATE + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(s, f)
+    os.replace(tmp, STATE)
+    os.chmod(STATE, 0o600)
+
+def stats_query(binary, addr):
+    """Compteurs user>>>email>>>traffic>>>u{plink,downlink} -> {email: bytes}."""
+    try:
+        r = subprocess.run([binary, "api", "statsquery", "--server=" + addr,
+                            "-pattern", "user>>>"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return {}
+    out = {}
+    last_name = ""
+    for line in r.stdout.splitlines():
+        # sortie proto-text (multiligne):
+        #   stat: <
+        #     name: "user>>>EMAIL>>>traffic>>>uplink"
+        #     value: 1234
+        #   >
+        clean = line.strip().replace('"', " ")
+        parts = clean.split()
+        if parts[:1] == ["name:"]:
+            last_name = parts[1] if len(parts) > 1 else ""
+            continue
+        if parts[:1] == ["value:"] and ">>>" in last_name:
+            seg = last_name.split(">>>")
+            if len(seg) >= 4 and seg[0] == "user" and seg[2] == "traffic":
+                try:
+                    out[seg[1]] = out.get(seg[1], 0) + int(parts[1])
+                except (ValueError, IndexError):
+                    pass
+            last_name = ""
+    return out
+
+def main():
+    conn = sqlite3.connect(DB)
+    conn.row_factory = sqlite3.Row
+    users = conn.execute(
+        "SELECT id, uuid, name, phone, quota_mb, bytes_used, active FROM users").fetchall()
+    by_uuid = {u["uuid"]: u for u in users}
+
+    state = load_state()
+    usage_now = {}      # uuid -> bytes constatés ce cycle
+    # Xray / V2Ray: compteurs par email (= uuid)
+    for key, binary, addr in (("xray", XRAY, "127.0.0.1:10085"),
+                              ("v2ray", V2RAY, "127.0.0.1:10086")):
+        if not os.path.exists(binary):
+            continue
+        for uuid, total in stats_query(binary, addr).items():
+            usage_now.setdefault(uuid, {})[key] = total
+    # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid
+    try:
+        with open("/etc/zivpn/quota-state.json") as f:
+            zstate = json.load(f)
+        pw_rows = conn.execute(
+            "SELECT v.zivpn_password, u.uuid FROM vpn_configs v"
+            " JOIN users u ON v.user_id = u.id WHERE v.zivpn_password != ''").fetchall()
+        pw2uuid = {r[0]: r[1] for r in pw_rows}
+        used_map = zstate.get("used", zstate) if isinstance(zstate, dict) else {}
+        for pw, total in (used_map.items() if isinstance(used_map, dict) else []):
+            uuid = pw2uuid.get(pw)
+            if uuid:
+                try:
+                    usage_now.setdefault(uuid, {})["zivpn"] = int(total)
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
+
+    # Accumulation delta (compteurs remis à 0 au restart du tunnel).
+    for uuid, per in usage_now.items():
+        prev = state.get(uuid, {})
+        delta = 0
+        for src, val in per.items():
+            last = int(prev.get(src, 0))
+            delta += val - last if val >= last else val  # restart -> tout compte
+        if delta > 0:
+            conn.execute("UPDATE users SET bytes_used = COALESCE(bytes_used,0) + ? WHERE uuid = ?",
+                         (delta, uuid))
+        state[uuid] = per
+
+    # Quota dépassé -> blocage du compte (tous tunnels).
+    blocked = []
+    for u in users:
+        q = u["quota_mb"] or 0
+        if q <= 0 or not u["active"]:
+            continue
+        used = conn.execute("SELECT bytes_used FROM users WHERE id = ?",
+                            (u["id"],)).fetchone()[0] or 0
+        if used >= q * 1024 * 1024:
+            conn.execute("UPDATE users SET active = 0 WHERE id = ?", (u["id"],))
+            blocked.append(u)
+    conn.commit()
+
+    # Purge des credentials dans chaque tunnel pour les bloqués.
+    for u in blocked:
+        # SSH système
+        ssh_user = (u["phone"] or "").lstrip("+")
+        ssh_user = "".join(c for c in ssh_user if c.isdigit())
+        if ssh_user:
+            subprocess.run(["usermod", "-L", ssh_user], capture_output=True)
+        sys.stderr.write("[quota] BLOQUE: %s (%s)\n" % (u["name"], u["uuid"]))
+    conn.close()
+    save_state(state)
+    if blocked:
+        # Resynchronise xray/v2ray/zivpn sans les comptes bloqués.
+        os.system("/usr/local/bin/stivaros-sync 2>/dev/null || true")
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main())
+PYEOF
+    chmod 750 "$QUOTA_SCRIPT"
+
+    # Helper de resynchronisation appelé après blocage: recharge les
+    # credentials de tous les tunnels sans rien réinstaller.
+    cat > /usr/local/bin/stivaros-sync << 'EOF'
+#!/bin/bash
+for p in /usr/local/bin/stivaros.sh /opt/stivaros/stivaros.sh; do
+    [ -f "$p" ] && exec bash "$p" --sync-only
+done
+# Fallback: aucune copie du panel trouvée.
+exit 0
+EOF
+    chmod 755 /usr/local/bin/stivaros-sync
+
+    # Timer systemd: quota vérifié toutes les 2 minutes.
+    cat > /etc/systemd/system/stivaros-quota.service << EOF
+[Unit]
+Description=Stivaros quota accounting/enforcement
+
+[Service]
+Type=oneshot
+Environment="STIVAROS_DB=$DB_PATH"
+Environment="STIVAROS_QUOTA_STATE=$QUOTA_STATE"
+ExecStart=/usr/bin/env python3 $QUOTA_SCRIPT
+EOF
+    cat > /etc/systemd/system/$QUOTA_TIMER << 'EOF'
+[Unit]
+Description=Stivaros quota engine (2 min)
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now "$QUOTA_TIMER"
+    msg "Moteur de quota actif (toutes les 2 min)"
+}
+
+fmt_bytes() {
+    python3 -c "
+b=float('$1' or 0)
+for u in ('o','Ko','Mo','Go','To'):
+    if b < 1024 or u=='To':
+        print(f'{b:.1f} {u}' if u!='o' else f'{int(b)} o'); break
+    b/=1024"
+}
+
+# Affiche nom / expiration / consommation quota par compte.
+quotas_menu() {
+    banner; echo -e "${BOLD}Quotas data par compte${NC}\n"
+    [[ -f "$DB_PATH" ]] || { error "API non installée"; pause; return 1; }
+    printf "${CYAN}%-3s | %-12s | %-10s | %-18s | %s${NC}\n" \
+        "#" "Nom" "Expire" "Utilisé / Quota" "Statut"
+    printf -- "----|--------------|------------|--------------------|----------\n"
+    local today
+    today=$(date +%F)
+    while IFS='|' read -r id name expires quota used active; do
+        local qtxt st
+        if [[ "$quota" -gt 0 ]]; then
+            qtxt="$(fmt_bytes "$used") / $((quota)) Mo"
+        else
+            qtxt="$(fmt_bytes "$used") / illimité"
+        fi
+        if [[ "$active" -eq 0 ]]; then st="${RED}bloqué${NC}"
+        elif [[ -n "$expires" && "$expires" < "$today" ]]; then st="${YELLOW}expiré${NC}"
+        else st="${GREEN}actif${NC}"; fi
+        printf "%-3s | %-12s | %-10s | %-18s | %b\n" "$id" "$name" "$expires" "$qtxt" "$st"
+    done < <(sqlite3 -batch "$DB_PATH" \
+        "SELECT id, COALESCE(name,''), COALESCE(expires_at,''), COALESCE(quota_mb,0), COALESCE(bytes_used,0), active FROM users ORDER BY id;")
+    echo
+    echo "  1) Modifier le quota d'un compte"
+    echo "  2) Débloquer un compte (quota réinitialisé à 0)"
+    echo "  0) Retour"
+    echo
+    local c
+    read -r -p "Choix: " c
+    case "$c" in
+        1)
+            local id q
+            read -r -p "N° compte: " id
+            [[ "$id" =~ ^[0-9]+$ ]] || { error "N° invalide"; pause; return; }
+            read -r -p "Nouveau quota (Mo, 0 = illimité): " q
+            [[ "$q" =~ ^[0-9]+$ ]] || { error "Quota invalide"; pause; return; }
+            sql "UPDATE users SET quota_mb=$q WHERE id=$id;"
+            zivpn_update_passwords 2>/dev/null || true
+            msg "Quota mis à jour"
+            ;;
+        2)
+            local id
+            read -r -p "N° compte: " id
+            [[ "$id" =~ ^[0-9]+$ ]] || { error "N° invalide"; pause; return; }
+            sql "UPDATE users SET active=1, bytes_used=0 WHERE id=$id;"
+            local phone
+            phone=$(sqlite3 -batch "$DB_PATH" "SELECT phone FROM users WHERE id=$id;")
+            ssh_account_delete_lock "${phone#+}" 2>/dev/null || true
+            xray_sync_uuids; v2ray_sync_users; zivpn_update_passwords
+            msg "Compte #$id débloqué, compteur remis à zéro"
+            ;;
+    esac
+    pause
+}
+
+ssh_account_delete_lock() {
+    local u="${1//[^0-9]/}"
+    [[ -n "$u" ]] && id "$u" &>/dev/null && usermod -U "$u" 2>/dev/null || true
+}
+
+# ══════════════════════════════════════════════════════════════════════
 #  MENUS
 # ══════════════════════════════════════════════════════════════════════
 
@@ -1358,6 +1758,7 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable --now stivaros-api
+        install_quota_engine
         msg "API installée (port $API_PORT)"
         echo -e "${YELLOW}  Clé API : $secret${NC}"
     else
@@ -1415,6 +1816,8 @@ menu() {
         echo "  5) Gestion des tunnels"
         echo "  6) État des tunnels"
         echo "  7) Désinstaller tout"
+        echo "  8) Config Orange (host)"
+        echo "  9) Quotas & consommation"
         echo "  0) Quitter"
         echo
         local c
@@ -1427,6 +1830,8 @@ menu() {
             5) tunnel_menu ;;
             6) tunnels_status ;;
             7) uninstall_all ;;
+            8) orange_menu ;;
+            9) quotas_menu ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
@@ -1439,11 +1844,17 @@ main() {
     mkdir -p "$(dirname "$LOG_FILE")"
     touch "$LOG_FILE" && chmod 640 "$LOG_FILE"
     case "${1:-}" in
-        --api)     install_api ;;
-        --create)  create_user ;;
-        --list)    list_users ;;
-        --tunnels) tunnel_menu ;;
-        *)         menu ;;
+        --api)       install_api ;;
+        --create)    create_user ;;
+        --list)      list_users ;;
+        --tunnels)   tunnel_menu ;;
+        --sync-only)
+            # Appelé par le moteur de quota après un blocage.
+            xray_sync_uuids 2>/dev/null || true
+            v2ray_sync_users 2>/dev/null || true
+            zivpn_update_passwords 2>/dev/null || true
+            ;;
+        *) menu ;;
     esac
 }
 
