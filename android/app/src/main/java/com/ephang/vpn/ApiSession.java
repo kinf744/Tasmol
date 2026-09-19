@@ -217,6 +217,14 @@ public final class ApiSession {
         if ("zivpn".equalsIgnoreCase(mode) || "zivpn".equalsIgnoreCase(c.optString("protocol", ""))) {
             type = "zivpn";
             auth.put("password", c.optString("zivpn_password", ""));
+            // Multi-range round-robin: 8 sub-ranges covering 6000-19999
+            // (server DNATs them all to :5667). API may override.
+            String ranges = c.optString("port_range", "");
+            if (ranges.isEmpty()) {
+                ranges = "6000-7750,7751-9500,9501-11250,11251-13000,"
+                        + "13001-14750,14751-16500,16501-18250,18251-19999";
+            }
+            server.put("port_range", ranges);
         } else if ("sshslowdns".equalsIgnoreCase(mode)) {
             // SSH over SlowDNS (dnstt): server = nameserver/pubkey + ssh creds.
             type = "ssh_slowdns";

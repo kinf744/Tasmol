@@ -43,7 +43,10 @@ readonly ZIVPN_CONFIG="/etc/zivpn/config.json"
 readonly ZIVPN_USER_FILE="/etc/zivpn/users.list"
 readonly ZIVPN_DOMAIN_FILE="/etc/zivpn/domain.txt"
 readonly ZIVPN_PORT=5667
+# DNAT serveur (nft) — couvre toutes les sous-plages clients.
 readonly ZIVPN_RANGE="6000-19999"
+# Plages clients round-robin (8 sous-plages, un processus par plage).
+readonly ZIVPN_RANGES="6000-7750,7751-9500,9501-11250,11251-13000,13001-14750,14751-16500,16501-18250,18251-19999"
 
 # SlowDNS (dnstt + dnsdist)
 readonly SLOWDNS_DIR="/etc/slowdns"
@@ -828,6 +831,7 @@ def init_db():
             tier TEXT DEFAULT '150',
             xray_uuid TEXT DEFAULT '',
             zivpn_password TEXT DEFAULT '', zivpn_port INTEGER DEFAULT 5667,
+            port_range TEXT DEFAULT '',
             nameserver TEXT DEFAULT '', slowdns_pubkey TEXT DEFAULT '',
             ssh_user TEXT DEFAULT '', ssh_pass TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(id)
@@ -835,7 +839,7 @@ def init_db():
     """)
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
-                     ("host", "TEXT DEFAULT ''")]:
+                     ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''")]:
         try:
             conn.execute(f"ALTER TABLE vpn_configs ADD COLUMN {col} {ddl}")
         except Exception:
@@ -957,6 +961,9 @@ class APIHandler(BaseHTTPRequestHandler):
                 }
                 if mode == "zivpn":
                     entry["zivpn_password"] = cfg["zivpn_password"] or ""
+                    entry["port_range"] = cfg["port_range"] or \
+                        "6000-7750,7751-9500,9501-11250,11251-13000," \
+                        "13001-14750,14751-16500,16501-18250,18251-19999"
                 if mode in ("v2raydns", "sshslowdns"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""
@@ -1150,10 +1157,10 @@ SELECT id, '$e_srv', 443, 'vless', 'xhttp', 1, '$e_srv', '$e_srv', 'mtn', '', ''
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid)
 SELECT id, '$e_srv', 443, 'vless', 'xhttp', 1, '$e_srv', '$e_srv', 'mtn', '', '', '100', '$xray_uuid' FROM users WHERE uuid='$uuid';
 
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password)
-SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password)
-SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
 
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
 SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
