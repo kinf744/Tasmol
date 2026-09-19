@@ -120,7 +120,7 @@ public final class ApiSession {
     public static String activate(Context ctx, JSONObject apiCfg) throws Exception {
         String cfgPath = BinaryManager.configPath(ctx).getAbsolutePath();
         String tunnelId = activeTunnelId(ctx);
-        String json = toTunnelJson(apiCfg);
+        String json = toTunnelJson(apiCfg).toString();
 
         boolean updated = false;
         if (!tunnelId.isEmpty()) {
