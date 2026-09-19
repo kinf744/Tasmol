@@ -29,15 +29,6 @@
             android:textStyle="bold"
             android:typeface="monospace" />
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="api-v1.kingom.ggff.net"
-            android:textColor="@color/npv_dim"
-            android:textSize="11sp"
-            android:typeface="monospace" />
-
         <!-- Device UUID card -->
         <LinearLayout
             android:layout_width="match_parent"
@@ -73,11 +64,15 @@
                     android:textSize="12sp"
                     android:typeface="monospace" />
 
-                <Button
+                <TextView
                     android:id="@+id/auth_copy"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
-                    android:background="@android:color/transparent"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
                     android:text="COPIER"
                     android:textColor="@color/npv_green"
                     android:textSize="12sp"
@@ -138,12 +133,16 @@
                 android:typeface="monospace" />
         </LinearLayout>
 
-        <Button
+        <TextView
             android:id="@+id/auth_validate"
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginTop="24dp"
             android:background="@drawable/card_bg"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:letterSpacing="0.2"
             android:text="VALIDER"
             android:textColor="@color/npv_green"
             android:textSize="16sp"

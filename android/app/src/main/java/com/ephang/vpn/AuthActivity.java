@@ -4,7 +4,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
-import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -22,7 +21,7 @@ import org.json.JSONObject;
 public class AuthActivity extends AppCompatActivity {
     private EditText phoneInput;
     private EditText codeInput;
-    private Button validateBtn;
+    private TextView validateBtn;
     private TextView statusText;
 
     @Override
