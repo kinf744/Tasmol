@@ -30,6 +30,10 @@ public class HomeFragment extends Fragment {
     private TextView downText;
     private TextView upText;
     private Button pingBtn;
+    private View apiSection;
+    private android.widget.Spinner apiSpinner;
+    private android.widget.ImageButton removeActiveBtn;
+    private boolean spinnerGuard = false;
     private final Handler bg = new Handler(Looper.getMainLooper());
 
     @Nullable
@@ -77,12 +81,37 @@ public class HomeFragment extends Fragment {
                 ((MainActivity) getActivity()).goToConfigs();
             }
         });
-        v.findViewById(R.id.home_premium).setOnClickListener(view -> {
-            if (getActivity() instanceof MainActivity) {
-                ((MainActivity) getActivity()).goToMore();
+        // Trophy icon (top-right): API activation / account screen.
+        v.findViewById(R.id.home_premium).setOnClickListener(view ->
+                startActivity(new android.content.Intent(getContext(), AuthActivity.class)));
+        pingBtn.setOnClickListener(view -> pingActive());
+
+        // SERVER CONFIGS (API) section.
+        apiSection = v.findViewById(R.id.home_api_section);
+        apiSpinner = v.findViewById(R.id.home_api_spinner);
+        removeActiveBtn = v.findViewById(R.id.home_remove_active);
+        v.findViewById(R.id.home_api_update).setOnClickListener(view -> refreshApiConfigs(true));
+        apiSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view,
+                                       int position, long rowId) {
+                if (spinnerGuard) {
+                    return; // programmatic population, not a user choice
+                }
+                onApiConfigChosen(position);
+            }
+
+            @Override
+            public void onNothingSelected(android.widget.AdapterView<?> parent) {
             }
         });
-        pingBtn.setOnClickListener(view -> pingActive());
+        removeActiveBtn.setOnClickListener(view -> {
+            ApiSession.clearActive(requireContext());
+            VPNApplication.getInstance().setSelectedIds(new java.util.LinkedHashSet<>());
+            VPNApplication.getInstance().setActiveTunnelId("");
+            Toast.makeText(getContext(), "Config retirée", Toast.LENGTH_SHORT).show();
+            refreshStatus();
+        });
 
         refreshStatus();
         return v;
@@ -91,6 +120,11 @@ public class HomeFragment extends Fragment {
     public void refreshStatus() {
         if (connectBtn == null || getActivity() == null) {
             return;
+        }
+        updateApiSection();
+        boolean hasSelection = !VPNApplication.getInstance().getSelectedIds().isEmpty();
+        if (removeActiveBtn != null) {
+            removeActiveBtn.setVisibility(hasSelection ? View.VISIBLE : View.GONE);
         }
         int green = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_green);
         int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
@@ -268,6 +302,101 @@ public class HomeFragment extends Fragment {
 
     private static String prettyType(String type) {
         return TunnelAdapter.prettyType(type);
+    }
+
+    // ------------------------------------------------------------------
+    // SERVER CONFIGS (remote API) section
+    // ------------------------------------------------------------------
+
+    /** Visible only once the device is activated (trophy screen). */
+    private void updateApiSection() {
+        if (apiSection == null || getContext() == null) {
+            return;
+        }
+        boolean authed = ApiSession.isAuthenticated(requireContext());
+        apiSection.setVisibility(authed ? View.VISIBLE : View.GONE);
+        if (authed) {
+            populateApiSpinner();
+        }
+    }
+
+    private void populateApiSpinner() {
+        org.json.JSONArray cfgs = ApiSession.configs(requireContext());
+        java.util.List<String> labels = new java.util.ArrayList<>();
+        labels.add(cfgs.length() == 0 ? "— appuyez sur UPDATE —" : "Choisir une config…");
+        for (int i = 0; i < cfgs.length(); i++) {
+            JSONObject c = cfgs.optJSONObject(i);
+            if (c == null) {
+                continue;
+            }
+            String label = c.optString("label", "config");
+            String mode = c.optString("mode", "");
+            labels.add(mode.isEmpty() ? label : label + "  (" + mode + ")");
+        }
+        android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
+                requireContext(), android.R.layout.simple_spinner_dropdown_item, labels);
+        spinnerGuard = true;
+        apiSpinner.setAdapter(ad);
+        apiSpinner.setSelection(0, false);
+        spinnerGuard = false;
+    }
+
+    /** UPDATE button: pull the freshest config list from the API. */
+    private void refreshApiConfigs(boolean announce) {
+        if (getContext() == null || !ApiSession.isAuthenticated(requireContext())) {
+            return;
+        }
+        if (announce) {
+            Toast.makeText(getContext(), "Mise à jour…", Toast.LENGTH_SHORT).show();
+        }
+        ApiClient.fetchConfigs(ApiSession.deviceUuid(requireContext()),
+                ApiSession.code(requireContext()), (resp, err) -> {
+                    if (getContext() == null) {
+                        return;
+                    }
+                    if (err != null) {
+                        Toast.makeText(getContext(), "API: " + err.getMessage(),
+                                Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (resp == null || !resp.optBoolean("success", false)) {
+                        String msg = resp != null
+                                ? resp.optString("message", "échec de récupération")
+                                : "réponse vide";
+                        Toast.makeText(getContext(), "API: " + msg, Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    ApiSession.saveConfigs(requireContext(), ApiClient.configsOf(resp));
+                    populateApiSpinner();
+                    if (announce) {
+                        Toast.makeText(getContext(), "Configs mises à jour",
+                                Toast.LENGTH_SHORT).show();
+                    }
+                });
+    }
+
+    /** Dropdown selection: materialize + select the chosen remote config. */
+    private void onApiConfigChosen(int position) {
+        if (position <= 0 || getContext() == null) {
+            return; // placeholder row
+        }
+        org.json.JSONArray cfgs = ApiSession.configs(requireContext());
+        if (position - 1 >= cfgs.length()) {
+            return;
+        }
+        JSONObject c = cfgs.optJSONObject(position - 1);
+        if (c == null) {
+            return;
+        }
+        try {
+            ApiSession.activate(requireContext(), c);
+            Toast.makeText(getContext(),
+                    "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Config API invalide: " + e.getMessage(),
+                    Toast.LENGTH_LONG).show();
+        }
+        refreshStatus();
     }
 
     public static String formatBytes(long bytes) {

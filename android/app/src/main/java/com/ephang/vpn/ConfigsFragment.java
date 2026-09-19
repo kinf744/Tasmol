@@ -317,6 +317,31 @@ public class ConfigsFragment extends Fragment {
         if (id.isEmpty()) {
             return;
         }
+        // Conflict rule: an API config currently owns the selection and the
+        // user picked a manual profile. Warn; on confirm the API config is
+        // withdrawn (API mode back to standby) and manual selection resumes.
+        boolean isApiTunnel = id.equals(ApiSession.activeTunnelId(requireContext()));
+        if (ApiSession.isApiActive(requireContext()) && !isApiTunnel) {
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Mode API actif")
+                    .setMessage("Une config API est active. Les profils manuels sont "
+                            + "bloqués tant qu'elle est sélectionnée.\n\n"
+                            + "Retirer la config API et utiliser ce profil ?")
+                    .setPositiveButton("Retirer l'API", (d, w) -> {
+                        ApiSession.onManualSelection(requireContext());
+                        applyToggle(id, tunnel);
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
+            return;
+        }
+        applyToggle(id, tunnel);
+        // Manual selection while an API tunnel merely existed (not active)
+        // also puts API mode in standby.
+        ApiSession.onManualSelection(requireContext());
+    }
+
+    private void applyToggle(String id, JSONObject tunnel) {
         java.util.LinkedHashSet<String> set =
                 VPNApplication.getInstance().toggleSelected(id);
         String first = set.isEmpty() ? "" : set.iterator().next();

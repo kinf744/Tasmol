@@ -38,6 +38,12 @@
         </activity>
 
         <activity
+            android:name=".AuthActivity"
+            android:exported="false"
+            android:theme="@style/Theme.VPNApp.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".TunnelEditorActivity"
             android:exported="false"
             android:theme="@style/Theme.VPNApp.NoActionBar"

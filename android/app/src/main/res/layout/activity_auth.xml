@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/npv_bg"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <ImageView
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="24dp"
+            android:src="@drawable/ic_trophy" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:letterSpacing="0.25"
+            android:text="ACTIVATION"
+            android:textColor="@color/npv_green"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:typeface="monospace" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="api-v1.kingom.ggff.net"
+            android:textColor="@color/npv_dim"
+            android:textSize="11sp"
+            android:typeface="monospace" />
+
+        <!-- Device UUID card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.15"
+                android:text="DEVICE UUID"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/auth_uuid"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:textIsSelectable="true"
+                    android:textColor="@color/npv_text"
+                    android:textSize="12sp"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/auth_copy"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:text="COPIER"
+                    android:textColor="@color/npv_green"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Credentials card -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:letterSpacing="0.15"
+                android:text="NUMERO DE TELEPHONE"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <EditText
+                android:id="@+id/auth_phone"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:hint="ex: 2376XXXXXXXX"
+                android:inputType="phone"
+                android:textColor="@color/npv_text"
+                android:textColorHint="@color/npv_dim"
+                android:typeface="monospace" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:letterSpacing="0.15"
+                android:text="CODE (6 CHIFFRES)"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <EditText
+                android:id="@+id/auth_code"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:hint="••••••"
+                android:inputType="numberPassword"
+                android:maxLength="6"
+                android:textColor="@color/npv_text"
+                android:textColorHint="@color/npv_dim"
+                android:typeface="monospace" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/auth_validate"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="24dp"
+            android:background="@drawable/card_bg"
+            android:text="VALIDER"
+            android:textColor="@color/npv_green"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:typeface="monospace" />
+
+        <TextView
+            android:id="@+id/auth_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:gravity="center"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+    </LinearLayout>
+</ScrollView>

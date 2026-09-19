@@ -96,6 +96,53 @@
             android:textSize="14sp"
             android:typeface="monospace" />
 
+        <!-- SERVER CONFIGS: remote configs from the API (visible once
+             the device is activated via the trophy screen). -->
+        <LinearLayout
+            android:id="@+id/home_api_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:letterSpacing="0.2"
+                    android:text="SERVER CONFIGS"
+                    android:textColor="@color/npv_grey"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/home_api_update"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:background="@android:color/transparent"
+                    android:text="UPDATE"
+                    android:textColor="@color/npv_green"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+            </LinearLayout>
+
+            <Spinner
+                android:id="@+id/home_api_spinner"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+
         <LinearLayout
             android:id="@+id/home_config_card"
             android:layout_width="match_parent"
@@ -162,6 +209,17 @@
                     android:textColor="@color/npv_grey"
                     android:textSize="11sp"
                     android:typeface="monospace" />
+
+                <ImageButton
+                    android:id="@+id/home_remove_active"
+                    android:layout_width="32dp"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="Retirer la config active"
+                    android:padding="4dp"
+                    android:src="@android:drawable/ic_delete"
+                    android:visibility="gone" />
 
                 <ImageView
                     android:layout_width="24dp"
