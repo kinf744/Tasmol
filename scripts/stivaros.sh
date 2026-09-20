@@ -1099,6 +1099,16 @@ def init_db():
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         except Exception:
             pass
+    # Migration: les rows zivpn héritées pointaient vers l'ancienne
+    # instance partagée (:5667, DNAT 6000-19999). L'instance dédiée
+    # stivaros écoute :5668 avec DNAT 34000-49999.
+    conn.execute(
+        "UPDATE vpn_configs SET server_port = 5668, port_range = ?"
+        " WHERE mode = 'zivpn'"
+        "   AND (server_port != 5668 OR port_range NOT LIKE '34000-%')",
+        ("34000-35999,36000-37999,38000-39999,40000-41999,"
+         "42000-43999,44000-45999,46000-47999,48000-49999",))
+
     conn.commit()
     conn.close()
 
