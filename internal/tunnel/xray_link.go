@@ -92,11 +92,29 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 		// NOTE: never emit "allowInsecure": Xray 26.x removed it and
 		// aborts startup when present. IP-literal endpoints are handled
 		// by resolveDialAddr (SNI domain) + probeCertPins (cert pinning).
-		ss["tlsSettings"] = map[string]interface{}{
+		tlsm := map[string]interface{}{
 			"serverName":  cfg.Server.SNI,
 			"fingerprint": cfg.Transport.Fingerprint,
 			"alpn":        cfg.Transport.ALPN,
 		}
+		// SNI fronting (ex. configs MTN: SNI=mtnplay.com, host=domaine du
+		// serveur): le certificat présenté ne couvre pas le SNI, et
+		// allowInsecure n'existe plus. Comme pour les JSON complets, on
+		// épingle la chaîne live (pinnedPeerCertSha256): le pin remplace
+		// la vérification CA/hostname côté Xray.
+		if sni := strings.TrimSpace(cfg.Server.SNI); sni != "" &&
+			!strings.EqualFold(sni, cfg.Server.Host) &&
+			cfg.Server.Host != "" && cfg.Server.Port > 0 {
+			if pins, err := probeCertPins(resolveEndpoint(cfg, cfg.Server.Host),
+				cfg.Server.Port, sni); err == nil {
+				tlsm["pinnedPeerCertSha256"] = pins
+				Tracef("[xray] SNI fronting %s!=%s: cert chain pinned", sni, cfg.Server.Host)
+			} else {
+				Warnf("xray", "fronting cert probe %s via %s failed: %v",
+					sni, cfg.Server.Host, err)
+			}
+		}
+		ss["tlsSettings"] = tlsm
 	}
 
 	if cfg.Transport.Security == "reality" {

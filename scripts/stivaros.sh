@@ -262,9 +262,11 @@ self_signed() { # $1 key $2 cert $3 cn
 
 # ── Xray (VLESS + XHTTP + TLS :443) ────────────────────────────────────
 install_xray() {
-    banner; echo -e "${BOLD}Tunnel Xray (VLESS+XHTTP+TLS)${NC}\n"
+    banner; echo -e "${BOLD}Tunnel Xray (VLESS+XHTTP/WS+TLS)${NC}\n"
 
-    apt-get install -y -qq unzip ca-certificates 2>/dev/null || true
+    apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unzip ca-certificates haproxy 2>/dev/null \
+        || die "Échec installation haproxy"
 
     if ! tunnel_installed xray; then
         info "Téléchargement de Xray…"
@@ -297,7 +299,7 @@ install_xray() {
   },
   "inbounds": [
     {
-      "port": 443,
+      "listen": "127.0.0.1", "port": 4443,
       "protocol": "vless",
       "settings": { "clients": [{"id": "$XRAY_UUID_DEFAULT", "email": "default"}], "decryption": "none" },
       "streamSettings": {
@@ -307,6 +309,20 @@ install_xray() {
             "certificateFile": "$XRAY_DIR/xray.crt",
             "keyFile": "$XRAY_DIR/xray.key" }] },
         "xhttpSettings": { "path": "$XRAY_PATH" }
+      },
+      "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
+    },
+    {
+      "listen": "127.0.0.1", "port": 8443,
+      "protocol": "vless",
+      "settings": { "clients": [{"id": "$XRAY_UUID_DEFAULT", "email": "default"}], "decryption": "none" },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": { "certificates": [{
+            "certificateFile": "$XRAY_DIR/xray.crt",
+            "keyFile": "$XRAY_DIR/xray.key" }] },
+        "wsSettings": { "path": "/vless" }
       },
       "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
     },
@@ -349,9 +365,47 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
+    # HAProxy :443 en passthrough TCP, répartition par SNI (faux-SNI MTN → WS,
+    # le reste → XHTTP). La terminaison TLS reste chez Xray (cert unique).
+    cat > /etc/haproxy/haproxy.cfg << 'EOF'
+global
+    maxconn 100000
+    log /dev/log local0
+
+defaults
+    mode tcp
+    option tcplog
+    timeout connect 10s
+    timeout client 300s
+    timeout server 300s
+
+frontend tls_in
+    bind *:443
+    tcp-request inspect-delay 5s
+    tcp-request content accept if { req.ssl_hello_type 1 }
+    use_backend xray_ws if { req.ssl_sni -i mtnplay.com } || { req.ssl_sni -i yamo.mtn.cm }
+    default_backend xray_xhttp
+
+backend xray_xhttp
+    server x1 127.0.0.1:4443
+
+backend xray_ws
+    server x2 127.0.0.1:8443
+EOF
+
+    mkdir -p /etc/systemd/system/haproxy.service.d
+    cat > /etc/systemd/system/haproxy.service.d/override.conf << 'EOF'
+[Unit]
+StartLimitIntervalSec=0
+StartLimitBurst=0
+[Service]
+Restart=always
+RestartSec=5s
+EOF
+
     systemctl daemon-reload
-    systemctl enable --now xray
-    systemctl restart xray
+    systemctl enable --now xray haproxy
+    systemctl restart xray haproxy
     xray_sync_uuids 2>/dev/null || true
     tunnel_active xray && msg "Xray actif (port 443, path $XRAY_PATH)" \
                        || { error "Xray ne démarre pas"; journalctl -u xray -n 10 --no-pager; return 1; }
@@ -389,8 +443,12 @@ if default not in uuids:
     uuids.insert(0, default)
 with open("/etc/xray/config.json") as f:
     cfg = json.load(f)
-cfg["inbounds"][0]["settings"]["clients"] = [
-    {"id": u, "email": u, "level": 0} for u in uuids]
+clients = [{"id": u, "email": u, "level": 0} for u in uuids]
+for ib in cfg.get("inbounds", []):
+    # Tous les inbounds vless (xhttp :4443 ET ws :8443) partagent les
+    # mêmes comptes.
+    if ib.get("protocol") == "vless":
+        ib["settings"]["clients"] = clients
 tmp = "/etc/xray/config.json.tmp"
 with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
@@ -1288,10 +1346,12 @@ create_user() {
 INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb)
 VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb);
 
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid)
-SELECT id, '$e_srv', 443, 'vless', 'xhttp', 1, '$e_srv', '$e_srv', 'mtn', '', '', '150', '$xray_uuid' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid)
-SELECT id, '$e_srv', 443, 'vless', 'xhttp', 1, '$e_srv', '$e_srv', 'mtn', '', '', '100', '$xray_uuid' FROM users WHERE uuid='$uuid';
+-- MTN 150Mo (SNI fixe: mtnplay.com) et MTN 100Mo (SNI fixe: yamo.mtn.cm),
+-- VLESS + WebSocket + TLS, path /vless, host = domaine du serveur.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'mtnplay.com', '$e_srv', 'mtn', '', '', '150', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', '', '100', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
 
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
 SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
