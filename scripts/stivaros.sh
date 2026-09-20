@@ -1194,19 +1194,18 @@ PYEOF
 install_api() {
     banner; echo -e "${BOLD}Installation API d'activation${NC}\n"
     ensure_deps
-    if systemctl is-active --quiet stivaros-api; then
-        msg "API déjà active (port $API_PORT)"
-        pause; return
-    fi
     mkdir -p "$INSTALL_DIR"
     install_api_server
 
-    local secret
-    secret=$(generate_secret)
-    cat > "$CONFIG_PATH" << EOF
+    # Clé API: générée une seule fois, conservée aux réinstallations.
+    if [[ ! -f "$CONFIG_PATH" ]]; then
+        local secret
+        secret=$(generate_secret)
+        cat > "$CONFIG_PATH" << EOF
 {"port": $API_PORT, "db": "$DB_PATH", "api_key": "$secret", "version": "2.0.0"}
 EOF
-    chmod 600 "$CONFIG_PATH"
+        chmod 600 "$CONFIG_PATH"
+    fi
 
     python3 "$API_DIR/server.py" & local pid=$!
     sleep 1; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true
