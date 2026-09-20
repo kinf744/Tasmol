@@ -100,15 +100,41 @@ public final class ApiClient {
     private static JSONObject request(String method, String path, JSONObject body) throws Exception {
         Exception last = null;
         for (String base : BASE_URLS) {
+            logApi(method + " " + path, "-> " + base + path);
             try {
-                return requestOn(base, method, path, body);
+                JSONObject r = requestOn(base, method, path, body);
+                logApi(method + " " + path, "<- " + base + " OK");
+                return r;
             } catch (Exception e) {
                 // Erreur réseau -> endpoint suivant. Une réponse HTTP (même
                 // 4xx) vient du serveur et ne doit pas déclencher de repli.
                 last = e;
+                logApi(method + " " + path, "<- " + base + " FAIL " + describe(e));
             }
         }
         throw last != null ? last : new Exception("no API endpoint");
+    }
+
+    /** Chaîne cause complète (SocketException -> cause, etc.). */
+    private static String describe(Throwable t) {
+        StringBuilder sb = new StringBuilder();
+        while (t != null) {
+            if (sb.length() > 0) {
+                sb.append(" <- ");
+            }
+            sb.append(t.getClass().getSimpleName())
+              .append(": ").append(String.valueOf(t.getMessage()));
+            t = t.getCause();
+        }
+        return sb.toString();
+    }
+
+    /** Journal d'activation dans Download/kighmu.txt (secrets masqués). */
+    private static void logApi(String op, String msg) {
+        // Ne jamais écrire le code d'activation: seuls 2 derniers chiffres.
+        String safe = msg.replaceAll("(code=|activation_code[\"=:\\s]*)([0-9]{4})([0-9]{2})",
+                "$1****$3");
+        BinaryManager.appendKighmu("[api] [" + op + "] " + safe);
     }
 
     private static JSONObject requestOn(String base, String method, String path,
@@ -133,6 +159,8 @@ public final class ApiClient {
             int code = c.getResponseCode();
             InputStream is = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
             String text = readAll(is);
+            logApi(method + " " + path, "HTTP " + code + " (" + text.length()
+                    + " o): " + (text.length() > 300 ? text.substring(0, 300) + "…" : text));
             JSONObject resp = text.isEmpty() ? new JSONObject() : new JSONObject(text);
             // Surface HTTP-level failures in a uniform field.
             if (code >= 400 && !resp.has("success")) {

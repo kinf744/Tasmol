@@ -72,6 +72,8 @@ public class AuthActivity extends AppCompatActivity {
         statusText.setTextColor(getColor(R.color.npv_grey));
         statusText.setText("Vérification…");
         String uuid = ApiSession.deviceUuid(this);
+        BinaryManager.appendKighmu("[api] [activation] début — téléphone=" + phone
+                + " uuid=" + uuid + " code=****" + code.substring(4));
 
         ApiClient.register(phone, code, uuid, (resp, err) -> {
             validateBtn.setEnabled(true);
@@ -84,11 +86,14 @@ public class AuthActivity extends AppCompatActivity {
             if (!ok) {
                 String msg = resp != null ? resp.optString("message", "Activation refusée")
                         : "Réponse vide";
+                BinaryManager.appendKighmu("[api] [activation] refusé: " + msg);
                 statusText.setTextColor(getColor(R.color.npv_red));
                 statusText.setText(msg);
                 return;
             }
             String expires = resp.optString("expires_at", "");
+            BinaryManager.appendKighmu("[api] [activation] succès — expire="
+                    + (expires.isEmpty() ? "-" : expires));
             ApiSession.saveAuth(this, phone, code, expires);
             statusText.setTextColor(getColor(R.color.npv_green));
             statusText.setText("Connecté à l'API"
