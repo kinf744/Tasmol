@@ -42,8 +42,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edHost;
     private EditText edPort;
     private TextView lblPort;
-    private TextView lblPortRange;
-    private EditText edPortRange;
+    // Les plages de ports ZIVPN sont FIXES (usage commercial — champ non
+    // exposé) : 8 sous-plages couvrant 6000-19999, round-robin interne.
+    private static final String ZIVPN_FIXED_RANGES =
+            "6000-7750,7751-9500,9501-11250,11251-13000,"
+            + "13001-14750,14751-16500,16501-18250,18251-19999";
     private LinearLayout secSsh;
     private EditText edUsername;
     private EditText edPassword;
@@ -126,8 +129,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edHost = findViewById(R.id.ed_host);
         edPort = findViewById(R.id.ed_port);
         lblPort = findViewById(R.id.lbl_port);
-        lblPortRange = findViewById(R.id.lbl_port_range);
-        edPortRange = findViewById(R.id.ed_port_range);
         secSsh = findViewById(R.id.sec_ssh);
         edUsername = findViewById(R.id.ed_username);
         edPassword = findViewById(R.id.ed_password);
@@ -245,8 +246,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
         edPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
         lblPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
-        lblPortRange.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
-        edPortRange.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
     }
 
     private void loadTunnel(String id) {
@@ -281,7 +280,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edHost.setText(server.optString("host", ""));
                     int port = server.optInt("port", 0);
                     edPort.setText(port == 0 ? "" : String.valueOf(port));
-                    edPortRange.setText(server.optString("port_range", ""));
                     edPubkey.setText(server.optString("public_key", ""));
                     edNsdomain.setText(server.optString("nameserver", server.optString("hostname", "")));
                     edResolver.setText(server.optString("dns_resolver", "8.8.8.8:53"));
@@ -522,20 +520,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 server.put("port", port);
             }
             if (type.equals("zivpn")) {
-                String ranges = edPortRange.getText().toString().trim();
-                if (ranges.isEmpty()) {
-                    // Never store a blank range: a hidden/untouched field
-                    // must not wipe the stored ranges. Reuse them, else
-                    // fall back to the default.
-                    ranges = storedServerField("port_range");
-                    if (ranges.isEmpty()) {
-                        ranges = "6000-19999";
-                    } else {
-                        toast("Kept saved port range(s)");
-                    }
-                    edPortRange.setText(ranges);
-                }
-                server.put("port_range", ranges);
+                // Plages fixes hardcodées (8 sous-plages, round-robin
+                // interne) — pas de champ utilisateur.
+                server.put("port_range", ZIVPN_FIXED_RANGES);
             }
             if (type.equals("ssh_slowdns") || type.equals("xray_slowdns")) {
                 String pubkey = edPubkey.getText().toString().trim();
