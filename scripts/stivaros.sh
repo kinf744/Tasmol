@@ -1041,7 +1041,7 @@ install_api_server() {
 """Stivaros activation API (compat EPHANG VPN)."""
 import json, os, sqlite3, sys
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 DB_PATH = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
@@ -1289,11 +1289,11 @@ if __name__ == "__main__":
     cert = os.environ.get("STIVAROS_TLS_CERT", "/opt/stivaros/api/api.crt")
     key = os.environ.get("STIVAROS_TLS_KEY", "/opt/stivaros/api/api.key")
 
-    httpd = HTTPServer(("0.0.0.0", port), APIHandler)
+    httpd = ThreadingHTTPServer(("0.0.0.0", port), APIHandler)
     print(f"[stivaros-api] HTTP on 0.0.0.0:{port}")
 
     if os.path.exists(cert) and os.path.exists(key):
-        tlsd = HTTPServer(("127.0.0.1", tls_port), APIHandler)
+        tlsd = ThreadingHTTPServer(("127.0.0.1", tls_port), APIHandler)
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ctx.load_cert_chain(cert, key)
         tlsd.socket = ctx.wrap_socket(tlsd.socket, server_side=True)
