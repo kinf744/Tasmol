@@ -38,15 +38,18 @@ readonly XRAY_UUID_DEFAULT="cfe75234-b0d9-477d-b30f-9d24654b2487"
 
 # ZIVPN
 readonly ZIVPN_BIN="/usr/local/bin/zivpn"
-readonly ZIVPN_SERVICE="zivpn.service"
-readonly ZIVPN_CONFIG="/etc/zivpn/config.json"
-readonly ZIVPN_USER_FILE="/etc/zivpn/users.list"
-readonly ZIVPN_DOMAIN_FILE="/etc/zivpn/domain.txt"
-readonly ZIVPN_PORT=5667
-# DNAT serveur (nft) — couvre toutes les sous-plages clients.
-readonly ZIVPN_RANGE="6000-19999"
+# Instance dédiée: cohabitation avec un éventuel panel tiers (install2)
+# qui réécrit /etc/zivpn/config.json périodiquement. On n'y touche pas.
+readonly ZIVPN_SERVICE="stivaros-zivpn.service"
+readonly ZIVPN_HOME="/etc/stivaros-zivpn"
+readonly ZIVPN_CONFIG="$ZIVPN_HOME/config.json"
+readonly ZIVPN_USER_FILE="$ZIVPN_HOME/users.list"
+readonly ZIVPN_DOMAIN_FILE="$ZIVPN_HOME/domain.txt"
+readonly ZIVPN_PORT=5668
+# DNAT serveur (nft) — plage dédiée, distincte de l'autre instance.
+readonly ZIVPN_RANGE="34000-49999"
 # Plages clients round-robin (8 sous-plages, un processus par plage).
-readonly ZIVPN_RANGES="6000-7750,7751-9500,9501-11250,11251-13000,13001-14750,14751-16500,16501-18250,18251-19999"
+readonly ZIVPN_RANGES="34000-35999,36000-37999,38000-39999,40000-41999,42000-43999,44000-45999,46000-47999,48000-49999"
 
 # SlowDNS (dnstt + dnsdist)
 readonly SLOWDNS_DIR="/etc/slowdns"
@@ -161,7 +164,7 @@ tunnel_installed() {
 tunnel_active() {
     case "$1" in
         xray)    systemctl is-active --quiet xray ;;
-        zivpn)   systemctl is-active --quiet zivpn ;;
+        zivpn)   systemctl is-active --quiet "$ZIVPN_SERVICE" ;;
         slowdns) systemctl is-active --quiet slowdns-ns4 \
               && systemctl is-active --quiet slowdns-nv4 \
               && systemctl is-active --quiet dnsdist ;;
@@ -469,13 +472,13 @@ install_zivpn() {
             || die "Échec du téléchargement de ZIVPN"
     fi
 
-    mkdir -p /etc/zivpn
+    mkdir -p "$ZIVPN_HOME"
     local domain
     domain=$(ask_domain)
     echo "$domain" > "$ZIVPN_DOMAIN_FILE"; chmod 600 "$ZIVPN_DOMAIN_FILE"
 
-    if [[ ! -s /etc/zivpn/zivpn.crt ]]; then
-        self_signed /etc/zivpn/zivpn.key /etc/zivpn/zivpn.crt "$domain"
+    if [[ ! -s "$ZIVPN_HOME/zivpn.crt" ]]; then
+        self_signed "$ZIVPN_HOME/zivpn.key" "$ZIVPN_HOME/zivpn.crt" "$domain"
     fi
 
     [[ -f "$ZIVPN_USER_FILE" ]] || : > "$ZIVPN_USER_FILE"
@@ -486,15 +489,15 @@ install_zivpn() {
     cat > "$ZIVPN_CONFIG" << EOF
 {
   "listen": ":$ZIVPN_PORT",
-  "cert": "/etc/zivpn/zivpn.crt",
-  "key": "/etc/zivpn/zivpn.key",
+  "cert": "$ZIVPN_HOME/zivpn.crt",
+  "key": "$ZIVPN_HOME/zivpn.key",
   "obfs": "hu\`\`hqb\`c",
   "recv_window_conn": 15728640,
   "recv_window_client": 67108864,
   "disable_mtu_discovery": false,
   "max_conn_client": 4096,
-  "exclude_port": [53, 5300, 4466, 36712, 20000],
-  "quotaStateFile": "/etc/zivpn/quota-state.json",
+  "exclude_port": [53, 5300, 4466, 36712, 5667, 20000],
+  "quotaStateFile": "$ZIVPN_HOME/quota-state.json",
   "statsAPI": { "listen": "127.0.0.1:10088", "token": "$stats_token" },
   "quota": {},
   "auth": { "mode": "passwords", "config": ["zi"] }
@@ -504,15 +507,15 @@ EOF
 
     cat > "/etc/systemd/system/$ZIVPN_SERVICE" << 'EOF'
 [Unit]
-Description=Stivaros ZIVPN UDP Server
+Description=Stivaros ZIVPN UDP Server (dedicated instance)
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/zivpn server -c /etc/zivpn/config.json
-WorkingDirectory=/etc/zivpn
+ExecStart=/usr/local/bin/zivpn server -c /etc/stivaros-zivpn/config.json
+WorkingDirectory=/etc/stivaros-zivpn
 Restart=always
 RestartSec=10
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
@@ -527,7 +530,7 @@ EOF
     iface=$(main_iface)
     tmp=$(mktemp)
     cat > "$tmp" << EOF
-table inet zivpn {
+table inet stivaros_zivpn {
     chain input {
         type filter hook input priority 0; policy accept;
         udp dport $ZIVPN_PORT accept
@@ -541,26 +544,26 @@ table inet zivpn {
 EOF
     if nft -c -f "$tmp" 2>/dev/null; then
         mkdir -p /etc/nftables
-        cp "$tmp" /etc/nftables/zivpn.nft
-        nft -f /etc/nftables/zivpn.nft 2>/dev/null || true
+        cp "$tmp" /etc/nftables/stivaros-zivpn.nft
+        nft -f /etc/nftables/stivaros-zivpn.nft 2>/dev/null || true
     fi
     rm -f "$tmp"
 
     zivpn_update_passwords
     systemctl daemon-reload
-    systemctl enable --now zivpn
-    systemctl restart zivpn
+    systemctl enable --now "$ZIVPN_SERVICE"
+    systemctl restart "$ZIVPN_SERVICE"
     tunnel_active zivpn && msg "ZIVPN actif (port $ZIVPN_PORT)" \
-                        || { error "ZIVPN ne démarre pas"; journalctl -u zivpn -n 10 --no-pager; return 1; }
+                        || { error "ZIVPN ne démarre pas"; journalctl -u "$ZIVPN_SERVICE" -n 10 --no-pager; return 1; }
     pause
 }
 
 zivpn_uninstall() {
     confirm "Supprimer complètement ZIVPN ?" || return 0
     systemctl disable --now zivpn 2>/dev/null || true
-    rm -f "/etc/systemd/system/$ZIVPN_SERVICE" "$ZIVPN_BIN"
-    rm -rf /etc/zivpn /etc/nftables/zivpn.nft
-    nft delete table inet zivpn 2>/dev/null || true
+    rm -f "/etc/systemd/system/$ZIVPN_SERVICE"
+    rm -rf "$ZIVPN_HOME" /etc/nftables/stivaros-zivpn.nft
+    nft delete table inet stivaros_zivpn 2>/dev/null || true
     systemctl daemon-reload
     msg "ZIVPN désinstallé"
 }
@@ -673,7 +676,7 @@ with open(tmp, "w") as f:
 PYEOF
     if [[ -s "$tmp" ]] && jq empty "$tmp" 2>/dev/null; then
         chmod 600 "$tmp"; mv "$tmp" "$ZIVPN_CONFIG"
-        tunnel_active zivpn && systemctl restart zivpn
+        systemctl restart "$ZIVPN_SERVICE" 2>/dev/null || true
     else
         rm -f "$tmp"
         error "Config ZIVPN invalide — inchangée"
@@ -1697,7 +1700,8 @@ def main():
             usage_now.setdefault(uuid, {})[key] = total
     # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid
     try:
-        with open("/etc/zivpn/quota-state.json") as f:
+        with open(os.environ.get("STIVAROS_ZIVPN_STATE",
+                                 "/etc/stivaros-zivpn/quota-state.json")) as f:
             zstate = json.load(f)
         pw_rows = conn.execute(
             "SELECT v.zivpn_password, u.uuid FROM vpn_configs v"
@@ -2018,7 +2022,7 @@ uninstall_all() {
 }
 
 xray_uninstall_silent()    { systemctl disable --now xray 2>/dev/null; rm -f /etc/systemd/system/xray.service "$XRAY_BIN"; rm -rf "$XRAY_DIR"; }
-zivpn_uninstall_silent()   { systemctl disable --now zivpn 2>/dev/null; rm -f "/etc/systemd/system/$ZIVPN_SERVICE" "$ZIVPN_BIN"; rm -rf /etc/zivpn /etc/nftables/zivpn.nft; nft delete table inet zivpn 2>/dev/null; }
+zivpn_uninstall_silent()   { systemctl disable --now "$ZIVPN_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$ZIVPN_SERVICE"; rm -rf "$ZIVPN_HOME" /etc/nftables/stivaros-zivpn.nft; nft delete table inet stivaros_zivpn 2>/dev/null; }
 v2ray_uninstall_silent()   { systemctl disable --now v2ray 2>/dev/null; rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"; rm -rf "$V2RAY_DIR"; }
 slowdns_uninstall_silent() { systemctl disable --now slowdns-ns4 slowdns-nv4 dnsdist 2>/dev/null; rm -f /etc/systemd/system/slowdns-ns4.service /etc/systemd/system/slowdns-nv4.service "$DNSTT_BIN" /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh; rm -rf "$SLOWDNS_DIR" /etc/nftables/slowdns.nft; nft delete table inet slowdns 2>/dev/null; }
 
