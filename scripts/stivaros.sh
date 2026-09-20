@@ -425,10 +425,10 @@ xray_uninstall() {
 
 xray_sync_uuids() {
     [[ -f "$DB_PATH" && -f "$XRAY_DIR/config.json" ]] || return 0
-    DB_PATH="$DB_PATH" DEFAULT_UUID="$XRAY_UUID_DEFAULT" python3 - << 'PYEOF' 2>/dev/null || true
+    STIVAROS_DB="$DB_PATH" STIVAROS_DEFAULT_UUID="$XRAY_UUID_DEFAULT" python3 - << 'PYEOF' 2>/dev/null || true
 import json, os, sqlite3
 
-db, default = os.environ["DB_PATH"], os.environ["DEFAULT_UUID"]
+db, default = os.environ["STIVAROS_DB"], os.environ["STIVAROS_DEFAULT_UUID"]
 uuids = []
 try:
     conn = sqlite3.connect(db)
@@ -581,7 +581,7 @@ zivpn_update_passwords() {
     tmp=$(mktemp)
     # auth.config = passwords actifs ; quota = map mot-de-passe -> "NGB"
     # (enforcement natif zivpn, compté par authID = password).
-    DB_PATH="$DB_PATH" python3 - "$ZIVPN_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
+    STIVAROS_DB="$DB_PATH" python3 - "$ZIVPN_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
 import json, os, sqlite3, sys
 
 cfg_path, tmp = sys.argv[1], sys.argv[2]
@@ -589,7 +589,7 @@ with open(cfg_path) as f:
     cfg = json.load(f)
 quota = {}
 try:
-    conn = sqlite3.connect(os.environ["DB_PATH"])
+    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
     rows = conn.execute("""
         SELECT v.zivpn_password, u.quota_mb FROM vpn_configs v
         JOIN users u ON v.user_id = u.id
@@ -728,10 +728,10 @@ v2ray_uninstall() {
 # clients = UUID xray des comptes actifs (réutilisés côté VLESS/TROJAN).
 v2ray_sync_users() {
     [[ -f "$DB_PATH" && -f "$V2RAY_DIR/config.json" ]] || return 0
-    DB_PATH="$DB_PATH" python3 - << 'PYEOF' 2>/dev/null || true
+    STIVAROS_DB="$DB_PATH" python3 - << 'PYEOF' 2>/dev/null || true
 import json, os, sqlite3
 
-db = os.environ["DB_PATH"]
+db = os.environ["STIVAROS_DB"]
 clients = []
 try:
     conn = sqlite3.connect(db)
@@ -1335,9 +1335,10 @@ create_user() {
     dnstt_pub=$(cat "$SLOWDNS_DIR/server.pub" 2>/dev/null | tr -d '[:space:]')
 
     # Le compte SSH Linux porte le téléphone normalisé (chiffres seuls,
-    # useradd n'accepte ni '+' ni espaces).
-    local ssh_user="${phone#+}"
-    ssh_user="${ssh_user//[^0-9]/}"
+    # useradd n'accepte ni '+' ni espaces) avec préfixe alpha: useradd
+    # refuse les noms 100% numériques ("invalid user name").
+    local ssh_user="u${phone#+}"
+    ssh_user="u$(printf '%s' "$phone" | tr -dc '0-9')"
 
     local e_name e_phone e_srv e_ns4 e_nv4 e_pub e_sshuser
     e_name=$(sqlq "$name"); e_phone=$(sqlq "$phone")
@@ -1451,7 +1452,7 @@ delete_users() {
         phone=$(sqlite3 -batch "$DB_PATH" "SELECT phone FROM users WHERE id=$n;")
         sql "DELETE FROM vpn_configs WHERE user_id=$n;"
         sql "DELETE FROM users WHERE id=$n;"
-        [[ -n "$phone" ]] && ssh_account_delete "${phone#+}"
+        [[ -n "$phone" ]] && ssh_account_delete "u$(printf %s "$phone" | tr -dc 0-9)"
         msg "Compte #$n supprimé"
         deleted=$((deleted + 1))
     done
@@ -1596,8 +1597,7 @@ def main():
     # Purge des credentials dans chaque tunnel pour les bloqués.
     for u in blocked:
         # SSH système
-        ssh_user = (u["phone"] or "").lstrip("+")
-        ssh_user = "".join(c for c in ssh_user if c.isdigit())
+        ssh_user = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
         if ssh_user:
             subprocess.run(["usermod", "-L", ssh_user], capture_output=True)
         sys.stderr.write("[quota] BLOQUE: %s (%s)\n" % (u["name"], u["uuid"]))
@@ -1718,8 +1718,8 @@ quotas_menu() {
 }
 
 ssh_account_delete_lock() {
-    local u="${1//[^0-9]/}"
-    [[ -n "$u" ]] && id "$u" &>/dev/null && usermod -U "$u" 2>/dev/null || true
+    local u="u$(printf '%s' "$1" | tr -dc '0-9')"
+    [[ -n "$u" && "$u" != "u" ]] && id "$u" &>/dev/null && usermod -U "$u" 2>/dev/null || true
 }
 
 # ══════════════════════════════════════════════════════════════════════
