@@ -53,7 +53,12 @@ public class AuthActivity extends AppCompatActivity {
             Toast.makeText(this, "UUID copié", Toast.LENGTH_SHORT).show();
         });
 
-        validateBtn.setOnClickListener(v -> validate());
+        validateBtn.setOnClickListener(v -> {
+            // Ligne de trace immédiate au clic: permet de distinguer
+            // "le bouton ne répond pas" de "la requête échoue".
+            TasVpnService.logEvent("info", "api", "[activation] clic VALIDER");
+            validate();
+        });
     }
 
     private void validate() {
