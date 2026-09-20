@@ -129,12 +129,13 @@ public final class ApiClient {
         return sb.toString();
     }
 
-    /** Journal d'activation dans Download/kighmu.txt (secrets masqués). */
+    /** Journal d'activation: visible dans l'onglet Logs ET dans
+     *  Download/kighmu.txt (secrets masqués). */
     private static void logApi(String op, String msg) {
         // Ne jamais écrire le code d'activation: seuls 2 derniers chiffres.
         String safe = msg.replaceAll("(code=|activation_code[\"=:\\s]*)([0-9]{4})([0-9]{2})",
                 "$1****$3");
-        BinaryManager.appendKighmu("[api] [" + op + "] " + safe);
+        TasVpnService.logEvent("info", "api", op + " " + safe);
     }
 
     private static JSONObject requestOn(String base, String method, String path,
