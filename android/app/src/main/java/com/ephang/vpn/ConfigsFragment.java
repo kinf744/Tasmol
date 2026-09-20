@@ -166,6 +166,12 @@ public class ConfigsFragment extends Fragment {
             List<JSONObject> items = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
+                // Les profils matérialisés depuis l'API sont invisibles ici:
+                // CONFIGS gère uniquement les profils manuels.
+                JSONObject adv0 = t.optJSONObject("advanced");
+                if (adv0 != null && adv0.optBoolean(ApiSession.ADV_API_MANAGED, false)) {
+                    continue;
+                }
                 if (!typeFilter.equals("all") && !typeMatches(t.optString("type", ""))) {
                     continue;
                 }
@@ -187,7 +193,7 @@ public class ConfigsFragment extends Fragment {
                 }
             }
 
-            savedTitle.setText("Saved  (" + arr.length() + ")");
+            savedTitle.setText("Saved  (" + items.size() + ")");
 
             activeCard.setVisibility(View.VISIBLE);
             if (selected.isEmpty()) {
@@ -202,6 +208,20 @@ public class ConfigsFragment extends Fragment {
                         pick = items.get(i);
                         break;
                     }
+                }
+                if (pick == null && first.equals(ApiSession.activeTunnelId(requireContext()))) {
+                    // La sélection est une config API (cachée de la liste):
+                    // pas de substitution par un profil manuel.
+                    activeName.setText("Config API active");
+                    activeDetail.setText("Gérée depuis Home (section SERVER CONFIGS)");
+                    activeType.setText("API");
+                    activeCard.setBackgroundResource(R.drawable.card_bg_active);
+                    JSONArray shownApi = new JSONArray();
+                    for (JSONObject o : items) {
+                        shownApi.put(o);
+                    }
+                    adapter.setItems(shownApi, java.util.Collections.emptySet(), null);
+                    return;
                 }
                 if (pick == null && !items.isEmpty()) {
                     pick = items.get(0);

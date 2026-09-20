@@ -91,6 +91,12 @@ public class HomeFragment extends Fragment {
         apiSpinner = v.findViewById(R.id.home_api_spinner);
         removeActiveBtn = v.findViewById(R.id.home_remove_active);
         v.findViewById(R.id.home_api_update).setOnClickListener(view -> refreshApiConfigs(true));
+        // La flèche ouvre le menu déroulant (spinner masqué).
+        v.findViewById(R.id.home_api_dropdown).setOnClickListener(view -> {
+            if (apiSpinner != null) {
+                apiSpinner.performClick();
+            }
+        });
         apiSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(android.widget.AdapterView<?> parent, View view,
@@ -323,15 +329,15 @@ public class HomeFragment extends Fragment {
     private void populateApiSpinner() {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         java.util.List<String> labels = new java.util.ArrayList<>();
-        labels.add(cfgs.length() == 0 ? "— appuyez sur UPDATE —" : "Choisir une config…");
+        labels.add(cfgs.length() == 0 ? "— UPDATE —" : " ••• ");
         for (int i = 0; i < cfgs.length(); i++) {
             JSONObject c = cfgs.optJSONObject(i);
             if (c == null) {
                 continue;
             }
-            String label = c.optString("label", "config");
-            String mode = c.optString("mode", "");
-            labels.add(mode.isEmpty() ? label : label + "  (" + mode + ")");
+            // Label nu: le type de tunnel ne doit pas apparaître (usage
+            // commercial — le nom public suffit).
+            labels.add(c.optString("label", "config"));
         }
         android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, labels);
