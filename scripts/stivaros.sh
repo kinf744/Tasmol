@@ -646,7 +646,8 @@ try:
     seen = set()
     for pw, mb in rows:
         if pw and mb and mb > 0:
-            quota[pw] = f"{mb / 1024:.1f}GB"
+            # zivpn exige un entier ("1GB", jamais "1.0GB").
+            quota[pw] = f"{(mb + 1023) // 1024}GB"
             seen.add(pw)
     for pw in [p for p in quota if p in stale]:
         del quota[pw]
