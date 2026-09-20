@@ -575,19 +575,65 @@ zivpn_cleanup_expired() {
 
 zivpn_update_passwords() {
     zivpn_cleanup_expired
-    local pw tmp
-    pw=$(awk -F'|' 'NF>=2 {print $2}' "$ZIVPN_USER_FILE" 2>/dev/null | sort -u | paste -sd, -)
-    [[ -z "$pw" ]] && pw="zi"
+    local tmp
     tmp=$(mktemp)
-    # auth.config = passwords actifs ; quota = map mot-de-passe -> "NGB"
-    # (enforcement natif zivpn, compté par authID = password).
-    STIVAROS_DB="$DB_PATH" python3 - "$ZIVPN_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
+    # FUSION (et non remplacement) des mots de passe: ce serveur peut être
+    # co-géré par un autre panel (install2) dont les entrées doivent
+    # survivre. Les passwords stivaros expirés/supprimés sont retirés, les
+    # autres préservés. Idem pour la map quota.
+    STIVAROS_DB="$DB_PATH" ZIVPN_USERS="$ZIVPN_USER_FILE" \
+        python3 - "$ZIVPN_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
 import json, os, sqlite3, sys
 
 cfg_path, tmp = sys.argv[1], sys.argv[2]
 with open(cfg_path) as f:
     cfg = json.load(f)
-quota = {}
+
+# Passwords stivaros actifs (fichier users.list: uuid|pass|expire)
+ours = set()
+try:
+    from datetime import date
+    today = date.today().isoformat()
+    with open(os.environ["ZIVPN_USERS"]) as f:
+        for line in f:
+            parts = line.strip().split("|")
+            if len(parts) >= 3 and parts[1] and parts[2] >= today:
+                ours.add(parts[1])
+except Exception:
+    pass
+try:
+    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
+    rows = conn.execute("""
+        SELECT v.zivpn_password FROM vpn_configs v
+        JOIN users u ON v.user_id = u.id
+        WHERE v.mode = 'zivpn' AND v.zivpn_password != ''
+          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
+    """).fetchall()
+    conn.close()
+    ours |= {r[0] for r in rows if r[0]}
+except Exception:
+    pass
+
+existing = cfg.get("auth", {}).get("config", [])
+if not isinstance(existing, list):
+    existing = []
+stale = set()
+try:
+    from datetime import date
+    today = date.today().isoformat()
+    with open(os.environ["ZIVPN_USERS"]) as f:
+        for line in f:
+            parts = line.strip().split("|")
+            if len(parts) >= 3 and parts[1] and parts[2] < today:
+                stale.add(parts[1])
+except Exception:
+    pass
+
+merged = sorted((set(existing) - stale) | ours)
+cfg.setdefault("auth", {})["config"] = merged
+
+# Quota: ne gère que NOS passwords, préserve les entrées étrangères.
+quota = cfg.get("quota") or {}
 try:
     conn = sqlite3.connect(os.environ["STIVAROS_DB"])
     rows = conn.execute("""
@@ -597,21 +643,38 @@ try:
           AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
     """).fetchall()
     conn.close()
+    seen = set()
     for pw, mb in rows:
-        if mb and mb > 0:
+        if pw and mb and mb > 0:
             quota[pw] = f"{mb / 1024:.1f}GB"
+            seen.add(pw)
+    for pw in [p for p in quota if p in stale]:
+        del quota[pw]
+    # À nous, quota illimité (0) -> retirer la clé
+    try:
+        conn = sqlite3.connect(os.environ["STIVAROS_DB"])
+        zeros = conn.execute("""
+            SELECT DISTINCT v.zivpn_password FROM vpn_configs v
+            JOIN users u ON v.user_id = u.id
+            WHERE v.mode = 'zivpn' AND (u.quota_mb IS NULL OR u.quota_mb <= 0)
+        """).fetchall()
+        conn.close()
+        for (pw,) in zeros:
+            quota.pop(pw, None)
+    except Exception:
+        pass
 except Exception:
     pass
 cfg["quota"] = quota
+
 with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
 PYEOF
-    if [[ -s "$tmp" ]] && jq --arg p "$pw" '.auth.config = ($p | split(","))' "$tmp" > "$tmp.2" 2>/dev/null \
-       && jq empty "$tmp.2" 2>/dev/null; then
-        chmod 600 "$tmp.2"; mv "$tmp.2" "$ZIVPN_CONFIG"; rm -f "$tmp"
+    if [[ -s "$tmp" ]] && jq empty "$tmp" 2>/dev/null; then
+        chmod 600 "$tmp"; mv "$tmp" "$ZIVPN_CONFIG"
         tunnel_active zivpn && systemctl restart zivpn
     else
-        rm -f "$tmp" "$tmp.2"
+        rm -f "$tmp"
         error "Config ZIVPN invalide — inchangée"
         return 1
     fi
