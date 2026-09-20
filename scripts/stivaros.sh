@@ -1162,13 +1162,30 @@ class APIHandler(BaseHTTPRequestHandler):
         return self._send({"error": "Not found"}, 404)
 
     def log_message(self, fmt, *args):
-        sys.stderr.write("[%s] %s\n" % (self.log_date_time_string(), fmt % args))
+        sys.stderr.write("[%s] %s %s\n" %
+                         (self.log_date_time_string(), self.client_address[0], fmt % args))
 
 if __name__ == "__main__":
+    import ssl, threading
+
     init_db()
     port = int(os.environ.get("STIVAROS_PORT", 8080))
-    print(f"[stivaros-api] serving on 0.0.0.0:{port}")
-    HTTPServer(("0.0.0.0", port), APIHandler).serve_forever()
+    tls_port = int(os.environ.get("STIVAROS_TLS_PORT", 9443))
+    cert = os.environ.get("STIVAROS_TLS_CERT", "/opt/stivaros/api/api.crt")
+    key = os.environ.get("STIVAROS_TLS_KEY", "/opt/stivaros/api/api.key")
+
+    httpd = HTTPServer(("0.0.0.0", port), APIHandler)
+    print(f"[stivaros-api] HTTP on 0.0.0.0:{port}")
+
+    if os.path.exists(cert) and os.path.exists(key):
+        tlsd = HTTPServer(("127.0.0.1", tls_port), APIHandler)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(cert, key)
+        tlsd.socket = ctx.wrap_socket(tlsd.socket, server_side=True)
+        threading.Thread(target=tlsd.serve_forever, daemon=True).start()
+        print(f"[stivaros-api] HTTPS on 127.0.0.1:{tls_port} (HAProxy SNI backend)")
+
+    httpd.serve_forever()
 PYEOF
     chmod 750 "$API_DIR/server.py"
     msg "API server installé"
@@ -1212,10 +1229,30 @@ Environment="STIVAROS_PORT=$API_PORT"
 [Install]
 WantedBy=multi-user.target
 EOF
+    # Certificat TLS local pour le listener :9443 (backend HAProxy SNI).
+    # Auto-signé CN=api-v1... : uniquement vu entre HAProxy et l'API en
+    # interne ; l'app est tolérante et journalise l'empreinte.
+    if [[ ! -s "$API_DIR/api.crt" ]]; then
+        self_signed "$API_DIR/api.key" "$API_DIR/api.crt" "api-v1.kingom.ggff.net"
+    fi
+
     systemctl daemon-reload
     systemctl enable --now stivaros-api
     systemctl restart stivaros-api
-    install_quota_engine
+
+    # Si HAProxy est là (install_xray), rajouter la route SNI api-v1 ->
+    # API TLS locale, pour exposer l'API sur le port 443 existant.
+    if systemctl is-active --quiet haproxy && [[ -f /etc/haproxy/haproxy.cfg ]] \
+        && ! grep -q "backend stivaros_api" /etc/haproxy/haproxy.cfg; then
+        sed -i 's|^\( *\)default_backend xray_xhttp|\1use_backend stivaros_api if { req.ssl_sni -i api-v1.kingom.ggff.net }\n\1default_backend xray_xhttp|' \
+            /etc/haproxy/haproxy.cfg
+        cat >> /etc/haproxy/haproxy.cfg << 'EOF'
+
+backend stivaros_api
+    server api 127.0.0.1:9443 ssl verify none
+EOF
+        systemctl restart haproxy && info "HAProxy: api-v1.kingom.ggff.net -> API :9443"
+    fi
 
     command -v ufw &>/dev/null && ufw allow "$API_PORT/tcp" 2>/dev/null || true
 
@@ -1830,9 +1867,14 @@ WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
         systemctl enable --now stivaros-api
+        # Cert TLS local (backend HAProxy SNI -> API).
+        if [[ ! -s "$API_DIR/api.crt" ]]; then
+            self_signed "$API_DIR/api.key" "$API_DIR/api.crt" "api-v1.kingom.ggff.net"
+        fi
         install_quota_engine
         msg "API installée (port $API_PORT)"
         echo -e "${YELLOW}  Clé API : $secret${NC}"
+        echo -e "${CYAN}  Astuce: menu 1 rejoue le câblage HAProxy (SNI api-v1 -> :9443)${NC}"
     else
         msg "API déjà installée"
     fi
@@ -1846,6 +1888,21 @@ EOF
         ensure_tunnel "$t" || { error "Tunnel $t: KO"; failed=1; }
     done
     ((failed)) && warn "Certains tunnels n'ont pas abouti (voir ci-dessus)"
+
+    # Câblage HAProxy: SNI api-v1.kingom.ggff.net -> API TLS locale :9443
+    # (rend l'API joignable via le port 443 déjà ouvert, quoique le carrier
+    # bloque sur les autres ports).
+    if tunnel_active xray && [[ -f /etc/haproxy/haproxy.cfg ]] \
+        && ! grep -q "backend stivaros_api" /etc/haproxy/haproxy.cfg; then
+        sed -i 's|^\( *\)default_backend xray_xhttp|\1use_backend stivaros_api if { req.ssl_sni -i api-v1.kingom.ggff.net }\n\1default_backend xray_xhttp|' \
+            /etc/haproxy/haproxy.cfg
+        cat >> /etc/haproxy/haproxy.cfg << 'EOF'
+
+backend stivaros_api
+    server api 127.0.0.1:9443 ssl verify none
+EOF
+        systemctl restart haproxy && info "HAProxy: api-v1.kingom.ggff.net -> API :9443"
+    fi
     echo
     msg "Installation terminée"
     pause

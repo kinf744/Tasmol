@@ -27,10 +27,11 @@ public final class ApiClient {
     // NB: Cloudflare ne proxifie que certains ports HTTPS (443, 2053,
     // 2083, 2087, 2096, 8443) — 5443 y est refusé (connection reset).
     public static final String[] BASE_URLS = {
-            "https://api-v1.kingom.ggff.net:8443",
+            // Fonctionne via HAProxy (SNI api-v1 -> API :9443): port 443,
+            // le seul systématiquement ouvert sur les réseaux "gratuits".
             "https://api-v1.kingom.ggff.net",
+            "https://api-v1.kingom.ggff.net:8443",
             "https://api-v1.kingom.ggff.net:5443",
-            // Dernier recours: le panel écoute en clair sur le VPS.
             "http://api-v1.kingom.ggff.net:9090",
     };
     private static final int TIMEOUT_MS = 15000;
@@ -150,18 +151,25 @@ public final class ApiClient {
 
     private static JSONObject request(String method, String path, JSONObject body) throws Exception {
         Exception last = null;
+        JSONObject stray = null; // réponse HTTP non-API (ex: rejet Xray vide)
         for (String base : BASE_URLS) {
             logApi(method + " " + path, "-> " + base + path);
             try {
                 JSONObject r = requestOn(base, method, path, body);
-                logApi(method + " " + path, "<- " + base + " OK");
-                return r;
+                // Une vraie réponse API porte success/activated/message.
+                if (r.has("success") || r.has("activated") || r.has("message")) {
+                    logApi(method + " " + path, "<- " + base + " OK");
+                    return r;
+                }
+                stray = r; // bruit d'un autre service (Xray/haproxy): on continue
+                logApi(method + " " + path, "<- " + base + " non-API, endpoint suivant");
             } catch (Exception e) {
-                // Erreur réseau -> endpoint suivant. Une réponse HTTP (même
-                // 4xx) vient du serveur et ne doit pas déclencher de repli.
                 last = e;
                 logApi(method + " " + path, "<- " + base + " FAIL " + describe(e));
             }
+        }
+        if (stray != null) {
+            return stray;
         }
         throw last != null ? last : new Exception("no API endpoint");
     }
