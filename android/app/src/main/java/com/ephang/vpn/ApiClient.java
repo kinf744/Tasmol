@@ -30,8 +30,59 @@ public final class ApiClient {
             "https://api-v1.kingom.ggff.net:8443",
             "https://api-v1.kingom.ggff.net",
             "https://api-v1.kingom.ggff.net:5443",
+            // Dernier recours: le panel écoute en clair sur le VPS.
+            "http://api-v1.kingom.ggff.net:9090",
     };
     private static final int TIMEOUT_MS = 15000;
+
+    // L'API d'activation tourne typiquement derrière un vhost auto-signé
+    // sur le VPS (cert CN = domaine du tunnel, pas api-v1). Hors système
+    // CA + SNI mismatch, HttpsURLConnection rejette systématiquement. On
+    // assouplit TLS pour CES endpoints uniquement (payload limité à
+    // phone/code/uuid ; le code est l'authentifiant, pas le canal).
+    private static javax.net.ssl.SSLSocketFactory permissiveFactory;
+    private static final javax.net.ssl.HostnameVerifier PERMISSIVE_HOSTNAME =
+            (hostname, session) -> true;
+
+    private static synchronized javax.net.ssl.SSLSocketFactory permissiveTLS() {
+        if (permissiveFactory == null) {
+            try {
+                javax.net.ssl.TrustManager[] tm = {new javax.net.ssl.X509TrustManager() {
+                    @Override
+                    public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
+                    }
+
+                    @Override
+                    public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
+                        if (c != null && c.length > 0) {
+                            try {
+                                java.security.MessageDigest md =
+                                        java.security.MessageDigest.getInstance("SHA-256");
+                                byte[] h = md.digest(c[0].getEncoded());
+                                StringBuilder sb = new StringBuilder();
+                                for (byte b : h) {
+                                    sb.append(String.format("%02x", b));
+                                }
+                                logApi("tls", "cert serveur accepté sha256=" + sb
+                                        + " CN=" + c[0].getSubjectX500Principal());
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }
+
+                    @Override
+                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                        return new java.security.cert.X509Certificate[0];
+                    }
+                }};
+                javax.net.ssl.SSLContext ctx = javax.net.ssl.SSLContext.getInstance("TLS");
+                ctx.init(null, tm, new java.security.SecureRandom());
+                permissiveFactory = ctx.getSocketFactory();
+            } catch (Exception ignored) {
+            }
+        }
+        return permissiveFactory;
+    }
 
     private static final ExecutorService IO = Executors.newCachedThreadPool();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -144,6 +195,15 @@ public final class ApiClient {
         try {
             URL url = new URL(base + path);
             c = (HttpURLConnection) url.openConnection();
+            if (c instanceof javax.net.ssl.HttpsURLConnection) {
+                javax.net.ssl.SSLSocketFactory f = permissiveTLS();
+                if (f != null) {
+                    javax.net.ssl.HttpsURLConnection hs =
+                            (javax.net.ssl.HttpsURLConnection) c;
+                    hs.setSSLSocketFactory(f);
+                    hs.setHostnameVerifier(PERMISSIVE_HOSTNAME);
+                }
+            }
             c.setConnectTimeout(TIMEOUT_MS);
             c.setReadTimeout(TIMEOUT_MS);
             c.setRequestMethod(method);
