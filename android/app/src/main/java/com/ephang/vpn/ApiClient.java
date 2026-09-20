@@ -23,7 +23,14 @@ import java.util.concurrent.Executors;
  *   GET  /api/v1/user/configs?uuid=..&code=..
  */
 public final class ApiClient {
-    public static final String BASE_URL = "https://api-v1.kingom.ggff.net:5443";
+    // Endpoints essayés dans l'ordre jusqu'au premier qui répond.
+    // NB: Cloudflare ne proxifie que certains ports HTTPS (443, 2053,
+    // 2083, 2087, 2096, 8443) — 5443 y est refusé (connection reset).
+    public static final String[] BASE_URLS = {
+            "https://api-v1.kingom.ggff.net:8443",
+            "https://api-v1.kingom.ggff.net",
+            "https://api-v1.kingom.ggff.net:5443",
+    };
     private static final int TIMEOUT_MS = 15000;
 
     private static final ExecutorService IO = Executors.newCachedThreadPool();
@@ -91,9 +98,24 @@ public final class ApiClient {
     }
 
     private static JSONObject request(String method, String path, JSONObject body) throws Exception {
+        Exception last = null;
+        for (String base : BASE_URLS) {
+            try {
+                return requestOn(base, method, path, body);
+            } catch (Exception e) {
+                // Erreur réseau -> endpoint suivant. Une réponse HTTP (même
+                // 4xx) vient du serveur et ne doit pas déclencher de repli.
+                last = e;
+            }
+        }
+        throw last != null ? last : new Exception("no API endpoint");
+    }
+
+    private static JSONObject requestOn(String base, String method, String path,
+                                        JSONObject body) throws Exception {
         HttpURLConnection c = null;
         try {
-            URL url = new URL(BASE_URL + path);
+            URL url = new URL(base + path);
             c = (HttpURLConnection) url.openConnection();
             c.setConnectTimeout(TIMEOUT_MS);
             c.setReadTimeout(TIMEOUT_MS);

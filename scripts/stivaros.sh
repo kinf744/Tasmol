@@ -788,8 +788,12 @@ install_slowdns() {
     # Sous-domaines NS délégués vers ce serveur.
     local ns4 nv4 domain def
     domain=$(ask_domain)
+    # Compat install2.py: fichiers legacy /etc/slowdns/ns.conf et
+    # /etc/slowdns/nv4/ns.conf.
     ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
+    ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
     nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
+    nv4=${nv4:-$(head -1 "$SLOWDNS_DIR/nv4/ns.conf" 2>/dev/null || true)}
     def="ns4.$domain"
     read -r -p "Sous-domaine SSH+SlowDNS [$def]: " ns4; ns4=${ns4:-$def}
     def="nv4.$domain"
@@ -1331,7 +1335,9 @@ create_user() {
     zivpn_pass=$(gen_pass 12)
     ssh_pass=$(gen_pass 12)
     ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
+    ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
     nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
+    nv4=${nv4:-$(head -1 "$SLOWDNS_DIR/nv4/ns.conf" 2>/dev/null || true)}
     dnstt_pub=$(cat "$SLOWDNS_DIR/server.pub" 2>/dev/null | tr -d '[:space:]')
 
     # Le compte SSH Linux porte le téléphone normalisé (chiffres seuls,
@@ -1398,7 +1404,7 @@ SQL
     echo -e "${GREEN}  ── Configs générées ──${NC}"
     echo -e "${CYAN}  XRAY       : $server_addr:443 vless+xhttp+tls uuid=$xray_uuid${NC}"
     echo -e "${CYAN}  ZIVPN      : $server_addr:$ZIVPN_PORT pass=$zivpn_pass${NC}"
-    echo -e "${CYAN}  SSH+SlowDNS: NS=$ns4 user=$phone pass=$ssh_pass${NC}"
+    echo -e "${CYAN}  SSH+SlowDNS: NS=$ns4 user=$ssh_user pass=$ssh_pass${NC}"
     echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
     echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
     echo -e "${GREEN}════════════════════════════════════════${NC}"
@@ -1735,9 +1741,12 @@ tunnels_status() {
     tunnel_badge slowdns "SlowDNS       (dnstt + dnsdist :$DNSDIST_PORT)"
     echo
     if [[ -f "$SLOWDNS_DIR/server.pub" ]]; then
+        local ns4 nv4
+        ns4=$(cat "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || cat "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)
+        nv4=$(cat "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || cat "$SLOWDNS_DIR/nv4/ns.conf" 2>/dev/null || true)
         echo -e "${CYAN}dnstt pub : $(cat "$SLOWDNS_DIR/server.pub")${NC}"
-        echo -e "${CYAN}NS4 (ssh) : $(cat "$SLOWDNS_DIR/ns4.conf" 2>/dev/null)${NC}"
-        echo -e "${CYAN}NV4 (v2r) : $(cat "$SLOWDNS_DIR/nv4.conf" 2>/dev/null)${NC}"
+        echo -e "${CYAN}NS4 (ssh) : ${ns4:-<non configuré>}${NC}"
+        echo -e "${CYAN}NV4 (v2r) : ${nv4:-<non configuré>}${NC}"
     fi
     pause
 }
