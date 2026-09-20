@@ -121,7 +121,7 @@ ensure_deps() {
     fi
 }
 
-pause()   { echo; read -r -p "Entrée pour continuer..." _; }
+pause()   { [[ -n "${STIVAROS_NOPAUSE:-}" ]] && return 0; echo; read -r -p "Entrée pour continuer..." _ || true; }
 confirm() { local r; read -r -p "$1 [y/N]: " r; [[ "$r" =~ ^[yY]$ ]]; }
 
 # ── Validation & génération (sécurité) ─────────────────────────────────
@@ -171,17 +171,18 @@ tunnel_active() {
     esac
 }
 
-# installed+active → 0 ; installed mais down → 1 (tentative de redémarrage) ;
-# absent → 2 (installation nécessaire)
+# installed+active → "0" ; installed mais down → "1" ; absent → "2".
+# (echo, retour toujours 0: compatible set -e quel que soit l'état)
 tunnel_state() {
-    if ! tunnel_installed "$1"; then return 2; fi
-    if tunnel_active "$1"; then return 0; fi
-    return 1
+    if ! tunnel_installed "$1"; then echo 2; return 0; fi
+    if tunnel_active "$1"; then echo 0; return 0; fi
+    echo 1
 }
 
 tunnel_badge() {
-    tunnel_state "$1"; local s=$?
-    case $s in
+    local s
+    s=$(tunnel_state "$1")
+    case "$s" in
         0) echo -e " ${GREEN}●${NC} $2 (actif)";;
         1) echo -e " ${YELLOW}◐${NC} $2 (installé, inactif)";;
         2) echo -e " ${RED}○${NC} $2 (non installé)";;
@@ -191,16 +192,16 @@ tunnel_badge() {
 # Garantit qu'un tunnel est utilisable: déjà installé → (re)démarrage si
 # besoin ; absent → installation complète. Retourne non-zéro si échec.
 ensure_tunnel() {
-    local t="$1"
-    tunnel_state "$t"; local st=$?
-    case $st in
+    local t="$1" st
+    st=$(tunnel_state "$t")
+    case "$st" in
         0) return 0 ;;
         1)
             warn "$t installé mais inactif — redémarrage"
             case "$t" in
-                slowdns) systemctl restart slowdns-ns4 slowdns-nv4 dnsdist ;;
-                ssh)     systemctl restart ssh 2>/dev/null || systemctl restart sshd ;;
-                *)       systemctl restart "$t" ;;
+                slowdns) systemctl restart slowdns-ns4 slowdns-nv4 dnsdist || true ;;
+                ssh)     systemctl restart ssh 2>/dev/null || systemctl restart sshd || true ;;
+                *)       systemctl restart "$t" || true ;;
             esac
             sleep 1
             tunnel_active "$t" && { msg "$t redémarré"; return 0; }
@@ -208,7 +209,8 @@ ensure_tunnel() {
             ;;
         2)
             info "$t non installé — installation…"
-            "install_$t"
+            # Pas de "Entrée pour continuer" dans les installs enchaînées.
+            STIVAROS_NOPAUSE=1 "install_$t" || true
             tunnel_active "$t" || { error "$t: installation incomplète"; return 1; }
             return 0
             ;;
@@ -1378,10 +1380,10 @@ SQL
         grep -v "^$uuid|" "$ZIVPN_USER_FILE" > "$ZIVPN_USER_FILE.tmp" 2>/dev/null || true
         echo "$uuid|$zivpn_pass|$expires" >> "$ZIVPN_USER_FILE.tmp"
         mv "$ZIVPN_USER_FILE.tmp" "$ZIVPN_USER_FILE"; chmod 600 "$ZIVPN_USER_FILE"
-        zivpn_update_passwords
+        zivpn_update_passwords || true
     fi
-    xray_sync_uuids
-    v2ray_sync_users
+    xray_sync_uuids || true
+    v2ray_sync_users || true
 
     log "compte créé: $name ($phone) expire $expires"
     echo
@@ -1454,9 +1456,9 @@ delete_users() {
         deleted=$((deleted + 1))
     done
     if ((deleted > 0)); then
-        xray_sync_uuids
-        v2ray_sync_users
-        tunnel_active zivpn && zivpn_update_passwords
+        xray_sync_uuids || true
+        v2ray_sync_users || true
+        tunnel_active zivpn && zivpn_update_passwords || true
     fi
     pause
 }
@@ -1759,19 +1761,20 @@ tunnel_menu() {
         echo "  8) Désinstaller un tunnel"
         echo "  0) Retour"
         echo
-        local c
-        read -r -p "Choix: " c
+        local c=""
+        # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
+        read -r -p "Choix: " c || { echo; exit 0; }
         case "$c" in
-            1) install_xray ;;
-            2) install_zivpn ;;
-            3) install_ssh ;;
-            4) install_v2ray ;;
-            5) install_slowdns ;;
-            6) ensure_tunnel xray; ensure_tunnel zivpn; ensure_tunnel ssh
-               ensure_tunnel v2ray; ensure_tunnel slowdns; pause ;;
-            7) tunnels_status ;;
+            1) install_xray || true ;;
+            2) install_zivpn || true ;;
+            3) install_ssh || true ;;
+            4) install_v2ray || true ;;
+            5) install_slowdns || true ;;
+            6) for t in xray zivpn ssh v2ray slowdns; do ensure_tunnel "$t" || true; done; pause ;;
+            7) tunnels_status || true ;;
             8)
-                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns): " t
+                local t=""
+                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns): " t || true
                 case "$t" in
                     xray)    xray_uninstall ;;
                     zivpn)   zivpn_uninstall ;;
@@ -1827,11 +1830,13 @@ EOF
 
     echo
     info "Tunnels (détection automatique, installation si absent)…"
-    ensure_tunnel xray
-    ensure_tunnel zivpn
-    ensure_tunnel ssh
-    ensure_tunnel v2ray
-    ensure_tunnel slowdns
+    # Un tunnel en échec ne doit pas faire quitter le script: on enchaîne
+    # et on rapporte à la fin.
+    local failed=0
+    for t in xray zivpn ssh v2ray slowdns; do
+        ensure_tunnel "$t" || { error "Tunnel $t: KO"; failed=1; }
+    done
+    ((failed)) && warn "Certains tunnels n'ont pas abouti (voir ci-dessus)"
     echo
     msg "Installation terminée"
     pause
@@ -1880,18 +1885,19 @@ menu() {
         echo "  9) Quotas & consommation"
         echo "  0) Quitter"
         echo
-        local c
-        read -r -p "Choix: " c
+        local c=""
+        # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
+        read -r -p "Choix: " c || { echo; exit 0; }
         case "$c" in
-            1) install_all ;;
-            2) create_user ;;
-            3) list_users ;;
-            4) delete_users ;;
-            5) tunnel_menu ;;
-            6) tunnels_status ;;
-            7) uninstall_all ;;
-            8) orange_menu ;;
-            9) quotas_menu ;;
+            1) install_all || true ;;
+            2) create_user || true ;;
+            3) list_users || true ;;
+            4) delete_users || true ;;
+            5) tunnel_menu || true ;;
+            6) tunnels_status || true ;;
+            7) uninstall_all || true ;;
+            8) orange_menu || true ;;
+            9) quotas_menu || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
@@ -1904,10 +1910,10 @@ main() {
     mkdir -p "$(dirname "$LOG_FILE")"
     touch "$LOG_FILE" && chmod 640 "$LOG_FILE"
     case "${1:-}" in
-        --api)       install_api ;;
-        --create)    create_user ;;
-        --list)      list_users ;;
-        --tunnels)   tunnel_menu ;;
+        --api)       install_api || true ;;
+        --create)    create_user || true ;;
+        --list)      list_users || true ;;
+        --tunnels)   tunnel_menu || true ;;
         --sync-only)
             # Appelé par le moteur de quota après un blocage.
             xray_sync_uuids 2>/dev/null || true
