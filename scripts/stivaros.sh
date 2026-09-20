@@ -2074,6 +2074,7 @@ main() {
         --create)    create_user || true ;;
         --list)      list_users || true ;;
         --tunnels)   tunnel_menu || true ;;
+        --zivpn)     install_zivpn || true ;;
         --sync-only)
             # Appelé par le moteur de quota après un blocage.
             xray_sync_uuids 2>/dev/null || true
