@@ -498,7 +498,7 @@ install_zivpn() {
   "max_conn_client": 4096,
   "exclude_port": [53, 5300, 4466, 36712, 5667, 20000],
   "quotaStateFile": "$ZIVPN_HOME/quota-state.json",
-  "statsAPI": { "listen": "127.0.0.1:10088", "token": "$stats_token" },
+  "statsAPI": { "listen": "127.0.0.1:10099", "token": "$stats_token" },
   "quota": {},
   "auth": { "mode": "passwords", "config": ["zi"] }
 }
