@@ -919,6 +919,54 @@ slowdns_uninstall() {
 #  API D'ACTIVATION (compatible application EPHANG VPN)
 # ══════════════════════════════════════════════════════════════════════
 
+# Câble l'API derrière le HAProxy existant sur :443 (les carriers
+# "gratuits" n'ouvrent souvent que 53/80/443 — les ports 8443/5443/9090
+# sont reset). Deux styles de config gérés:
+#   - "xray-tls" (install2): HAProxy TERMINE TLS -> backend API clair :9090
+#   - "tls_in"   (panel)     : HAProxy passthrough -> backend API TLS :9443
+haproxy_wire_api() {
+    local cfg=/etc/haproxy/haproxy.cfg
+    [[ -f "$cfg" ]] || return 0
+    command -v haproxy &>/dev/null || return 0
+    grep -q "stivaros_api" "$cfg" && return 0
+    python3 - << 'PYEOF'
+cfg_path = "/etc/haproxy/haproxy.cfg"
+cfg = open(cfg_path).read()
+backend_line = "127.0.0.1:9090"        # style TLS-terminé (mode http)
+anchor = "    default_backend"
+target = None
+if "frontend xray-tls" in cfg:
+    target = "frontend xray-tls\n"
+elif "frontend tls_in" in cfg:
+    target = "frontend tls_in\n"
+    backend_line = "127.0.0.1:9443 ssl verify none"  # style passthrough
+if target:
+    idx = cfg.index(target) + len(target)
+    # insérer les ACL juste après le premier bloc d'acl du frontend
+    n = idx
+    while True:
+        nl = cfg.find("\n", n)
+        line = cfg[n:nl] if nl != -1 else ""
+        if line.startswith("    acl "):
+            n = nl + 1
+        else:
+            break
+    ins = ("    acl is_stivaros_api req.hdr(host) -i api-v1.kingom.ggff.net\n"
+           "    acl is_stivaros_api ssl_fc_sni -i api-v1.kingom.ggff.net\n"
+           "    use_backend stivaros_api if is_stivaros_api\n")
+    cfg = cfg[:n] + ins + cfg[n:]
+    cfg += ("\nbackend stivaros_api\n    server api " + backend_line + "\n")
+    open(cfg_path, "w").write(cfg)
+    print("patched")
+PYEOF
+    local out=$?
+    if [[ $out -eq 0 ]] && grep -q "stivaros_api" "$cfg"; then
+        haproxy -c -f "$cfg" &>/dev/null && systemctl restart haproxy \
+            && info "HAProxy: api-v1.kingom.ggff.net -> API (:443)"
+    fi
+}
+
+
 install_api_server() {
     mkdir -p "$API_DIR"
     cat > "$API_DIR/server.py" << 'PYEOF'
@@ -1239,24 +1287,15 @@ EOF
     systemctl enable --now stivaros-api
     systemctl restart stivaros-api
 
-    # Si HAProxy est là (install_xray), rajouter la route SNI api-v1 ->
-    # API TLS locale, pour exposer l'API sur le port 443 existant.
-    if systemctl is-active --quiet haproxy && [[ -f /etc/haproxy/haproxy.cfg ]] \
-        && ! grep -q "backend stivaros_api" /etc/haproxy/haproxy.cfg; then
-        sed -i 's|^\( *\)default_backend xray_xhttp|\1use_backend stivaros_api if { req.ssl_sni -i api-v1.kingom.ggff.net }\n\1default_backend xray_xhttp|' \
-            /etc/haproxy/haproxy.cfg
-        cat >> /etc/haproxy/haproxy.cfg << 'EOF'
-
-backend stivaros_api
-    server api 127.0.0.1:9443 ssl verify none
-EOF
-        systemctl restart haproxy && info "HAProxy: api-v1.kingom.ggff.net -> API :9443"
-    fi
+    # Exposer l'API via le :443 existant (voir haproxy_wire_api).
+    haproxy_wire_api || true
 
     command -v ufw &>/dev/null && ufw allow "$API_PORT/tcp" 2>/dev/null || true
 
     msg "API active sur le port $API_PORT"
-    echo -e "${YELLOW}  Clé API (à conserver) : $secret${NC}"
+    local show_key
+    show_key=$(python3 -c 'import json;print(json.load(open("/opt/stivaros/config.json"))["api_key"])' 2>/dev/null || echo "?")
+    echo -e "${YELLOW}  Clé API (à conserver) : $show_key${NC}"
     log "API installée (port $API_PORT)"
     pause
 }
@@ -1888,20 +1927,8 @@ EOF
     done
     ((failed)) && warn "Certains tunnels n'ont pas abouti (voir ci-dessus)"
 
-    # Câblage HAProxy: SNI api-v1.kingom.ggff.net -> API TLS locale :9443
-    # (rend l'API joignable via le port 443 déjà ouvert, quoique le carrier
-    # bloque sur les autres ports).
-    if tunnel_active xray && [[ -f /etc/haproxy/haproxy.cfg ]] \
-        && ! grep -q "backend stivaros_api" /etc/haproxy/haproxy.cfg; then
-        sed -i 's|^\( *\)default_backend xray_xhttp|\1use_backend stivaros_api if { req.ssl_sni -i api-v1.kingom.ggff.net }\n\1default_backend xray_xhttp|' \
-            /etc/haproxy/haproxy.cfg
-        cat >> /etc/haproxy/haproxy.cfg << 'EOF'
-
-backend stivaros_api
-    server api 127.0.0.1:9443 ssl verify none
-EOF
-        systemctl restart haproxy && info "HAProxy: api-v1.kingom.ggff.net -> API :9443"
-    fi
+    # Câblage HAProxy (voir haproxy_wire_api): expose l'API sur :443.
+    haproxy_wire_api || true
     echo
     msg "Installation terminée"
     pause
