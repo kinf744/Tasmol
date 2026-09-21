@@ -99,10 +99,9 @@ jobs:
           ls -lh android/app/libs/vpnlib.aar
           unzip -p android/app/libs/vpnlib.aar jni/armeabi-v7a/libgojni.so > /tmp/libgojni.so
           file /tmp/libgojni.so
-          echo '--- classes (looking for Pho*) ---'
+          echo '--- bindings (jan/gobind camelCase) ---'
           mkdir -p /tmp/aarx && unzip -o -q android/app/libs/vpnlib.aar classes.jar -d /tmp/aarx
-          unzip -l /tmp/aarx/classes.jar
-          javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho || echo 'NO PHO METHODS BOUND'
+          javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho
 
       - name: Stage official binaries into jniLibs
         run: |
