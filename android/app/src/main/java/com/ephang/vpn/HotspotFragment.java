@@ -15,7 +15,6 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -59,8 +58,6 @@ public class HotspotFragment extends Fragment {
     private TextView downText;
     private TextView totalText;
     private Button toggleBtn;
-    private EditText targetHost;
-    private EditText targetPort;
     private String proxyIp = "";
     private final Handler handler = new Handler(Looper.getMainLooper());
     private static final TcpRelay RELAY = new TcpRelay();
@@ -85,8 +82,6 @@ public class HotspotFragment extends Fragment {
         downText = v.findViewById(R.id.hotspot_down);
         totalText = v.findViewById(R.id.hotspot_total);
         toggleBtn = v.findViewById(R.id.hotspot_toggle);
-        targetHost = v.findViewById(R.id.hotspot_target_host);
-        targetPort = v.findViewById(R.id.hotspot_target_port);
         toggleBtn.setOnClickListener(view -> {
             if (RELAY.isRunning()) {
                 stopRelay();
@@ -127,15 +122,6 @@ public class HotspotFragment extends Fragment {
             return;
         }
         ipsText.setText(localIps());
-        // Prefill the target with our live SOCKS when connected.
-        if (!RELAY.isRunning() && targetPort.getText().toString().trim().isEmpty()
-                && TasVpnService.isRunning()) {
-            int live = activeSocksPort();
-            if (live > 0) {
-                targetHost.setText("127.0.0.1");
-                targetPort.setText(String.valueOf(live));
-            }
-        }
         if (RELAY.isRunning()) {
             statusText.setText("ACTIF");
             statusText.setTextColor(0xFF00E676);
@@ -204,25 +190,15 @@ public class HotspotFragment extends Fragment {
     }
 
     private void startRelay() {
-        String host = targetHost.getText().toString().trim();
-        if (host.isEmpty()) {
-            host = "127.0.0.1";
+        // La cible est implicite : le SOCKS du tunnel actif (127.0.0.1).
+        // L'utilisateur n'a rien à saisir — port proxy fixe 8080, IP proxy
+        // 172.16.x.x régénérée à chaque lancement.
+        int port = activeSocksPort();
+        if (port <= 0) {
+            toast("Connectez d'abord le VPN");
+            return;
         }
-        int port;
-        try {
-            port = Integer.parseInt(targetPort.getText().toString().trim());
-        } catch (NumberFormatException e) {
-            port = 0;
-        }
-        if (port <= 0 || port > 65535) {
-            // Fall back to our live SOCKS when connected.
-            port = activeSocksPort();
-            if (port <= 0) {
-                toast("Port cible invalide (et VPN non connecté)");
-                return;
-            }
-            targetPort.setText(String.valueOf(port));
-        }
+        String host = "127.0.0.1";
         // Nouvelle IP proxy 172.16.x.x à chaque lancement.
         proxyIp = pickProxyIp();
         if (RELAY.start(host, port, proxyIp)) {

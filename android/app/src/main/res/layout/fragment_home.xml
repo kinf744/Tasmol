@@ -196,7 +196,7 @@
                         android:layout_height="wrap_content"
                     android:text="No server selected"
                     android:textColor="@color/npv_text"
-                    android:textSize="11sp"
+                    android:textSize="15sp"
                         android:textStyle="bold"
                         android:typeface="monospace" />
 
@@ -206,7 +206,7 @@
                         android:layout_height="wrap_content"
                         android:text=""
                         android:textColor="@color/npv_grey"
-                        android:textSize="9sp"
+                        android:textSize="12sp"
                         android:typeface="monospace" />
                 </LinearLayout>
 
