@@ -80,7 +80,7 @@ public class AuthActivity extends AppCompatActivity {
         TasVpnService.logEvent("info", "api", "[activation] début — téléphone=" + phone
                 + " uuid=" + uuid + " code=****" + code.substring(4));
 
-        ApiClient.register(phone, code, uuid, (resp, err) -> {
+        PhoHelper.activate(phone, code, uuid, (resp, err) -> {
             validateBtn.setEnabled(true);
             if (err != null) {
                 statusText.setTextColor(getColor(R.color.npv_red));
@@ -105,9 +105,9 @@ public class AuthActivity extends AppCompatActivity {
                     + (expires.isEmpty() ? "" : " — expire: " + expires));
             toast("Activation réussie");
             // Prefetch configs so Home shows the list immediately.
-            ApiClient.fetchConfigs(uuid, code, (r2, e2) -> {
+            PhoHelper.configs(uuid, code, (r2, e2) -> {
                 if (r2 != null && r2.optBoolean("success", false)) {
-                    ApiSession.saveConfigs(this, ApiClient.configsOf(r2));
+                    ApiSession.saveConfigs(this, r2.optJSONArray("configs"));
                 }
                 finish(); // back to Home -> SERVER CONFIGS visible
             });

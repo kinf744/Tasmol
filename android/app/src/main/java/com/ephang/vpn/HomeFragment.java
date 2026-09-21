@@ -355,7 +355,7 @@ public class HomeFragment extends Fragment {
         if (announce) {
             Toast.makeText(getContext(), "Mise à jour…", Toast.LENGTH_SHORT).show();
         }
-        ApiClient.fetchConfigs(ApiSession.deviceUuid(requireContext()),
+        PhoHelper.configs(ApiSession.deviceUuid(requireContext()),
                 ApiSession.code(requireContext()), (resp, err) -> {
                     if (getContext() == null) {
                         return;
@@ -372,7 +372,7 @@ public class HomeFragment extends Fragment {
                         Toast.makeText(getContext(), "API: " + msg, Toast.LENGTH_LONG).show();
                         return;
                     }
-                    ApiSession.saveConfigs(requireContext(), ApiClient.configsOf(resp));
+                    ApiSession.saveConfigs(requireContext(), resp.optJSONArray("configs"));
                     populateApiSpinner();
                     if (announce) {
                         Toast.makeText(getContext(), "Configs mises à jour",

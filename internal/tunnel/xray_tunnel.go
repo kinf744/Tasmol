@@ -223,7 +223,9 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	if BinDir != "" {
 		t.cmd.Env = append(t.cmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
 	}
-	Tracef("[xray] binary=%q config=%s", t.cmd.Path, configContent)
+	// Ne jamais journaliser la config complète: SNI/host/UUID/headers
+	// finissent sinon dans Download/kighmu.txt. Un résumé suffit.
+	Tracef("[xray] binary=%q configBytes=%d", t.cmd.Path, len(configContent))
 
 	stdout, err := t.cmd.StdoutPipe()
 	if err != nil {

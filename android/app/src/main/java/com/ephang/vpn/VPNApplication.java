@@ -12,6 +12,14 @@ public class VPNApplication extends Application {
 
     @Override
     public void onCreate() {
+        // Initialise le coffre chiffré + client API durci (libpho).
+        PhoHelper.init(this);
+        // Self-check runtime (non bloquant): trace/émulateur -> log.
+        PhoHelper.selfCheck((r, e) -> {
+            if (r != null && r.optBoolean("traced", false)) {
+                TasVpnService.logEvent("warning", "app", "Debugger détecté (mode dégradé silencieux)");
+            }
+        });
         super.onCreate();
         instance = this;
         prefs = getSharedPreferences("ephang_vpn_prefs", Context.MODE_PRIVATE);

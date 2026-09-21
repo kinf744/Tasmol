@@ -20,12 +20,14 @@ import java.util.UUID;
  */
 public final class ApiSession {
     private static final String K_UUID = "api_device_uuid";
-    private static final String K_PHONE = "api_phone";
-    private static final String K_CODE = "api_code";
-    private static final String K_EXPIRES = "api_expires_at";
-    private static final String K_CONFIGS = "api_configs_cache";
     private static final String K_ACTIVE_TUNNEL = "api_active_tunnel_id";
     private static final String K_SELECTED_CONFIG = "api_selected_config_id";
+    // Les valeurs sensibles (téléphone, code, configs) ne vivent que dans
+    // le vault chiffré de libpho (jamais de SharedPreferences en clair).
+    private static final String V_PHONE = "phone";
+    private static final String V_CODE = "code";
+    private static final String V_EXPIRES = "expires";
+    private static final String V_CONFIGS = "configs";
 
     public static final String ADV_API_MANAGED = "api_managed";
 
@@ -50,51 +52,44 @@ public final class ApiSession {
     }
 
     public static void saveAuth(Context ctx, String phone, String code, String expiresAt) {
-        p(ctx).edit()
-                .putString(K_PHONE, phone)
-                .putString(K_CODE, code)
-                .putString(K_EXPIRES, expiresAt == null ? "" : expiresAt)
-                .apply();
+        String id = deviceUuid(ctx);
+        PhoHelper.vaultPut(ctx, id, V_PHONE, phone);
+        PhoHelper.vaultPut(ctx, id, V_CODE, code);
+        PhoHelper.vaultPut(ctx, id, V_EXPIRES, expiresAt == null ? "" : expiresAt);
     }
 
     public static boolean isAuthenticated(Context ctx) {
-        SharedPreferences sp = p(ctx);
-        String code = sp.getString(K_CODE, "");
-        String phone = sp.getString(K_PHONE, "");
-        return code != null && !code.isEmpty() && phone != null && !phone.isEmpty();
+        return !code(ctx).isEmpty() && !phone(ctx).isEmpty();
     }
 
     public static String phone(Context ctx) {
-        return p(ctx).getString(K_PHONE, "");
+        return PhoHelper.vaultGet(deviceUuid(ctx), V_PHONE);
     }
 
     public static String code(Context ctx) {
-        return p(ctx).getString(K_CODE, "");
+        return PhoHelper.vaultGet(deviceUuid(ctx), V_CODE);
     }
 
     public static String expiresAt(Context ctx) {
-        return p(ctx).getString(K_EXPIRES, "");
+        return PhoHelper.vaultGet(deviceUuid(ctx), V_EXPIRES);
     }
 
     /** Full logout: forget credentials and detach any active API tunnel. */
     public static void logout(Context ctx) {
         clearActive(ctx);
-        p(ctx).edit()
-                .remove(K_PHONE).remove(K_CODE).remove(K_EXPIRES)
-                .remove(K_CONFIGS)
-                .apply();
+        PhoHelper.vaultClear(deviceUuid(ctx));
     }
 
     // --- Remote configs cache ---
 
     public static void saveConfigs(Context ctx, JSONArray configs) {
-        p(ctx).edit().putString(K_CONFIGS,
-                configs == null ? "[]" : configs.toString()).apply();
+        PhoHelper.vaultPut(ctx, deviceUuid(ctx), V_CONFIGS,
+                configs == null ? "[]" : configs.toString());
     }
 
     public static JSONArray configs(Context ctx) {
         try {
-            return new JSONArray(p(ctx).getString(K_CONFIGS, "[]"));
+            return new JSONArray(PhoHelper.vaultGet(deviceUuid(ctx), V_CONFIGS));
         } catch (Exception e) {
             return new JSONArray();
         }

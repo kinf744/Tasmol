@@ -248,7 +248,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	if BinDir != "" {
 		t.xrayCmd.Env = append(t.xrayCmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
 	}
-	Tracef("[xray-slowdns] binary=%q config=%s", t.xrayCmd.Path, configContent)
+	Tracef("[xray-slowdns] binary=%q configBytes=%d", t.xrayCmd.Path, len(configContent))
 	stdout, err := t.xrayCmd.StdoutPipe()
 	if err != nil {
 		Errorf("xray-slowdns", "stdout pipe: %v", err)
