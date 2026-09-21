@@ -8,7 +8,7 @@ import org.json.JSONObject;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-import pholib.Pholib;
+import vpnlib.Vpnlib;
 
 /**
  * Java ⇒ Pont Go durci (libpho): activation API pinnée TLS, coffre
@@ -32,13 +32,13 @@ public final class PhoHelper {
             return;
         }
         ready = true;
-        Pholib.Init(ctx.getFilesDir().getAbsolutePath() + "/pho");
+        Vpnlib.PhoInit(ctx.getFilesDir().getAbsolutePath() + "/pho");
     }
 
     public static void selfCheck(Callback cb) {
         IO.execute(() -> {
             try {
-                deliver(cb, new JSONObject(Pholib.DeviceSelfCheck()), null);
+                deliver(cb, new JSONObject(Vpnlib.PhoSelfCheck()), null);
             } catch (Exception e) {
                 deliver(cb, null, e);
             }
@@ -48,7 +48,7 @@ public final class PhoHelper {
     public static void activate(String phone, String code, String uuid, Callback cb) {
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Pholib.ApiActivate(phone, code, uuid));
+                JSONObject r = new JSONObject(Vpnlib.PhoActivate(phone, code, uuid));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;
@@ -63,7 +63,7 @@ public final class PhoHelper {
     public static void configs(String uuid, String code, Callback cb) {
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Pholib.ApiFetchConfigs(uuid, code));
+                JSONObject r = new JSONObject(Vpnlib.PhoFetchConfigs(uuid, code));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;
@@ -78,16 +78,16 @@ public final class PhoHelper {
     // -- coffre chiffré (jamais de valeur lisible dans SharedPreferences) --
 
     public static void vaultPut(android.content.Context ctx, String uuid, String k, String v) {
-        Pholib.VaultPut(uuid, k, v);
+        Vpnlib.PhoVaultPut(uuid, k, v);
     }
 
     public static String vaultGet(String uuid, String k) {
-        String v = Pholib.VaultGet(uuid, k);
+        String v = Vpnlib.PhoVaultGet(uuid, k);
         return v == null ? "" : v;
     }
 
     public static void vaultClear(String uuid) {
-        Pholib.VaultClear(uuid);
+        Vpnlib.PhoVaultClear(uuid);
     }
 
     private static void deliver(Callback cb, JSONObject resp, Exception err) {

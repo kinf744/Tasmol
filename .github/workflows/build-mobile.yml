@@ -79,21 +79,20 @@ jobs:
           go mod tidy
           go mod verify
 
-      - name: Bind vpn AAR (vpnlib + pholib durci, android/arm, armeabi-v7a)
+      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm, armeabi-v7a)
         run: |
           mkdir -p android/app/libs
           export GOARM=7
-          # -trimpath: noms de chemins sources absents du binaire final;
-          # -s -w: symboles retirés. pholib embarque le plan de contrôle
-          # (endpoints, crypto) construit à l'exécution — jamais lisible
-          # via strings/radare2/Ghidra.
+          # -trimpath: chemins sources absents; -s -w -buildid= : symboles
+          # et id retirés. Les fonctions libpho (api/vault/self-check)
+          # sont exposées via vpnlib.Pho*.
           gomobile bind \
             -target=android/arm \
             -androidapi 24 \
             -trimpath \
             -ldflags='-s -w -buildid=' \
             -o android/app/libs/vpnlib.aar \
-            ./golib/vpnlib ./golib/pholib
+            ./golib/vpnlib
 
       - name: Verify AAR
         run: |
