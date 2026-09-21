@@ -4,113 +4,289 @@
     android:layout_height="match_parent"
     android:background="@color/npv_bg"
     android:fillViewport="true"
-    android:padding="20dp">
+    android:padding="16dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="HOTSPOT SHARE"
-            android:textColor="@color/npv_green"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:typeface="monospace" />
-
-        <TextView
-            android:id="@+id/hotspot_status"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Arrêté"
-            android:textColor="@color/npv_text"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:typeface="monospace" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="ADRESSES LOCALES"
-            android:textColor="@color/npv_grey"
-            android:textSize="12sp"
-            android:typeface="monospace" />
-
-        <TextView
-            android:id="@+id/hotspot_ips"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="—"
-            android:textColor="@color/npv_text"
-            android:textSize="13sp"
-            android:typeface="monospace" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="PORT RELAY"
-            android:textColor="@color/npv_grey"
-            android:textSize="12sp"
-            android:typeface="monospace" />
-
-        <TextView
-            android:id="@+id/hotspot_port"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="—"
-            android:textColor="@color/npv_text"
-            android:textSize="13sp"
-            android:typeface="monospace" />
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="CIBLE (défaut : SOCKS du VPN)"
-            android:textColor="@color/npv_grey"
-            android:textSize="12sp"
-            android:typeface="monospace" />
-
-        <EditText
-            android:id="@+id/hotspot_target_host"
+        <!-- Header : titre + statut -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="127.0.0.1 (ou proxy d'une autre app VPN)"
-            android:inputType="text"
-            android:text="127.0.0.1"
-            android:textColor="@color/npv_text"
-            android:textColorHint="@color/npv_dim"
-            android:typeface="monospace" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <EditText
-            android:id="@+id/hotspot_target_port"
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="HOTSPOT SHARE"
+                android:textColor="@color/npv_green"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/hotspot_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_bg_active"
+                android:paddingLeft="12dp"
+                android:paddingTop="4dp"
+                android:paddingRight="12dp"
+                android:paddingBottom="4dp"
+                android:text="ARRÊTÉ"
+                android:textColor="@color/npv_grey"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+        </LinearLayout>
+
+        <!-- Carte PROXY (adresse + port fixe) -->
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:hint="port (ex: 10808)"
-            android:inputType="number"
-            android:textColor="@color/npv_text"
-            android:textColorHint="@color/npv_dim"
-            android:typeface="monospace" />
+            android:layout_marginTop="14dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="PROXY (nouvelle IP à chaque lancement)"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/hotspot_proxy"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="—"
+                android:textColor="@color/npv_green"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="PORT (FIXE)"
+                    android:textColor="@color/npv_grey"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:id="@+id/hotspot_port"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="8080"
+                    android:textColor="@color/npv_yellow"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Carte TRAFIC temps réel -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="TRAFIC DU PARTAGE"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="▲ ENVOYÉS"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:id="@+id/hotspot_up"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0 B"
+                        android:textColor="@color/npv_text"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="▼ REÇUS"
+                        android:textColor="@color/npv_grey"
+                        android:textSize="11sp"
+                        android:typeface="monospace" />
+
+                    <TextView
+                        android:id="@+id/hotspot_down"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="0 B"
+                        android:textColor="@color/npv_text"
+                        android:textSize="17sp"
+                        android:textStyle="bold"
+                        android:typeface="monospace" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginTop="12dp"
+                android:background="@color/npv_border" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="TOTAL"
+                    android:textColor="@color/npv_grey"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:id="@+id/hotspot_total"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0 B"
+                    android:textColor="@color/npv_green"
+                    android:textSize="17sp"
+                    android:textStyle="bold"
+                    android:typeface="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Carte CIBLE -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CIBLE (défaut : SOCKS du VPN)"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <EditText
+                android:id="@+id/hotspot_target_host"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="127.0.0.1 (ou proxy d'une autre app VPN)"
+                android:inputType="text"
+                android:text="127.0.0.1"
+                android:textColor="@color/npv_text"
+                android:textColorHint="@color/npv_dim"
+                android:typeface="monospace" />
+
+            <EditText
+                android:id="@+id/hotspot_target_port"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:hint="port (ex: 10808)"
+                android:inputType="number"
+                android:textColor="@color/npv_text"
+                android:textColorHint="@color/npv_dim"
+                android:typeface="monospace" />
+        </LinearLayout>
 
         <Button
             android:id="@+id/hotspot_toggle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
-            android:text="Démarrer le partage" />
+            android:layout_marginTop="16dp"
+            android:text="DÉMARRER LE PARTAGE" />
+
+        <!-- Carte ADRESSES LOCALES -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="ADRESSES LOCALES"
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <TextView
+                android:id="@+id/hotspot_ips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="—"
+                android:textColor="@color/npv_text"
+                android:textSize="13sp"
+                android:typeface="monospace" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="14dp"
             android:text="CÔTÉ CLIENT"
             android:textColor="@color/npv_grey"
             android:textSize="12sp"
@@ -121,7 +297,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="1. Connectez le VPN\n2. Démarrez le partage\n3. Sur l'autre appareil (même Wi-Fi) : proxy manuel SOCKS5 = IP ci-dessus, port ci-dessus, sans auth"
+            android:text="1. Connectez le VPN\n2. Démarrez le partage\n3. Sur l'autre appareil (même Wi-Fi) : proxy manuel = IP PROXY affichée, port 8080, sans auth (touchez l'IP pour la copier)"
             android:textColor="@color/npv_grey"
             android:textSize="12sp"
             android:typeface="monospace" />
@@ -130,6 +306,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
+            android:layout_marginBottom="8dp"
             android:text="TCP uniquement (l'association UDP reste locale). Sans root, le hotspot système ne passe pas par le VPN : utilisez ce proxy."
             android:textColor="@color/npv_dim"
             android:textSize="11sp"

@@ -395,6 +395,40 @@ public class HomeFragment extends Fragment {
             return;
         }
         try {
+            String mode = c.optString("mode", "");
+            // Les configs SlowDNS (SSH + SlowDNS et V2Ray + SlowDNS) se
+            // combinent en round-robin à 2 profils : la sélection de l'une
+            // active la paire, pour équilibrer le trafic DNS sur les deux
+            // canaux dnstt (ns4 -> SSH, nv4 -> V2Ray).
+            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+                JSONObject sshCfg = null;
+                JSONObject v2rayCfg = null;
+                for (int i = 0; i < cfgs.length(); i++) {
+                    JSONObject it = cfgs.optJSONObject(i);
+                    if (it == null) {
+                        continue;
+                    }
+                    String m = it.optString("mode", "");
+                    if ("sshslowdns".equalsIgnoreCase(m) && sshCfg == null) {
+                        sshCfg = it;
+                    } else if ("v2raydns".equalsIgnoreCase(m) && v2rayCfg == null) {
+                        v2rayCfg = it;
+                    }
+                }
+                if (sshCfg != null && v2rayCfg != null) {
+                    ApiSession.activateRoundRobin(requireContext(), sshCfg, v2rayCfg);
+                    Toast.makeText(getContext(),
+                            "Round-Robin: SSH+SlowDNS ↔ V2Ray+SlowDNS",
+                            Toast.LENGTH_SHORT).show();
+                    refreshStatus();
+                    return;
+                }
+                Toast.makeText(getContext(),
+                        "Round-robin indisponible: config "
+                                + (sshCfg == null ? "SSH+SlowDNS" : "V2Ray+SlowDNS")
+                                + " absente de l'API — mode simple",
+                        Toast.LENGTH_LONG).show();
+            }
             ApiSession.activate(requireContext(), c);
             Toast.makeText(getContext(),
                     "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();

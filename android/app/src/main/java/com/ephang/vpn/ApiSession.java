@@ -22,6 +22,8 @@ public final class ApiSession {
     private static final String K_UUID = "api_device_uuid";
     private static final String K_ACTIVE_TUNNEL = "api_active_tunnel_id";
     private static final String K_SELECTED_CONFIG = "api_selected_config_id";
+    // Round-robin (2 profils API) : ids des tunnels matérialisés, csv.
+    private static final String K_ACTIVE_IDS = "api_active_tunnel_ids";
     // Les valeurs sensibles (téléphone, code, configs) ne vivent que dans
     // le vault chiffré de libpho (jamais de SharedPreferences en clair).
     private static final String V_PHONE = "phone";
@@ -103,9 +105,29 @@ public final class ApiSession {
 
     /** True when an API config currently owns the profile selection. */
     public static boolean isApiActive(Context ctx) {
-        String id = activeTunnelId(ctx);
-        return !id.isEmpty()
-                && VPNApplication.getInstance().getSelectedIds().contains(id);
+        java.util.LinkedHashSet<String> sel = VPNApplication.getInstance().getSelectedIds();
+        for (String id : activeTunnelIds(ctx)) {
+            if (sel.contains(id)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** All materialized API tunnel ids (1 in single mode, 2 in round-robin). */
+    public static java.util.List<String> activeTunnelIds(Context ctx) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        String csv = p(ctx).getString(K_ACTIVE_IDS, "");
+        if (csv.isEmpty()) {
+            csv = p(ctx).getString(K_ACTIVE_TUNNEL, "");
+        }
+        for (String id : csv.split(",")) {
+            id = id.trim();
+            if (!id.isEmpty()) {
+                out.add(id);
+            }
+        }
+        return out;
     }
 
     /**
@@ -113,35 +135,7 @@ public final class ApiSession {
      * and make it the single selected profile. Returns the tunnel id.
      */
     public static String activate(Context ctx, JSONObject apiCfg) throws Exception {
-        String cfgPath = BinaryManager.configPath(ctx).getAbsolutePath();
-        String tunnelId = activeTunnelId(ctx);
-        String json = toTunnelJson(apiCfg).toString();
-
-        boolean updated = false;
-        if (!tunnelId.isEmpty()) {
-            String res = VpnlibHelper.configUpdate(cfgPath, tunnelId, json);
-            updated = res != null && res.contains("\"ok\":true") || res != null && !res.contains("\"error\"");
-        }
-        if (!updated) {
-            String res = VpnlibHelper.configAdd(cfgPath, json);
-            if (res == null) {
-                throw new Exception("configAdd failed");
-            }
-            JSONObject r = new JSONObject(res);
-            if (r.has("error")) {
-                throw new Exception(r.optString("error", "configAdd failed"));
-            }
-            tunnelId = r.optString("id", "");
-            if (tunnelId.isEmpty()) {
-                JSONObject t = r.optJSONObject("tunnel");
-                if (t != null) {
-                    tunnelId = t.optString("id", "");
-                }
-            }
-        }
-        if (tunnelId.isEmpty()) {
-            throw new Exception("no tunnel id returned");
-        }
+        String tunnelId = materialize(ctx, apiCfg, activeTunnelId(ctx));
 
         VPNApplication app = VPNApplication.getInstance();
         java.util.LinkedHashSet<String> sel = new java.util.LinkedHashSet<>();
@@ -151,27 +145,97 @@ public final class ApiSession {
 
         p(ctx).edit()
                 .putString(K_ACTIVE_TUNNEL, tunnelId)
-                .putString(K_SELECTED_CONFIG, apiCfg.optString("config_id", ""))
+                .putString(K_ACTIVE_IDS, tunnelId)
+                .putString(K_SELECTED_CONFIG,
+                        String.valueOf(apiCfg.optInt("config_id", 0)))
                 .apply();
         return tunnelId;
     }
 
     /**
+     * Round-robin over the two SlowDNS API profiles (SSH + SlowDNS and
+     * V2Ray + SlowDNS): both are materialized locally and selected
+     * together, so the connection runs in round-robin mode. Selecting
+     * either of the two API configs activates the pair. Returns the
+     * comma-separated tunnel ids.
+     */
+    public static String activateRoundRobin(Context ctx, JSONObject cfgA, JSONObject cfgB)
+            throws Exception {
+        // Reuse previously stored ids (update in place) when possible.
+        String[] stored = p(ctx).getString(K_ACTIVE_IDS, "").split(",", -1);
+        String idA = materialize(ctx, cfgA, stored.length >= 1 ? stored[0] : "");
+        String idB = materialize(ctx, cfgB, stored.length >= 2 ? stored[1] : "");
+        String csv = idA + "," + idB;
+
+        VPNApplication app = VPNApplication.getInstance();
+        java.util.LinkedHashSet<String> sel = new java.util.LinkedHashSet<>();
+        sel.add(idA);
+        sel.add(idB);
+        app.setSelectedIds(sel);
+        app.setActiveTunnelId(idA);
+
+        p(ctx).edit()
+                .putString(K_ACTIVE_TUNNEL, idA)
+                .putString(K_ACTIVE_IDS, csv)
+                .putString(K_SELECTED_CONFIG,
+                        cfgA.optInt("config_id", 0) + "," + cfgB.optInt("config_id", 0))
+                .apply();
+        return csv;
+    }
+
+    /** Insert or update the local tunnel backing an API config. */
+    private static String materialize(Context ctx, JSONObject apiCfg, String reuseId)
+            throws Exception {
+        String cfgPath = BinaryManager.configPath(ctx).getAbsolutePath();
+        String json = toTunnelJson(apiCfg).toString();
+
+        if (reuseId != null && !reuseId.isEmpty()) {
+            try {
+                String res = VpnlibHelper.configUpdate(cfgPath, reuseId, json);
+                if (res != null && !res.contains("\"error\"")) {
+                    return reuseId;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        String res = VpnlibHelper.configAdd(cfgPath, json);
+        if (res == null) {
+            throw new Exception("configAdd failed");
+        }
+        JSONObject r = new JSONObject(res);
+        if (r.has("error")) {
+            throw new Exception(r.optString("error", "configAdd failed"));
+        }
+        String tunnelId = r.optString("id", "");
+        if (tunnelId.isEmpty()) {
+            JSONObject t = r.optJSONObject("tunnel");
+            if (t != null) {
+                tunnelId = t.optString("id", "");
+            }
+        }
+        if (tunnelId.isEmpty()) {
+            throw new Exception("no tunnel id returned");
+        }
+        return tunnelId;
+    }
+
+    /**
      * Withdraw the API config: selection cleared, API mode to standby.
-     * The materialized tunnel stays on disk (cheap, re-usable on re-select).
+     * The materialized tunnels stay on disk (cheap, re-usable on re-select).
      */
     public static void clearActive(Context ctx) {
-        String id = activeTunnelId(ctx);
-        if (!id.isEmpty()) {
+        java.util.List<String> ids = activeTunnelIds(ctx);
+        if (!ids.isEmpty()) {
             VPNApplication app = VPNApplication.getInstance();
             java.util.LinkedHashSet<String> sel = app.getSelectedIds();
-            sel.remove(id);
+            sel.removeAll(ids);
             app.setSelectedIds(sel);
-            if (id.equals(app.getActiveTunnelId())) {
+            if (ids.contains(app.getActiveTunnelId())) {
                 app.setActiveTunnelId(sel.isEmpty() ? "" : sel.iterator().next());
             }
         }
-        p(ctx).edit().remove(K_ACTIVE_TUNNEL).remove(K_SELECTED_CONFIG).apply();
+        p(ctx).edit().remove(K_ACTIVE_TUNNEL).remove(K_ACTIVE_IDS)
+                .remove(K_SELECTED_CONFIG).apply();
     }
 
     /** Called when the user manually selects a profile in CONFIGS. */
