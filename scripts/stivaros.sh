@@ -1470,13 +1470,43 @@ create_user() {
     read -r -p "Quota data en Mo (0 = illimité): " quota_mb
     [[ "$quota_mb" =~ ^[0-9]+$ ]] || { error "Quota invalide"; pause; return 1; }
 
-    # Les tunnels nécessaires sont détectés puis installés au besoin.
+    # Sélection des configurations à servir via l'API : une, plusieurs
+    # (liste séparée par des virgules) ou toutes ("0" ou "t"). L'app
+    # s'adapte automatiquement : elle n'affiche que les configs présentes
+    # et n'active le round-robin SlowDNS que si la paire 3+4 est servie.
+    echo
+    echo -e "  ${BOLD}Configs à inclure dans l'API :${NC}"
+    echo -e "   ${CYAN}1${NC}) XRAY   (MTN 150/100 + Orange illimité)"
+    echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
+    echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
+    echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
+    echo -e "   ${CYAN}0${NC}) Toutes"
+    local cfg_sel
+    read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
+    cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
+    [[ -n "$cfg_sel" ]] || cfg_sel="0"
+    case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
+    [[ "$cfg_sel" =~ ^[0-4,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    want() {                  # want <n> -> vrai si le groupe est choisi
+        [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
+    }
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0
+    if want 1; then want_xray=1; fi
+    if want 2; then want_zivpn=1; fi
+    if want 3; then want_sshdns=1; fi
+    if want 4; then want_v2dns=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns)) -ge 1 ]] \
+        || { error "Aucune config choisie"; pause; return 1; }
+
+    # Les tunnels nécessaires sont détectés puis installés au besoin,
+    # uniquement pour les familles de configs choisies.
     echo
     info "Vérification des tunnels…"
     local ok=1
-    ensure_tunnel xray    || ok=0
-    ensure_tunnel zivpn   || ok=0
-    ensure_tunnel slowdns || ok=0   # implique ssh + v2ray
+    if (( want_xray )); then ensure_tunnel xray || ok=0; fi
+    if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
+    # slowdns implique ssh + v2ray
+    if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -1503,10 +1533,13 @@ create_user() {
     e_srv=$(sqlq "$server_addr"); e_sshuser=$(sqlq "$ssh_user")
     e_ns4=$(sqlq "$ns4"); e_nv4=$(sqlq "$nv4"); e_pub=$(sqlq "$dnstt_pub")
 
-    sqlite3 -batch "$DB_PATH" << SQL
+    {
+    cat << SQL
 INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb)
 VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb);
-
+SQL
+    if (( want_xray )); then
+    cat << SQL
 -- MTN 150Mo (SNI fixe: mtnplay.com) et MTN 100Mo (SNI fixe: yamo.mtn.cm),
 -- VLESS + WebSocket + TLS, path /vless, host = domaine du serveur.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
@@ -1514,35 +1547,48 @@ SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'mtnplay.com', '$e_srv', 'mtn', '', 
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
 SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', '', '100', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
 
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
-SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
-SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
-
 -- Orange illimité: SNI/adresse fixes, host XHTTP administrable (menu 8),
 -- uuid propre au compte, path = path du tunnel Xray.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH' FROM users WHERE uuid='$uuid';
-
+SQL
+    fi
+    if (( want_zivpn )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_sshdns )); then
+    cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
 SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
-
+SQL
+    fi
+    if (( want_v2dns )); then
+    cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
 SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
 SQL
+    fi
+    } | sqlite3 -batch "$DB_PATH"
 
     # Provisionne les identifiants côté tunnels.
-    ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
+    if (( want_sshdns )); then
+        ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
+    fi
 
-    if tunnel_active zivpn; then
+    if (( want_zivpn )) && tunnel_active zivpn; then
         zivpn_cleanup_expired
         grep -v "^$uuid|" "$ZIVPN_USER_FILE" > "$ZIVPN_USER_FILE.tmp" 2>/dev/null || true
         echo "$uuid|$zivpn_pass|$expires" >> "$ZIVPN_USER_FILE.tmp"
         mv "$ZIVPN_USER_FILE.tmp" "$ZIVPN_USER_FILE"; chmod 600 "$ZIVPN_USER_FILE"
         zivpn_update_passwords || true
     fi
-    xray_sync_uuids || true
-    v2ray_sync_users || true
+    if (( want_xray )); then xray_sync_uuids || true; fi
+    if (( want_xray || want_v2dns )); then v2ray_sync_users || true; fi
 
     log "compte créé: $name ($phone) expire $expires"
     echo
@@ -1554,11 +1600,21 @@ SQL
     echo -e "  Code 6 ch. : ${BOLD}$code${NC}"
     echo -e "  Expire     : $expires"
     echo -e "${GREEN}  ── Configs générées ──${NC}"
-    echo -e "${CYAN}  XRAY       : $server_addr:443 vless+xhttp+tls uuid=$xray_uuid${NC}"
-    echo -e "${CYAN}  ZIVPN      : $server_addr:$ZIVPN_PORT pass=$zivpn_pass${NC}"
-    echo -e "${CYAN}  SSH+SlowDNS: NS=$ns4 user=$ssh_user pass=$ssh_pass${NC}"
-    echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
-    echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
+    if (( want_xray )); then
+        echo -e "${CYAN}  XRAY       : $server_addr:443 vless+xhttp+tls uuid=$xray_uuid${NC}"
+    fi
+    if (( want_zivpn )); then
+        echo -e "${CYAN}  ZIVPN      : $server_addr:$ZIVPN_PORT pass=$zivpn_pass${NC}"
+    fi
+    if (( want_sshdns )); then
+        echo -e "${CYAN}  SSH+SlowDNS: NS=$ns4 user=$ssh_user pass=$ssh_pass${NC}"
+    fi
+    if (( want_v2dns )); then
+        echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
+    fi
+    if (( want_sshdns || want_v2dns )); then
+        echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
+    fi
     echo -e "${GREEN}════════════════════════════════════════${NC}"
     pause
 }
