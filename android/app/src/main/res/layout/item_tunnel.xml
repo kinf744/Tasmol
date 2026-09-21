@@ -2,10 +2,10 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginTop="6dp"
+    android:layout_marginTop="4dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="6dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -25,7 +25,7 @@
                 android:layout_height="wrap_content"
                 android:text="Server"
                 android:textColor="@color/npv_text"
-                android:textSize="15sp"
+                android:textSize="9sp"
                 android:textStyle="bold"
                 android:typeface="monospace" />
 
@@ -36,42 +36,42 @@
                 android:layout_marginTop="4dp"
                 android:text=""
                 android:textColor="@color/npv_grey"
-                android:textSize="11sp"
+                android:textSize="9sp"
                 android:typeface="monospace" />
         </LinearLayout>
 
         <ImageButton
             android:id="@+id/item_edit"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:background="@android:color/transparent"
             android:contentDescription="Edit"
-            android:padding="4dp"
+            android:padding="3dp"
             android:src="@android:drawable/ic_menu_edit" />
 
         <ImageButton
             android:id="@+id/item_clone"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:background="@android:color/transparent"
             android:contentDescription="Clone"
-            android:padding="4dp"
+            android:padding="3dp"
             android:src="@android:drawable/ic_menu_add" />
 
         <ImageButton
             android:id="@+id/item_delete"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
             android:background="@android:color/transparent"
             android:contentDescription="Delete"
-            android:padding="4dp"
+            android:padding="3dp"
             android:src="@android:drawable/ic_menu_delete" />
     </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
+        android:layout_marginTop="4dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -82,7 +82,7 @@
             android:layout_weight="1"
             android:text=""
             android:textColor="@color/npv_green"
-            android:textSize="11sp"
+            android:textSize="9sp"
             android:typeface="monospace" />
 
         <TextView
@@ -91,17 +91,17 @@
             android:layout_height="wrap_content"
             android:text=""
             android:textColor="@color/npv_grey"
-            android:textSize="11sp"
+            android:textSize="9sp"
             android:typeface="monospace" />
 
         <TextView
             android:id="@+id/item_rr"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
+            android:layout_marginStart="4dp"
             android:text="RR"
             android:textColor="@color/npv_green"
-            android:textSize="11sp"
+            android:textSize="9sp"
             android:textStyle="bold"
             android:typeface="monospace"
             android:visibility="gone" />

@@ -257,11 +257,11 @@
 
         <ImageButton
             android:id="@+id/bar_add"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:background="@drawable/circle_add"
             android:contentDescription="Add"
-            android:padding="14dp"
+            android:padding="10dp"
             android:src="@android:drawable/ic_menu_add" />
     </LinearLayout>
 </LinearLayout>

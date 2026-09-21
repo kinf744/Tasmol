@@ -156,10 +156,10 @@
             android:id="@+id/home_config_card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="18dp"
+            android:layout_marginTop="12dp"
             android:background="@drawable/card_bg"
             android:orientation="vertical"
-            android:padding="14dp">
+            android:padding="8dp">
 
             <TextView
                 android:layout_width="wrap_content"
@@ -174,13 +174,13 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="8dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
                 <ImageView
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
                     android:src="@drawable/ic_file" />
 
                 <LinearLayout
@@ -196,7 +196,7 @@
                         android:layout_height="wrap_content"
                     android:text="No server selected"
                     android:textColor="@color/npv_text"
-                    android:textSize="15sp"
+                    android:textSize="11sp"
                         android:textStyle="bold"
                         android:typeface="monospace" />
 
@@ -206,7 +206,7 @@
                         android:layout_height="wrap_content"
                         android:text=""
                         android:textColor="@color/npv_grey"
-                        android:textSize="12sp"
+                        android:textSize="9sp"
                         android:typeface="monospace" />
                 </LinearLayout>
 
@@ -216,24 +216,24 @@
                     android:layout_height="wrap_content"
                     android:text=""
                     android:textColor="@color/npv_grey"
-                    android:textSize="11sp"
+                    android:textSize="9sp"
                     android:typeface="monospace" />
 
                 <ImageButton
                     android:id="@+id/home_remove_active"
-                    android:layout_width="32dp"
-                    android:layout_height="32dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_marginStart="6dp"
                     android:background="@android:color/transparent"
                     android:contentDescription="Retirer la config active"
-                    android:padding="4dp"
+                    android:padding="3dp"
                     android:src="@android:drawable/ic_delete"
                     android:visibility="gone" />
 
                 <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:layout_marginStart="8dp"
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:layout_marginStart="6dp"
                     android:src="@drawable/ic_chev_right" />
             </LinearLayout>
 
@@ -242,7 +242,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
-                android:layout_marginTop="10dp"
+                android:layout_marginTop="6dp"
                 android:background="@android:color/transparent"
                 android:text="PING"
                 android:textColor="@color/npv_green"
@@ -253,7 +253,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:layout_marginTop="12dp"
+                android:layout_marginTop="8dp"
                 android:background="@color/npv_border" />
 
             <LinearLayout

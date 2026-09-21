@@ -68,11 +68,27 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         notifyDataSetChanged();
     }
 
+    /** Cards occupy 70% of the list width (centered): -30% vs full width. */
+    private static final float CARD_WIDTH_RATIO = 0.70f;
+
     @NonNull
     @Override
     public Holder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
         View v = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_tunnel, parent, false);
+        v.post(() -> {
+            ViewGroup.LayoutParams lp = v.getLayoutParams();
+            int pw = parent.getWidth();
+            if (lp != null && pw > 0 && pw - parent.getPaddingLeft() - parent.getPaddingRight() > 0) {
+                pw -= parent.getPaddingLeft() + parent.getPaddingRight();
+                lp.width = (int) (pw * CARD_WIDTH_RATIO);
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ((ViewGroup.MarginLayoutParams) lp).leftMargin =
+                            (int) (pw * (1f - CARD_WIDTH_RATIO) / 2f);
+                }
+                v.setLayoutParams(lp);
+            }
+        });
         return new Holder(v);
     }
 

@@ -138,6 +138,10 @@ public class LogsFragment extends Fragment {
             Matcher lm = LINE_RE.matcher(line);
             if (lm.matches()) {
                 time = lm.group(1);
+                // Display as [HH:MM:SS] — drop the millisecond part.
+                if (time.length() > 8) {
+                    time = time.substring(0, 8);
+                }
                 rest = lm.group(2).trim();
             }
             String level = "info";
