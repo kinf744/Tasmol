@@ -1033,6 +1033,47 @@ PYEOF
     fi
 }
 
+# Endpoint HTTPS dédié sur :8443 (2e hôte de l'app). Le frontend :443 est
+# en mode TCP avec ALPN h2 — les clients Go négocient HTTP/2 et la réponse
+# casse. Ce frontend force HTTP/1.1 et parle clair à l'API (:9090).
+haproxy_api_8443() {
+    command -v haproxy &>/dev/null || return 0
+    local cfg=/etc/haproxy/haproxy.cfg pem=/etc/haproxy/api-v1.pem
+    if [[ ! -f "$pem" ]]; then
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1095 \
+            -keyout /etc/haproxy/api-v1.key -out /etc/haproxy/api-v1.crt \
+            -subj "/CN=api-v1.kingom.ggff.net" \
+            -addext "subjectAltName=DNS:api-v1.kingom.ggff.net" >/dev/null 2>&1 || return 0
+        cat /etc/haproxy/api-v1.crt /etc/haproxy/api-v1.key > "$pem"
+        chmod 600 "$pem"
+    fi
+    if ! grep -q "frontend stivaros_api_tls" "$cfg"; then
+        cat >> "$cfg" << 'EOF'
+
+frontend stivaros_api_tls
+    bind *:8443 ssl crt /etc/haproxy/api-v1.pem alpn http/1.1
+    mode http
+    option httplog
+    default_backend stivaros_api
+EOF
+    fi
+    # Le backend doit être http propre même si créé par haproxy_wire_api.
+    if grep -q $'backend stivaros_api\n    server' "$cfg"; then
+        python3 - << 'PYEOF'
+p = "/etc/haproxy/haproxy.cfg"
+s = open(p).read()
+old = "backend stivaros_api\n    server api 127.0.0.1:9090"
+new = ("backend stivaros_api\n    mode http\n    option http-keep-alive\n"
+       "    server api 127.0.0.1:9090")
+if old in s:
+    open(p, "w").write(s.replace(old, new))
+PYEOF
+    fi
+    command -v ufw &>/dev/null && ufw allow 8443/tcp >/dev/null 2>&1 || true
+    haproxy -c -f "$cfg" &>/dev/null && systemctl restart haproxy \
+        && info "HAProxy: API HTTPS dédiée sur :8443 (HTTP/1.1)"
+}
+
 
 install_api_server() {
     mkdir -p "$API_DIR"
@@ -1366,6 +1407,7 @@ EOF
 
     # Exposer l'API via le :443 existant (voir haproxy_wire_api).
     haproxy_wire_api || true
+    haproxy_api_8443 || true
 
     command -v ufw &>/dev/null && ufw allow "$API_PORT/tcp" 2>/dev/null || true
 
@@ -2063,6 +2105,7 @@ EOF
 
     # Câblage HAProxy (voir haproxy_wire_api): expose l'API sur :443.
     haproxy_wire_api || true
+    haproxy_api_8443 || true
     echo
     msg "Installation terminée"
     pause
