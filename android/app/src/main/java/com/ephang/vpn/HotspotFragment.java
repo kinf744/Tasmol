@@ -15,6 +15,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -190,15 +191,53 @@ public class HotspotFragment extends Fragment {
     }
 
     private void startRelay() {
-        // La cible est implicite : le SOCKS du tunnel actif (127.0.0.1).
-        // L'utilisateur n'a rien à saisir — port proxy fixe 8080, IP proxy
-        // 172.16.x.x régénérée à chaque lancement.
+        // Cible automatique : le SOCKS de notre tunnel actif (127.0.0.1).
+        // Sans VPN connecté, on peut partager la connexion d'UNE AUTRE
+        // app VPN : on demande alors son proxy local (host:port).
         int port = activeSocksPort();
-        if (port <= 0) {
-            toast("Connectez d'abord le VPN");
+        if (port > 0) {
+            launch("127.0.0.1", port);
             return;
         }
-        String host = "127.0.0.1";
+        if (getContext() == null) {
+            return;
+        }
+        final EditText input = new EditText(getContext());
+        input.setHint("127.0.0.1:10808");
+        input.setText("127.0.0.1:");
+        input.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        new AlertDialog.Builder(getContext())
+                .setTitle("Partager une autre app VPN")
+                .setMessage("Notre VPN n'est pas connecté. Indiquez le proxy "
+                        + "local de l'autre application (SOCKS5/HTTP), "
+                        + "format hôte:port — ex : 127.0.0.1:10808")
+                .setView(input)
+                .setPositiveButton("Démarrer", (d, w) -> {
+                    String v = input.getText().toString().trim();
+                    String host = "127.0.0.1";
+                    int p = 0;
+                    int colon = v.lastIndexOf(':');
+                    if (colon > 0) {
+                        host = v.substring(0, colon).trim();
+                        try {
+                            p = Integer.parseInt(v.substring(colon + 1).trim());
+                        } catch (NumberFormatException ignored) {
+                        }
+                    }
+                    if (host.isEmpty()) {
+                        host = "127.0.0.1";
+                    }
+                    if (p <= 0 || p > 65535) {
+                        toast("Port invalide (ex : 127.0.0.1:10808)");
+                        return;
+                    }
+                    launch(host, p);
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private void launch(String host, int port) {
         // Nouvelle IP proxy 172.16.x.x à chaque lancement.
         proxyIp = pickProxyIp();
         if (RELAY.start(host, port, proxyIp)) {

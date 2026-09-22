@@ -257,7 +257,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
-            android:text="1. Connectez le VPN\n2. Démarrez le partage\n3. Sur l'autre appareil (même Wi-Fi) : proxy manuel = IP PROXY affichée, port 8080, sans auth (touchez l'IP pour la copier)"
+            android:text="1. Connectez le VPN (le nôtre, ou une autre app)\n2. Démarrez le partage (sans VPN connecté, on vous demandera le proxy de l'autre app)\n3. Sur l'autre appareil (même Wi-Fi) : proxy manuel = IP PROXY affichée, port 8080, sans auth (touchez l'IP pour la copier)"
             android:textColor="@color/npv_grey"
             android:textSize="12sp"
             android:typeface="monospace" />
