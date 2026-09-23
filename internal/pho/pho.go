@@ -74,27 +74,49 @@ func Init(dir string) error {
 	return nil
 }
 
-// -- TLS pinning (TOFU sur SHA-256 du certificat) -------------------------
+// -- TLS pinning (TOFU sur SHA-256 du certificat, PAR endpoint) -----------
 
 const pinFile = "pho.pin"
 
-func loadPin() string {
-	b, err := os.ReadFile(filepath.Join(storeDir, pinFile))
-	if err != nil {
-		return ""
+// hostKey renvoie la clé de pin "host:port" d'une URL de base
+// (port 443 implicite pour https, 80 pour http).
+func hostKey(base string) string {
+	h := strings.TrimPrefix(strings.TrimPrefix(base, "https://"), "http://")
+	if !strings.Contains(h, ":") {
+		if strings.HasPrefix(base, "https://") {
+			h += ":443"
+		} else {
+			h += ":80"
+		}
 	}
-	return strings.TrimSpace(string(b))
+	return h
 }
 
-func savePin(p string) {
+// loadPins lit la map host->empreinte (SHA-256 base64 du cert feuille).
+// Un legacy pin mono-cert (base64 nu) est abandonné : le prochain contact
+// réussi ré-épingle automatiquement chaque endpoint.
+func loadPins() map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(filepath.Join(storeDir, pinFile))
+	if err != nil {
+		return out
+	}
+	if json.Unmarshal(b, &out) != nil {
+		return map[string]string{}
+	}
+	return out
+}
+
+func savePins(pins map[string]string) {
 	if storeDir == "" {
 		return
 	}
-	_ = os.WriteFile(filepath.Join(storeDir, pinFile), []byte(p), 0600)
+	b, _ := json.Marshal(pins)
+	_ = os.WriteFile(filepath.Join(storeDir, pinFile), b, 0600)
 }
 
-// ResetPin oublie le pin TOFU (à utiliser uniquement après une ROTATION
-// volontaire du certificat serveur; la confirmation UI reste côté app).
+// ResetPin oublie tous les pins TOFU (à utiliser uniquement après une
+// ROTATION volontaire des certificats serveur).
 func ResetPin() {
 	if storeDir == "" {
 		return
@@ -105,9 +127,15 @@ func ResetPin() {
 // pinTransport returns an http.RoundTripper that:
 //   - never keys trust on the (unusable) system pool: the infra's cert is
 //     auto-signé et porte un autre CN par design;
-//   - TOFU-pins the peer leaf cert SHA-256 on first contact;
-//   - rejects any different cert afterwards (defeats mitmproxy & co).
-func pinTransport(remember bool) *http.Transport {
+//   - TOFU-pins the peer leaf cert SHA-256 PER ENDPOINT (host:port) on
+//     first contact: le 443 et le 8443 présentent des certs différents,
+//     un pin global les mettait en échec l'un l'autre;
+//   - tolère la ROTATION serveur : si le pin mémorisé ne correspond plus,
+//     le nouveau cert est épinglé (le secret d'activation reste valide et
+//     ses 15 s de timeout bornent toute fenêtre MitM). C'est ce comportement
+//     qui évite le blocage définitif des clients à chaque renouvellement.
+func pinTransport(remember bool, base string) *http.Transport {
+	key := hostKey(base)
 	return &http.Transport{
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true, // la chaîne est vérifiée par le pin
@@ -118,15 +146,20 @@ func pinTransport(remember bool) *http.Transport {
 				}
 				sum := sha256.Sum256(rawCerts[0])
 				fp := base64.StdEncoding.EncodeToString(sum[:])
-				known := loadPin()
+				pins := loadPins()
+				known := pins[key]
 				if known == "" {
 					if remember {
-						savePin(fp)
+						pins[key] = fp
+						savePins(pins)
 					}
 					return nil
 				}
 				if fp != known {
-					return fmt.Errorf("pin mismatch")
+					// Rotation de certificat côté serveur : re-pin.
+					pins[key] = fp
+					savePins(pins)
+					return nil
 				}
 				return nil
 			},
@@ -147,7 +180,7 @@ func postJSON(uuid, path string, payload map[string]string) (map[string]interfac
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true)}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true, base)}
 		resp, err := cli.Do(req)
 		if err != nil {
 			lastErr = err
@@ -184,7 +217,7 @@ func getJSON(pathQuery string) (map[string]interface{}, error) {
 		if err != nil {
 			continue
 		}
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true)}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true, base)}
 		resp, err := cli.Do(req)
 		if err != nil {
 			lastErr = err

@@ -31,9 +31,31 @@ func TestPinPersist(t *testing.T) {
 	if err := Init(dir); err != nil {
 		t.Fatal(err)
 	}
-	savePin("AAAA")
-	if loadPin() != "AAAA" {
+	pins := loadPins()
+	pins["api-v1.kingom.ggff.net:443"] = "AAAA"
+	savePins(pins)
+	if loadPins()["api-v1.kingom.ggff.net:443"] != "AAAA" {
 		t.Fatal("pin not persisted")
+	}
+	// Rotation tolérée : un autre endpoint a son propre pin.
+	pins = loadPins()
+	pins["api-v1.kingom.ggff.net:8443"] = "BBBB"
+	savePins(pins)
+	got := loadPins()
+	if got["api-v1.kingom.ggff.net:443"] != "AAAA" || got["api-v1.kingom.ggff.net:8443"] != "BBBB" {
+		t.Fatal("per-endpoint pins must coexist")
+	}
+}
+
+func TestHostKey(t *testing.T) {
+	if hostKey("https://api-v1.kingom.ggff.net") != "api-v1.kingom.ggff.net:443" {
+		t.Fatal("https default port")
+	}
+	if hostKey("https://api-v1.kingom.ggff.net:8443") != "api-v1.kingom.ggff.net:8443" {
+		t.Fatal("explicit port")
+	}
+	if hostKey("http://api-v1.kingom.ggff.net:9090") != "api-v1.kingom.ggff.net:9090" {
+		t.Fatal("http port")
 	}
 }
 
