@@ -99,19 +99,23 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 		}
 		// SNI fronting (ex. configs MTN: SNI=mtnplay.com, host=domaine du
 		// serveur): le certificat présenté ne couvre pas le SNI, et
-		// allowInsecure n'existe plus. Comme pour les JSON complets, on
-		// épingle la chaîne live (pinnedPeerCertSha256): le pin remplace
-		// la vérification CA/hostname côté Xray.
+		// allowInsecure n'existe plus. On épingle la chaîne live via
+		// pinnedPeerCertChainSha256 (Xray 26.x; pinnedPeerCertSha256
+		// n'accepte qu'une string et fait échouer le démarrage).
+		// Si la sonde échoue (réseau freezero très filtré), on retombe sur
+		// verifyPeerCertByName: le cert du VPS porte le nom cfg.Server.Host,
+		// ce qui autorise le fronting sans vérification complète de chaîne.
 		if sni := strings.TrimSpace(cfg.Server.SNI); sni != "" &&
 			!strings.EqualFold(sni, cfg.Server.Host) &&
 			cfg.Server.Host != "" && cfg.Server.Port > 0 {
 			if pins, err := probeCertPins(resolveEndpoint(cfg, cfg.Server.Host),
 				cfg.Server.Port, sni); err == nil {
-				tlsm["pinnedPeerCertSha256"] = pins
+				tlsm["pinnedPeerCertChainSha256"] = pins
 				Tracef("[xray] SNI fronting %s!=%s: cert chain pinned", sni, cfg.Server.Host)
 			} else {
-				Warnf("xray", "fronting cert probe %s via %s failed: %v",
-					sni, cfg.Server.Host, err)
+				tlsm["verifyPeerCertByName"] = []string{cfg.Server.Host}
+				Warnf("xray", "fronting cert probe %s via %s failed: %v (fallback: cert pinned by name %s)",
+					sni, cfg.Server.Host, err, cfg.Server.Host)
 			}
 		}
 		ss["tlsSettings"] = tlsm
@@ -174,7 +178,7 @@ func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 
 // probeCertPins opens one throwaway TLS handshake (no verification) and
 // hashes the presented chain into base64-encoded SHA-256 digests that feed
-// Xray 26.x "pinnedPeerCertSha256" (the supported replacement for the
+// Xray 26.x "pinnedPeerCertChainSha256" (
 // removed "allowInsecure"), so self-signed / IP-only certs connect. Xray
 // matches ANY entry against the peer chain (leaf or CA).
 func probeCertPins(addr string, port int, sni string) ([]string, error) {
@@ -365,7 +369,10 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 		// Xray matches a handshake when ANY pinned hash matches a chain
 		// cert (leaf or any CA in the chain). Pin the whole chain so
 		// intermediates/leaf rotations still pass verification.
-		tlsm["pinnedPeerCertSha256"] = pins
+		// NOTE: Xray 26.x wants the array form under
+		// "pinnedPeerCertChainSha256" (pinnedPeerCertSha256 is a string —
+		// feeding it an array aborts config load).
+		tlsm["pinnedPeerCertChainSha256"] = pins
 		Tracef("[xray] pinned cert chain for %s:%d (%d in chain)", addr, port, len(pins))
 	}
 }
@@ -521,6 +528,9 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 			continue
 		}
 		delete(tlsm, "allowInsecure")
+		if _, has := tlsm["pinnedPeerCertChainSha256"]; has {
+			continue
+		}
 		if _, has := tlsm["pinnedPeerCertSha256"]; has {
 			continue
 		}
@@ -530,6 +540,21 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 		}
 		sni, _ := tlsm["serverName"].(string)
 		target := net.JoinHostPort(addr, strconv.Itoa(port))
+
+		// Quand la sonde échoue sur un fronting (sni != adresse), on tombe
+		// sur verifyPeerCertByName: le cert du serveur porte en général le
+		// nom de l'adresse de connexion, ce qui laisse passer le fronting
+		// tout en évitant l'ancien allowInsecure (retiré en Xray 26.x).
+		byNameFallback := func(context string, probeErr error) {
+			if sni != "" && !strings.EqualFold(sni, addr) && !isIPLiteral(addr) {
+				tlsm["verifyPeerCertByName"] = []string{addr}
+				Warnf("xray", "full-config TLS probe %s failed: %v (fallback: cert pinned by name %s)",
+					context, probeErr, addr)
+			} else {
+				Warnf("xray", "full-config TLS probe %s failed: %v (strict verification)",
+					context, probeErr)
+			}
+		}
 
 		var pins []string
 		var err error
@@ -543,7 +568,7 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 					if pAddr, pPort, headers, isHTTP := httpProxyDialTarget(hop); isHTTP {
 						pins, err = probeCertPinsViaHTTPProxy(pAddr, pPort, target, sni, headers)
 						if err != nil {
-							Warnf("xray", "full-config TLS probe %s via proxy %s:%d failed: %v (strict verification)", target, pAddr, pPort, err)
+							byNameFallback(fmt.Sprintf("%s via proxy %s:%d", target, pAddr, pPort), err)
 							continue
 						}
 						Tracef("[xray] full-config: pinned cert chain for %s via proxy %s:%d", target, pAddr, pPort)
@@ -554,12 +579,12 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 		if pins == nil && err == nil {
 			pins, err = probeCertPins(addr, port, sni)
 			if err != nil {
-				Warnf("xray", "full-config TLS probe %s:%d failed: %v (strict verification)", addr, port, err)
+				byNameFallback(fmt.Sprintf("%s:%d", addr, port), err)
 				continue
 			}
 			Tracef("[xray] full-config: pinned cert chain for %s:%d", addr, port)
 		}
-		tlsm["pinnedPeerCertSha256"] = pins
+		tlsm["pinnedPeerCertChainSha256"] = pins
 	}
 
 	data, err := json.Marshal(m)

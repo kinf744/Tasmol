@@ -212,7 +212,7 @@ func LiveForward(id string) int {
 // CAs (OpenSSL-hashed files, the exact format the loader expects) in
 // /system/etc/security/cacerts, which is world-readable. This restores
 // real certificate verification for all TLS outbounds; the live-chain
-// pinning (pinnedPeerCertSha256) stays as an extra layer.
+// pinning (pinnedPeerCertChainSha256) stays as an extra layer.
 func androidCAEnv() []string {
 	if st, err := os.Stat("/system/etc/security/cacerts"); err == nil && st.IsDir() {
 		return []string{"SSL_CERT_DIR=/system/etc/security/cacerts"}
