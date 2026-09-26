@@ -99,7 +99,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         boolean isSelected = selectedIds.contains(id);
         h.card.setBackgroundResource(isSelected ? R.drawable.card_bg_active : R.drawable.card_bg);
-        h.check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
         // Selection frame says it all: no separate round-robin badge.
         h.rr.setVisibility(View.GONE);
 
@@ -140,7 +139,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final View edit;
         final View share;
         final View delete;
-        final TextView check;
 
         Holder(View v) {
             super(v);
@@ -153,7 +151,6 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             edit = v.findViewById(R.id.item_edit);
             share = v.findViewById(R.id.item_share);
             delete = v.findViewById(R.id.item_delete);
-            check = v.findViewById(R.id.item_check);
         }
     }
 
