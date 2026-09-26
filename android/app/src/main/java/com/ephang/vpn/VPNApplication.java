@@ -22,13 +22,7 @@ public class VPNApplication extends Application {
         Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, err) -> {
-            try {
-                StringWriter sw = new StringWriter();
-                err.printStackTrace(new PrintWriter(sw));
-                TasVpnService.logEvent("error", "app",
-                        "CRASH on " + thread.getName() + ": " + err + "\n" + sw);
-            } catch (Throwable ignored) {
-            }
+            writeCrashReport(thread, err);
             try {
                 if (previous != null) {
                     previous.uncaughtException(thread, err);
@@ -62,6 +56,57 @@ public class VPNApplication extends Application {
 
     public static VPNApplication getInstance() {
         return instance;
+    }
+
+    /**
+     * Rapport de crash détaillé dans Download/crash.txt : horodatage,
+     * appareil, version app, état VPN au moment du crash, stacktrace
+     * complète et les dernières lignes du journal de connexion. Le fichier
+     * est réécrit à chaque crash (le plus récent prime pour le support).
+     */
+    private void writeCrashReport(Thread thread, Throwable err) {
+        try {
+            StringWriter sw = new StringWriter();
+            err.printStackTrace(new PrintWriter(sw));
+            StringBuilder sb = new StringBuilder();
+            sb.append("========== EPHANG VPN CRASH ==========\n");
+            java.text.SimpleDateFormat fmt =
+                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",
+                            java.util.Locale.US);
+            sb.append("Date       : ").append(fmt.format(new java.util.Date())).append('\n');
+            sb.append("Thread     : ").append(thread.getName()).append('\n');
+            sb.append("Exception  : ").append(err).append('\n');
+            sb.append("Appareil   : ").append(Build.MANUFACTURER).append(' ')
+                    .append(Build.MODEL).append(" (Android ").append(Build.VERSION.RELEASE)
+                    .append(", API ").append(Build.VERSION.SDK_INT).append(")\n");
+            try {
+                android.content.pm.PackageInfo pi = getPackageManager()
+                        .getPackageInfo(getPackageName(), 0);
+                sb.append("App        : ").append(pi.versionName).append('\n');
+            } catch (Throwable ignored) {
+            }
+            sb.append("VPN état   : running=").append(TasVpnService.isRunning())
+                    .append(" starting=").append(TasVpnService.isStarting())
+                    .append(" active=").append(String.valueOf(TasVpnService.getActiveTunnelId()))
+                    .append('\n');
+            sb.append("--------------------------------------\n");
+            sb.append("STACKTRACE:\n").append(sw).append('\n');
+            sb.append("--------------------------------------\n");
+            sb.append("DERNIERS ÉVÉNEMENTS (journal):\n");
+            sb.append(TasVpnService.getLog()).append('\n');
+
+            java.io.File d = android.os.Environment
+                    .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (d == null || (!d.exists() && !d.mkdirs())) {
+                return;
+            }
+            try (java.io.FileOutputStream out =
+                    new java.io.FileOutputStream(new java.io.File(d, "crash.txt"), false)) {
+                out.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            }
+            TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err);
+        } catch (Throwable ignored) {
+        }
     }
 
     public SharedPreferences getPrefs() {
