@@ -82,20 +82,30 @@ func (t *HysteriaTunnel) resolveServerIP() string {
 	return host
 }
 
-// serverSpec builds "ip:port" with optional port hopping
-// (advanced.port_range: "5000-6000" -> "ip:443,5000-6000").
+// DefaultHysteriaPortRange is the port-hopping range used by default:
+// the profile never dials a single fixed port — the client hoppe en
+// permanence dans 20000-50000 (le serveur redirige cette plage vers son
+// port d'écoute, à la ziVPN).
+const DefaultHysteriaPortRange = "20000-50000"
+
+// serverSpec builds the Hysteria server address. Avec une plage (la
+// norme ici), le format est "ip:<port>,20000-50000"; si le profil n'a
+// pas de port fixe (port=0), seule la plage est utilisée :
+// "ip:20000-50000".
 func (t *HysteriaTunnel) serverSpec(ip string) string {
 	port := strconv.Itoa(t.config.Server.Port)
-	rng := ""
+	rng := DefaultHysteriaPortRange
 	if t.config.Advanced != nil {
 		if v, ok := t.config.Advanced["port_range"].(string); ok {
-			rng = strings.ReplaceAll(strings.TrimSpace(v), " ", "")
+			if r := strings.ReplaceAll(strings.TrimSpace(v), " ", ""); r != "" {
+				rng = r
+			}
 		}
 	}
-	if rng != "" {
-		return fmt.Sprintf("%s:%s,%s", ip, port, rng)
+	if t.config.Server.Port <= 0 {
+		return fmt.Sprintf("%s:%s", ip, rng)
 	}
-	return fmt.Sprintf("%s:%s", ip, port)
+	return fmt.Sprintf("%s:%s,%s", ip, port, rng)
 }
 
 // buildHysteriaConfig reproduces Picko's client configuration (Hysteria
@@ -141,11 +151,12 @@ func (t *HysteriaTunnel) Start(ctx context.Context) error {
 	}
 	host := strings.TrimSpace(t.config.Server.Host)
 	authPass := strings.TrimSpace(t.config.Auth.Password)
-	if host == "" || t.config.Server.Port <= 0 || authPass == "" {
-		err := fmt.Errorf("hysteria: server.host, server.port et auth.password sont requis")
+	if host == "" || authPass == "" {
+		err := fmt.Errorf("hysteria: server.host et auth.password sont requis")
 		Errorf("hysteria", "%v", err)
 		return err
 	}
+	// Port fixe facultatif : la plage par défaut (20000-50000) suffit.
 
 	t.status = StatusStarting
 	t.setError("")

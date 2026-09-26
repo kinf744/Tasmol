@@ -648,14 +648,28 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     toast("Auth (mot de passe) Hysteria requis");
                     return;
                 }
-                int hp = 0;
-                try {
-                    hp = Integer.parseInt(edPort.getText().toString().trim());
-                } catch (NumberFormatException ignored) {
+                // Plage par défaut si vide : jamais de port fixe seul.
+                if (edHyPortRange.getText().toString().trim().isEmpty()) {
+                    edHyPortRange.setText("20000-50000");
                 }
-                if (hp < 1 || hp > 65535) {
-                    toast("Port Hysteria invalide");
+                String hpr = edHyPortRange.getText().toString().replaceAll("\s+", "");
+                if (!hpr.matches("\\d+(-\\d+)?(,\\d+(-\\d+)?)*")) {
+                    toast("Port hopping invalide (ex : 20000-50000)");
                     return;
+                }
+                String ptxt = edPort.getText().toString().trim();
+                if (!ptxt.isEmpty()) {
+                    int hp;
+                    try {
+                        hp = Integer.parseInt(ptxt);
+                    } catch (NumberFormatException e) {
+                        toast("Port Hysteria invalide");
+                        return;
+                    }
+                    if (hp < 1 || hp > 65535) {
+                        toast("Port Hysteria invalide");
+                        return;
+                    }
                 }
             }
 

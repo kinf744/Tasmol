@@ -395,13 +395,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Port hopping (optionnel, ex: 5000-6000)" />
+                android:text="Port hopping (défaut : 20000-50000)" />
 
             <EditText
                 android:id="@+id/ed_hy_port_range"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="443,5000-6000"
+                android:hint="20000-50000"
                 android:inputType="text" />
 
             <LinearLayout
