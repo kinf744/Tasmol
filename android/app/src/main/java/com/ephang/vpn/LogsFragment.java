@@ -85,10 +85,21 @@ public class LogsFragment extends Fragment {
         handler.removeCallbacks(tick);
     }
 
+    private long lastSeenStamp = -2;
+    private boolean lastSeenVerbose = false;
+
     private void refresh() {
         if (logText == null || getContext() == null) {
             return;
         }
+        // Skip total: ni lecture ni re-render si le journal n'a pas bougé
+        // (2s tick). Gros gain de fluidité UI (le fichier fait ~300 Ko).
+        long stamp = BinaryManager.kighmuStamp();
+        if (stamp == lastSeenStamp && verbose == lastSeenVerbose) {
+            return;
+        }
+        lastSeenStamp = stamp;
+        lastSeenVerbose = verbose;
         String raw = BinaryManager.readKighmuTail(TAIL_CHARS);
         if (raw == null || raw.trim().isEmpty()) {
             logText.setText("No events yet.\nConnect to start the journal.");

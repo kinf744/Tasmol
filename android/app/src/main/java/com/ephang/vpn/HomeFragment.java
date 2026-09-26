@@ -125,6 +125,11 @@ public class HomeFragment extends Fragment {
         return v;
     }
 
+    // Cache anti-reparse : showSelectedServer() relistait TOUS les profils
+    // (JSON complet) à chaque tick 2s. On ne re-parse que si la sélection
+    // ou le titre changent.
+    private String lastServerKey = null;
+
     public void refreshStatus() {
         // !isAdded() : fragment détaché pendant un refresh différé (ex. après
         // une déconnexion longue) — requireContext() planterait sinon.
@@ -159,9 +164,15 @@ public class HomeFragment extends Fragment {
             uptimeText.setText("--:--:--");
             downText.setText("0 B");
             upText.setText("0 B");
-            showSelectedServer();
+            String selKey = VPNApplication.getInstance().getSelectedIds().toString()
+                    + "@" + BinaryManager.configPath(requireContext()).lastModified();
+            if (!selKey.equals(lastServerKey)) {
+                lastServerKey = selKey;
+                showSelectedServer();
+            }
             return;
         }
+        lastServerKey = null; // re-render quand la session s'arrête
 
         try {
             JSONObject st = new JSONObject(TasVpnService.controllerStatus());

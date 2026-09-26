@@ -232,6 +232,21 @@ public class BinaryManager {
     }
 
     /** Read the tail of Download/kighmu.txt ("" when missing/unreadable). */
+    /** Stamp bon marché du journal (taille ^ mtime) : 0 si absent. Les écrans
+     *  l'utilisent pour sauter les re-rendus quand rien n'a changé. */
+    public static long kighmuStamp() {
+        try {
+            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (d == null) {
+                return 0;
+            }
+            File f = new File(d, "kighmu.txt");
+            return f.exists() ? (f.length() ^ (f.lastModified() << 1)) : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     public static String readKighmuTail(int maxChars) {
         try {
             File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
