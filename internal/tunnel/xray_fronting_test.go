@@ -1,14 +1,16 @@
 package tunnel
 
 import (
+	"encoding/hex"
+	"strings"
 	"testing"
 
 	"vpn-app/internal/config"
 )
 
 // MTN-style fronting: SNI zero-rated, cert CN = real server host.
-// The generated tlsSettings must use pinnedPeerCertChainSha256 (array),
-// never pinnedPeerCertSha256 (string in Xray 26.x -> config load aborts).
+// Xray 26.x: pinnedPeerCertSha256 is a STRING of comma-separated hex
+// SHA-256 digests (array -> config load aborts; base64 -> never matches).
 func TestFrontingTLSUsesChainPin(t *testing.T) {
 	tc := &config.TunnelConfig{
 		Name: "MTN 150Mo",
@@ -29,14 +31,19 @@ func TestFrontingTLSUsesChainPin(t *testing.T) {
 	if tlsm == nil {
 		t.Fatal("no tlsSettings")
 	}
-	if _, bad := tlsm["pinnedPeerCertSha256"]; bad {
-		t.Fatal("legacy pinnedPeerCertSha256 key present (breaks Xray 26.x)")
+	if _, bad := tlsm["pinnedPeerCertChainSha256"]; bad {
+		t.Fatal("pinnedPeerCertChainSha256 key present (unknown to Xray 26.x)")
 	}
-	pins, ok := tlsm["pinnedPeerCertChainSha256"].([]string)
-	if !ok || len(pins) == 0 {
-		t.Fatalf("expected pinnedPeerCertChainSha256 pins, got %v", tlsm["pinnedPeerCertChainSha256"])
+	pinsStr, ok := tlsm["pinnedPeerCertSha256"].(string)
+	if !ok || pinsStr == "" {
+		t.Fatalf("expected pinnedPeerCertSha256 string, got %v", tlsm["pinnedPeerCertSha256"])
 	}
-	t.Logf("pinned %d chain certs", len(pins))
+	for _, h := range strings.Split(pinsStr, ",") {
+		if b, err := hex.DecodeString(h); err != nil || len(b) != 32 {
+			t.Fatalf("pin %q is not 32-byte hex", h)
+		}
+	}
+	t.Logf("pinned chain: %s", pinsStr)
 
 	// Probe failure path: closed port => probe fails => must fall back to
 	// verifyPeerCertByName (never strict CA verification, which breaks
@@ -47,15 +54,12 @@ func TestFrontingTLSUsesChainPin(t *testing.T) {
 	ob = TunnelOutbound(bad, bad.Server.Host, 9)
 	ss, _ = ob["streamSettings"].(map[string]interface{})
 	tlsm, _ = ss["tlsSettings"].(map[string]interface{})
-	if _, badKey := tlsm["pinnedPeerCertSha256"]; badKey {
-		t.Fatal("legacy key emitted on fallback path")
-	}
-	if pins, ok2 := tlsm["pinnedPeerCertChainSha256"].([]string); ok2 && len(pins) > 0 {
-		t.Logf("probe unexpectedly succeeded, pins present (%d)", len(pins))
+	if pins, ok2 := tlsm["pinnedPeerCertSha256"].(string); ok2 && pins != "" {
+		t.Logf("probe unexpectedly succeeded, pins present")
 		return
 	}
-	names, ok2 := tlsm["verifyPeerCertByName"].([]string)
-	if !ok2 || len(names) == 0 || names[0] != bad.Server.Host {
+	name, _ := tlsm["verifyPeerCertByName"].(string) // string CSV en 26.x
+	if name != bad.Server.Host {
 		t.Fatalf("expected verifyPeerCertByName fallback, got %v", tlsm["verifyPeerCertByName"])
 	}
 }
