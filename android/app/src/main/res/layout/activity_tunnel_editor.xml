@@ -352,6 +352,106 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/sec_hysteria"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:text="Hysteria UDP"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Auth (mot de passe)" />
+
+            <EditText
+                android:id="@+id/ed_hy_auth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Obfs (optionnel)" />
+
+            <EditText
+                android:id="@+id/ed_hy_obfs"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="salamander…"
+                android:inputType="text" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Port hopping (optionnel, ex: 5000-6000)" />
+
+            <EditText
+                android:id="@+id/ed_hy_port_range"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="443,5000-6000"
+                android:inputType="text" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="horizontal">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Upload (Mbps)" />
+
+                    <EditText
+                        android:id="@+id/ed_hy_up"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="10"
+                        android:inputType="number" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Download (Mbps)" />
+
+                    <EditText
+                        android:id="@+id/ed_hy_down"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="50"
+                        android:inputType="number" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/sec_slowdns"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

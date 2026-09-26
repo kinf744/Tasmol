@@ -102,7 +102,7 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 func balancerOutbound(tc *config.TunnelConfig, tag string) (map[string]interface{}, error) {
 	var ob map[string]interface{}
 	switch tc.Type {
-	case config.TunnelSSH, config.TunnelSSHSlowDNS, config.TunnelZivpn:
+	case config.TunnelSSH, config.TunnelSSHSlowDNS, config.TunnelZivpn, config.TunnelHysteria:
 		ob = map[string]interface{}{
 			"protocol": "socks",
 			"settings": map[string]interface{}{

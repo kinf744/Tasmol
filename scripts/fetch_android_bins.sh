@@ -28,6 +28,7 @@ fail=0
 stage xray lib_xray.so || fail=1
 stage zivpn lib_zivpn.so || fail=1
 stage slowdns lib_slowdns.so || fail=1
+stage hysteria lib_hysteria.so || fail=1
 
 # geoip.dat/geosite.dat ne sont plus embarqués (≈30 Mo économisés) :
 # l'app ne génère aucune règle geoip:/geosite: (vérif: aucune référence

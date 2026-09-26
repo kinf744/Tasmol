@@ -12,6 +12,7 @@ const (
 	TunnelXray        TunnelType = "xray"
 	TunnelXraySlowDNS TunnelType = "xray_slowdns"
 	TunnelZivpn       TunnelType = "zivpn"
+	TunnelHysteria    TunnelType = "hysteria"
 )
 
 type Config struct {

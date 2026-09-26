@@ -25,7 +25,7 @@ import org.json.JSONObject;
 public class TunnelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
-    private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn"};
+    private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria"};
     private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Xray + SlowDNS", "Zivpn UDP"};
     private static final String[] NETWORKS = {"tcp", "udp", "ws", "grpc", "xhttp", "httpupgrade"};
     private static final String[] SECURITIES = {"", "tls", "reality"};
@@ -72,6 +72,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private static final String HINT_JSON = "{\"outbounds\":[{\"protocol\":\"vless\",...}]}";
     private LinearLayout secZivpn;
     private EditText edZpass;
+    private LinearLayout secHysteria;
+    private EditText edHyAuth;
+    private EditText edHyObfs;
+    private EditText edHyPortRange;
+    private EditText edHyUp;
+    private EditText edHyDown;
     private Spinner edObfs;
     private EditText edObfsParam;
     private LinearLayout secSlowdns;
@@ -148,6 +154,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edXrayInput = findViewById(R.id.ed_xray_input);
         secZivpn = findViewById(R.id.sec_zivpn);
         edZpass = findViewById(R.id.ed_zpass);
+        secHysteria = findViewById(R.id.sec_hysteria);
+        edHyAuth = findViewById(R.id.ed_hy_auth);
+        edHyObfs = findViewById(R.id.ed_hy_obfs);
+        edHyPortRange = findViewById(R.id.ed_hy_port_range);
+        edHyUp = findViewById(R.id.ed_hy_up);
+        edHyDown = findViewById(R.id.ed_hy_down);
         edObfs = findViewById(R.id.ed_obfs);
         edObfsParam = findViewById(R.id.ed_obfs_param);
         secSlowdns = findViewById(R.id.sec_slowdns);
@@ -205,6 +217,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean isXray = type.equals("xray") || type.equals("xray_slowdns");
         boolean isSlowDNS = type.equals("ssh_slowdns") || type.equals("xray_slowdns");
         boolean isZivpn = type.equals("zivpn");
+        boolean isHysteria = type.equals("hysteria");
         boolean showServer = !type.equals("ssh_slowdns") && !type.equals("xray");
 
         // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
@@ -226,6 +239,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
+        secHysteria.setVisibility(isHysteria ? View.VISIBLE : View.GONE);
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
         secServer.setVisibility(showServer && !isXraySlowDns ? View.VISIBLE : View.GONE);
         secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
@@ -301,6 +315,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edXpass.setText(auth.optString("password", ""));
                     edMethod.setText(auth.optString("method", ""));
                     edZpass.setText(auth.optString("password", ""));
+                    edHyAuth.setText(auth.optString("password", ""));
+                }
+                JSONObject adv0 = t.optJSONObject("advanced");
+                if (adv0 != null) {
+                    edHyObfs.setText(adv0.optString("hysteria_obfs", ""));
+                    edHyPortRange.setText(adv0.optString("port_range", ""));
+                    int up = adv0.optInt("up_mbps", 0);
+                    int down = adv0.optInt("down_mbps", 0);
+                    if (up > 0) {
+                        edHyUp.setText(String.valueOf(up));
+                    }
+                    if (down > 0) {
+                        edHyDown.setText(String.valueOf(down));
+                    }
                 }
                 JSONObject transport = t.optJSONObject("transport");
                 if (transport != null) {
@@ -615,6 +643,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 toast("Password is required");
                 return;
             }
+            if (type.equals("hysteria")) {
+                if (edHyAuth.getText().toString().trim().isEmpty()) {
+                    toast("Auth (mot de passe) Hysteria requis");
+                    return;
+                }
+                int hp = 0;
+                try {
+                    hp = Integer.parseInt(edPort.getText().toString().trim());
+                } catch (NumberFormatException ignored) {
+                }
+                if (hp < 1 || hp > 65535) {
+                    toast("Port Hysteria invalide");
+                    return;
+                }
+            }
 
             JSONObject auth = new JSONObject();
             JSONObject ssh = new JSONObject();
@@ -645,6 +688,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             if (type.equals("zivpn")) {
                 auth.put("password", edZpass.getText().toString());
+            }
+            if (type.equals("hysteria")) {
+                auth.put("password", edHyAuth.getText().toString().trim());
             }
 
             int secPos = edSecurity.getSelectedItemPosition();
@@ -695,6 +741,31 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (!advanced.has("outbound_json")) {
                     toast("Xray needs a link or a JSON config");
                     return;
+                }
+            }
+
+            if (type.equals("hysteria")) {
+                String hyObfs = edHyObfs.getText().toString().trim();
+                if (!hyObfs.isEmpty()) {
+                    advanced.put("hysteria_obfs", hyObfs);
+                }
+                String hyRange = edHyPortRange.getText().toString().trim();
+                if (!hyRange.isEmpty()) {
+                    advanced.put("port_range", hyRange);
+                }
+                try {
+                    int up = Integer.parseInt(edHyUp.getText().toString().trim());
+                    if (up >= 1) {
+                        advanced.put("up_mbps", up);
+                    }
+                } catch (NumberFormatException ignored) {
+                }
+                try {
+                    int down = Integer.parseInt(edHyDown.getText().toString().trim());
+                    if (down >= 1) {
+                        advanced.put("down_mbps", down);
+                    }
+                } catch (NumberFormatException ignored) {
                 }
             }
 

@@ -166,6 +166,8 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
                 return "xray_slowdns";
             case "zivpn":
                 return "zivpn";
+            case "hysteria":
+                return "hysteria";
             default:
                 return type;
         }

@@ -105,11 +105,12 @@ func Errorf(component, format string, args ...interface{}) {
 
 // Binary names as stored in bin/armv7/ of the repository.
 const (
-	BinSSH     = "ssh"
-	BinSlowDNS = "slowdns"
-	BinXray    = "xray"
-	BinZivpn   = "zivpn"
-	BinUDPGW   = "udpgw"
+	BinSSH      = "ssh"
+	BinSlowDNS  = "slowdns"
+	BinXray     = "xray"
+	BinZivpn    = "zivpn"
+	BinHysteria = "hysteria"
+	BinUDPGW    = "udpgw"
 )
 
 // LookupBin returns the executable path for a tunnel binary: it prefers
@@ -156,6 +157,7 @@ const (
 	DefaultXrayPort        = 10808
 	DefaultXraySlowDNSPort = 10809
 	DefaultZivpnPort       = 10810
+	DefaultHysteriaPort    = 10811
 )
 
 // SocksPort returns the local SOCKS5 port a tunnel exposes.
@@ -171,6 +173,8 @@ func SocksPort(cfg *config.TunnelConfig) int {
 		return advInt(cfg.Advanced, "socks_port", DefaultXraySlowDNSPort)
 	case config.TunnelZivpn:
 		return advInt(cfg.Advanced, "socks_port", DefaultZivpnPort)
+	case config.TunnelHysteria:
+		return advInt(cfg.Advanced, "socks_port", DefaultHysteriaPort)
 	default:
 		return advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
 	}

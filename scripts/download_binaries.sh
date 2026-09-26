@@ -66,7 +66,13 @@ if ! install_from_repo zivpn; then
     echo "  [url] zivpn -> $BIN_DIR/zivpn"
 fi
 
-# 4. SlowDNS (dnstt-client, armv7)
+# 4b. Hysteria client (armv7, bundle dépôt)
+echo "[4b/5] Hysteria (client)..."
+if ! install_from_repo hysteria; then
+    echo "  hysteria absent du bundle repo (bin/armv7/hysteria)"
+fi
+
+# 5. SlowDNS (dnstt-client, armv7)
 echo "[4/4] SlowDNS (dnstt-client)..."
 if ! install_from_repo slowdns; then
     echo "  No prebuilt armv7 slowdns in repo."
@@ -88,7 +94,7 @@ fi
 # Verification
 echo ""
 echo "=== Verification ==="
-file "$BIN_DIR/xray" "$BIN_DIR/zivpn" "$BIN_DIR/slowdns" 2>/dev/null || true
+file "$BIN_DIR/xray" "$BIN_DIR/zivpn" "$BIN_DIR/slowdns" "$BIN_DIR/hysteria" 2>/dev/null || true
 command -v ssh && ssh -V 2>&1 | head -1 || echo "ssh: MISSING from PATH"
 "$BIN_DIR/xray" version 2>&1 | head -2 || true
 echo ""
