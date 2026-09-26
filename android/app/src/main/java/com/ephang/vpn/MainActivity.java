@@ -243,15 +243,8 @@ public class MainActivity extends AppCompatActivity {
         // healthy disconnect finishes in ~1-3s and nothing shows. Only a
         // genuinely wedged service (still alive at 18s, past the 15s forced
         // cleanup) pops the dialog — no more false alarms.
-        handler.postDelayed(() -> {
-            if (isFinishing() || isDestroyed()) {
-                return;
-            }
-            if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
-                showToast("Still disconnecting...");
-            }
-        }, 8000);
-        handler.postDelayed(this::checkDisconnectStuck, 18000);
+        handler.postDelayed(stuckToastTask, 8000);
+        handler.postDelayed(stuckCheckTask, 18000);
     }
 
     /** Power-button path: confirm first when the setting requires it. */
@@ -267,6 +260,25 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         disconnectVpn();
+    }
+
+    // Watchdogs de déconnexion identifiés, annulés dès qu'une nouvelle
+    // connexion démarre (sinon "VPN stuck" apparaît à tort ~18 s après,
+    // pendant que le tunnel tourne).
+    private final Runnable stuckToastTask = () -> {
+        if (isFinishing() || isDestroyed()) {
+            return;
+        }
+        if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+            showToast("Still disconnecting...");
+        }
+    };
+    private final Runnable stuckCheckTask = this::checkDisconnectStuck;
+
+    private void cancelDisconnectWatchdogs() {
+        handler.removeCallbacks(stuckToastTask);
+        handler.removeCallbacks(stuckCheckTask);
+        stuckDialogShowing = false;
     }
 
     private boolean stuckDialogShowing = false;
@@ -293,7 +305,7 @@ public class MainActivity extends AppCompatActivity {
                 })
                 .setNegativeButton("Keep waiting", (d, w) -> {
                     stuckDialogShowing = false;
-                    handler.postDelayed(this::checkDisconnectStuck, 7000);
+                    handler.postDelayed(stuckCheckTask, 7000);
                 })
                 .setCancelable(false)
                 .show();
@@ -307,6 +319,7 @@ public class MainActivity extends AppCompatActivity {
      * cleanup for the "error + refuses to disconnect" case.
      */
     public void nuclearDisconnect() {
+        cancelDisconnectWatchdogs();
         try {
             Intent intent = new Intent(this, TasVpnService.class);
             intent.setAction(TasVpnService.ACTION_DISCONNECT);
@@ -404,6 +417,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void startTasVpn(String tunnelId) {
+        cancelDisconnectWatchdogs();
         Intent intent = new Intent(this, TasVpnService.class);
         intent.setAction(TasVpnService.ACTION_CONNECT);
         intent.putExtra(TasVpnService.EXTRA_TUNNEL_ID, tunnelId);
