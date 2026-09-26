@@ -29,15 +29,10 @@ stage xray lib_xray.so || fail=1
 stage zivpn lib_zivpn.so || fail=1
 stage slowdns lib_slowdns.so || fail=1
 
-# Xray routing data next to the APK assets (copied to filesDir at runtime)
-ASSETS_BIN="$REPO_ROOT/android/app/src/main/assets/bin"
-mkdir -p "$ASSETS_BIN"
-for dat in geoip.dat geosite.dat; do
-    if [ -f "$SRC_DIR/$dat" ]; then
-        cp "$SRC_DIR/$dat" "$ASSETS_BIN/$dat"
-        echo "  ✓ $dat -> assets/bin/$dat"
-    fi
-done
+# geoip.dat/geosite.dat ne sont plus embarqués (≈30 Mo économisés) :
+# l'app ne génère aucune règle geoip:/geosite: (vérif: aucune référence
+# dans internal/ ni golib/). Un import JSON manuel avec règles geo
+# échouera proprement au démarrage sans casser le reste.
 
 if [ "$fail" -ne 0 ]; then
     echo "FAILED: some binaries are missing from bin/armv7/"

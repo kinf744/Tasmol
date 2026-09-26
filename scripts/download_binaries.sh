@@ -49,19 +49,12 @@ echo "[2/4] Xray v26.5.9..."
 if ! install_from_repo xray; then
     cd "$TMP_DIR"
     wget -q "https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-arm32-v7a.zip" -O xray.zip
-    unzip -o xray.zip xray geoip.dat geosite.dat
+    unzip -o xray.zip xray
     chmod +x xray
     cp xray "$BIN_DIR/xray"
-    [ -f geoip.dat ] && cp geoip.dat geosite.dat "$BIN_DIR/" 2>/dev/null || true
     echo "  [url] xray -> $BIN_DIR/xray"
 fi
-# Routing data files (geoip/geosite) for Xray rules
-for dat in geoip.dat geosite.dat; do
-    if [ -f "$REPO_BIN_DIR/$dat" ] && [ ! -f "$BIN_DIR/$dat" ]; then
-        cp "$REPO_BIN_DIR/$dat" "$BIN_DIR/$dat"
-        echo "  [repo] $dat -> $BIN_DIR/$dat"
-    fi
-done
+# geoip.dat/geosite.dat non installés: aucune règle geo n'est générée.
 
 # 3. Zivpn UDP client (uz_core, ARM 32-bit)
 echo "[3/4] Zivpn (uz_core)..."

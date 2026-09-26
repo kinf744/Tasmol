@@ -26,8 +26,10 @@ import java.util.Map;
  * Binaries ship inside the APK as native libraries
  * (jniLibs/armeabi-v7a/lib_{xray,zivpn,slowdns}.so). At runtime they are
  * copied once to <filesDir>/bin/{xray,zivpn,slowdns} with the executable
- * bit (nativeLibraryDir itself is read-only), alongside
- * geoip.dat/geosite.dat from assets for Xray routing rules.
+ * bit (nativeLibraryDir itself is read-only).
+ *
+ * geoip.dat/geosite.dat ne sont PLUS embarqués (~30 Mo économisés) :
+ * aucune config générée par l'app n'utilise de règle geoip:/geosite:.
  */
 public class BinaryManager {
     private static final String TAG = "BinaryManager";
@@ -39,8 +41,6 @@ public class BinaryManager {
             {"lib_zivpn.so", "zivpn"},
             {"lib_slowdns.so", "slowdns"},
     };
-
-    private static final String[] ASSET_DATS = {"geoip.dat", "geosite.dat"};
 
     public static File binDir(Context ctx) {
         return new File(ctx.getFilesDir(), "bin");
@@ -78,16 +78,10 @@ public class BinaryManager {
             }
         }
 
-        for (String dat : ASSET_DATS) {
-            File dst = new File(dir, dat);
-            if (!dst.exists()) {
-                try {
-                    copyAsset(ctx, "bin/" + dat, dst);
-                } catch (Exception e) {
-                    Log.w(TAG, "asset bin/" + dat + " missing, Xray geo rules unavailable");
-                }
-            }
-        }
+        // Nettoie les legacy geo .dat laissés par les versions précédentes
+        // (libère ~30 Mo sur les appareils mis à jour).
+        new File(dir, "geoip.dat").delete();
+        new File(dir, "geosite.dat").delete();
 
         ensureDefaultConfig(ctx);
     }
@@ -112,17 +106,6 @@ public class BinaryManager {
 
     private static void copyFile(File src, File dst) throws Exception {
         try (InputStream in = Files.newInputStream(src.toPath());
-             OutputStream out = new FileOutputStream(dst)) {
-            byte[] buf = new byte[65536];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                out.write(buf, 0, n);
-            }
-        }
-    }
-
-    private static void copyAsset(Context ctx, String asset, File dst) throws Exception {
-        try (InputStream in = ctx.getAssets().open(asset);
              OutputStream out = new FileOutputStream(dst)) {
             byte[] buf = new byte[65536];
             int n;

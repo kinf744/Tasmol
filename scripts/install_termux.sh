@@ -77,7 +77,6 @@ if [ -d "$REPO_BUNDLE" ]; then
     cp "$REPO_BUNDLE/xray" ~/bin/xray
     cp "$REPO_BUNDLE/zivpn" ~/bin/zivpn
     cp "$REPO_BUNDLE/slowdns" ~/bin/slowdns 2>/dev/null || SLOWDNS_MISSING=1
-    cp "$REPO_BUNDLE/geoip.dat" "$REPO_BUNDLE/geosite.dat" ~/.vpn-app/ 2>/dev/null || true
     chmod +x ~/bin/xray ~/bin/zivpn ~/bin/slowdns 2>/dev/null || true
 fi
 
@@ -87,10 +86,9 @@ cd ~/vpn-binaries
 if [ ! -f ~/bin/xray ]; then
     echo "  Downloading Xray v26.5.9..."
     wget -q "https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-arm32-v7a.zip" -O xray.zip
-    unzip -o xray.zip xray geoip.dat geosite.dat
+    unzip -o xray.zip xray
     chmod +x xray
     cp xray ~/bin/xray
-    cp geoip.dat geosite.dat ~/.vpn-app/ 2>/dev/null || true
 fi
 
 # Zivpn UDP client uz_core (fallback if bundle missing)
