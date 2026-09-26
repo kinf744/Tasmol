@@ -396,37 +396,38 @@ public class HomeFragment extends Fragment {
         }
         try {
             String mode = c.optString("mode", "");
-            // Les configs SlowDNS (SSH + SlowDNS et V2Ray + SlowDNS) se
-            // combinent en round-robin à 2 profils : la sélection de l'une
-            // active la paire, pour équilibrer le trafic DNS sur les deux
-            // canaux dnstt (ns4 -> SSH, nv4 -> V2Ray).
+            // Round-robin PAR FAMILLE : choisir une config SlowDNS active
+            // ses 2 profils DE MÊME MODE (SSH SlowDNS 1+2 ensemble, ou
+            // V2Ray SlowDNS 1+2 ensemble) — 2 connexions dnstt parallèles
+            // sur le même canal = agrégation de débit. Jamais de mix
+            // SSH+V2Ray.
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
-                JSONObject sshCfg = null;
-                JSONObject v2rayCfg = null;
+                JSONObject first = null;
+                JSONObject second = null;
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
                     if (it == null) {
                         continue;
                     }
-                    String m = it.optString("mode", "");
-                    if ("sshslowdns".equalsIgnoreCase(m) && sshCfg == null) {
-                        sshCfg = it;
-                    } else if ("v2raydns".equalsIgnoreCase(m) && v2rayCfg == null) {
-                        v2rayCfg = it;
+                    if (mode.equalsIgnoreCase(it.optString("mode", ""))) {
+                        if (first == null) {
+                            first = it;
+                        } else {
+                            second = it;
+                            break;
+                        }
                     }
                 }
-                if (sshCfg != null && v2rayCfg != null) {
-                    ApiSession.activateRoundRobin(requireContext(), sshCfg, v2rayCfg);
+                if (first != null && second != null) {
+                    ApiSession.activateRoundRobin(requireContext(), first, second);
                     Toast.makeText(getContext(),
-                            "Round-Robin: SSH+SlowDNS ↔ V2Ray+SlowDNS",
+                            "Round-Robin ×2: " + first.optString("label", mode),
                             Toast.LENGTH_SHORT).show();
                     refreshStatus();
                     return;
                 }
                 Toast.makeText(getContext(),
-                        "Round-robin indisponible: config "
-                                + (sshCfg == null ? "SSH+SlowDNS" : "V2Ray+SlowDNS")
-                                + " absente de l'API — mode simple",
+                        "2 profils requis pour le round-robin — mode simple",
                         Toast.LENGTH_LONG).show();
             }
             ApiSession.activate(requireContext(), c);

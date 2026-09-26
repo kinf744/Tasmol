@@ -1235,6 +1235,14 @@ class APIHandler(BaseHTTPRequestHandler):
                 (user["id"],)).fetchall()
             conn.close()
             configs, seen = [], set()
+            # Round-robin par famille : plusieurs configs sshslowdns (resp.
+            # v2raydns) DOIVENT être servies avec des labels distincts,
+            # l'app les combine ensuite en round-robin à 2 profils.
+            mode_total = {}
+            for c in rows:
+                m = c["mode"] or "xray"
+                mode_total[m] = mode_total.get(m, 0) + 1
+            mode_rank = {}
             for cfg in rows:
                 mode = cfg["mode"] or "xray"
                 isp = cfg["isp"] or ""
@@ -1255,6 +1263,9 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = f"XRAY {tier}Mo"
                 else:
                     continue
+                if mode in ("sshslowdns", "v2raydns") and mode_total.get(mode, 0) > 1:
+                    mode_rank[mode] = mode_rank.get(mode, 0) + 1
+                    label = f"{label} {mode_rank[mode]}"
                 if label in seen:
                     continue
                 seen.add(label)
@@ -1605,12 +1616,19 @@ SQL
     fi
     if (( want_sshdns )); then
     cat << SQL
+-- Deux profils identiques : l'app les combine en round-robin (2 connexions
+-- dnstt parallèles -> agrégation de débit). Labels distincts posés par l'API.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
 SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_v2dns )); then
     cat << SQL
+-- Deux profils identiques pour le round-robin V2Ray+SlowDNS (même principe).
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
 SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
 SQL
