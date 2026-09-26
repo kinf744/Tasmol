@@ -652,7 +652,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (edHyPortRange.getText().toString().trim().isEmpty()) {
                     edHyPortRange.setText("20000-50000");
                 }
-                String hpr = edHyPortRange.getText().toString().replaceAll("\s+", "");
+                String hpr = edHyPortRange.getText().toString().replaceAll("\\s+", "");
                 if (!hpr.matches("\\d+(-\\d+)?(,\\d+(-\\d+)?)*")) {
                     toast("Port hopping invalide (ex : 20000-50000)");
                     return;
