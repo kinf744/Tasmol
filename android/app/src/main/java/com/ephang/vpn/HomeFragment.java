@@ -32,6 +32,8 @@ public class HomeFragment extends Fragment {
     private Button pingBtn;
     private View apiSection;
     private android.widget.Spinner apiSpinner;
+    // Rangées visibles du spinner (paires SlowDNS fusionnées en une entrée).
+    private java.util.List<JSONObject> visibleApiConfigs = new java.util.ArrayList<>();
     private android.widget.ImageButton removeActiveBtn;
     private boolean spinnerGuard = false;
     private final Handler bg = new Handler(Looper.getMainLooper());
@@ -336,15 +338,35 @@ public class HomeFragment extends Fragment {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         java.util.List<String> labels = new java.util.ArrayList<>();
         labels.add(cfgs.length() == 0 ? "— UPDATE —" : " ••• ");
+        // Affichage professionnel : les paires SlowDNS (2 profils servis
+        // pour le round-robin) apparaissent comme UNE SEULE entrée déjà
+        // suffixée « 2 » par l'API (ex. "SSH + SlowDNS 2"), ce qui signifie
+        // "2 profils combinés". L'entrée "… 1" est masquée.
+        java.util.List<JSONObject> visible = new java.util.ArrayList<>();
         for (int i = 0; i < cfgs.length(); i++) {
             JSONObject c = cfgs.optJSONObject(i);
             if (c == null) {
                 continue;
             }
-            // Label nu: le type de tunnel ne doit pas apparaître (usage
-            // commercial — le nom public suffit).
+            String mode = c.optString("mode", "");
+            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+                // Garder uniquement le dernier profil du mode = « … 2 ».
+                boolean hasMore = false;
+                for (int j = i + 1; j < cfgs.length(); j++) {
+                    JSONObject n = cfgs.optJSONObject(j);
+                    if (n != null && mode.equalsIgnoreCase(n.optString("mode", ""))) {
+                        hasMore = true;
+                        break;
+                    }
+                }
+                if (hasMore) {
+                    continue; // masque « … 1 »
+                }
+            }
+            visible.add(c);
             labels.add(c.optString("label", "config"));
         }
+        visibleApiConfigs = visible;
         android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
                 requireContext(), android.R.layout.simple_spinner_dropdown_item, labels);
         spinnerGuard = true;
@@ -392,14 +414,15 @@ public class HomeFragment extends Fragment {
         if (position <= 0 || getContext() == null) {
             return; // placeholder row
         }
-        org.json.JSONArray cfgs = ApiSession.configs(requireContext());
-        if (position - 1 >= cfgs.length()) {
+        java.util.List<JSONObject> visible = visibleApiConfigs;
+        if (visible == null || position - 1 >= visible.size()) {
             return;
         }
-        JSONObject c = cfgs.optJSONObject(position - 1);
+        JSONObject c = visible.get(position - 1);
         if (c == null) {
             return;
         }
+        org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
             String mode = c.optString("mode", "");
             // Round-robin PAR FAMILLE : choisir une config SlowDNS active
