@@ -24,7 +24,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         void onEdit(JSONObject tunnel);
 
-        void onClone(JSONObject tunnel);
+        void onShare(JSONObject tunnel);
 
         void onDelete(JSONObject tunnel);
     }
@@ -95,17 +95,18 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         h.type.setText(prettyType(type));
 
         Long ms = pingMs.get(id);
-        h.ping.setText(ms != null ? ms + " ms" : "");
+        h.ping.setText(ms != null && ms >= 0 ? "Ping " + ms : "Ping –");
 
         boolean isSelected = selectedIds.contains(id);
         h.card.setBackgroundResource(isSelected ? R.drawable.card_bg_active : R.drawable.card_bg);
+        h.check.setVisibility(isSelected ? View.VISIBLE : View.GONE);
         // Selection frame says it all: no separate round-robin badge.
         h.rr.setVisibility(View.GONE);
 
         // Locked (imported) profiles: no edit, no clone. Ever.
         boolean locked = ProfileTransfer.isLocked(t);
         h.edit.setVisibility(locked ? View.GONE : View.VISIBLE);
-        h.clone.setVisibility(locked ? View.GONE : View.VISIBLE);
+        h.share.setVisibility(locked ? View.GONE : View.VISIBLE);
         if (locked) {
             h.rr.setVisibility(View.VISIBLE);
             h.rr.setText("LOCK");
@@ -120,7 +121,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             return true;
         });
         h.edit.setOnClickListener(v -> listener.onEdit(t));
-        h.clone.setOnClickListener(v -> listener.onClone(t));
+        h.share.setOnClickListener(v -> listener.onShare(t));
         h.delete.setOnClickListener(v -> listener.onDelete(t));
     }
 
@@ -137,8 +138,9 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final TextView ping;
         final TextView rr;
         final View edit;
-        final View clone;
+        final View share;
         final View delete;
+        final TextView check;
 
         Holder(View v) {
             super(v);
@@ -149,8 +151,9 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             ping = v.findViewById(R.id.item_ping);
             rr = v.findViewById(R.id.item_rr);
             edit = v.findViewById(R.id.item_edit);
-            clone = v.findViewById(R.id.item_clone);
+            share = v.findViewById(R.id.item_share);
             delete = v.findViewById(R.id.item_delete);
+            check = v.findViewById(R.id.item_check);
         }
     }
 

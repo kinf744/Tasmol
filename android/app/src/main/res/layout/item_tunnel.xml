@@ -5,93 +5,94 @@
     android:layout_marginTop="6dp"
     android:background="@drawable/card_bg"
     android:orientation="vertical"
-    android:padding="8dp">
+    android:padding="10dp">
 
+    <!-- Rangée 1 : nom [+ coche sélection] ... modifier / partager / supprimer -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:id="@+id/item_name"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Server"
-                android:textColor="@color/npv_text"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                android:typeface="monospace" />
-
-            <TextView
-                android:id="@+id/item_detail"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text=""
-                android:textColor="@color/npv_grey"
-                android:textSize="11sp"
-                android:typeface="monospace" />
-        </LinearLayout>
-
-        <ImageButton
-            android:id="@+id/item_edit"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Edit"
-            android:padding="4dp"
-            android:src="@android:drawable/ic_menu_edit" />
-
-        <ImageButton
-            android:id="@+id/item_clone"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Clone"
-            android:padding="4dp"
-            android:src="@android:drawable/ic_menu_add" />
-
-        <ImageButton
-            android:id="@+id/item_delete"
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="Delete"
-            android:padding="4dp"
-            android:src="@android:drawable/ic_menu_delete" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <TextView
-            android:id="@+id/item_ping"
-            android:layout_width="0dp"
+            android:id="@+id/item_name"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text=""
-            android:textColor="@color/npv_green"
-            android:textSize="11sp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Profile"
+            android:textColor="@color/npv_text"
+            android:textSize="16sp"
+            android:textStyle="bold"
             android:typeface="monospace" />
 
         <TextView
-            android:id="@+id/item_type"
+            android:id="@+id/item_check"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/check_badge"
+            android:paddingLeft="3dp"
+            android:paddingRight="3dp"
+            android:text="✓"
+            android:textColor="#FFFFFF"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/item_edit"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Edit"
+            android:padding="5dp"
+            android:src="@drawable/ic_edit" />
+
+        <ImageButton
+            android:id="@+id/item_share"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Share"
+            android:padding="5dp"
+            android:src="@drawable/ic_share" />
+
+        <ImageButton
+            android:id="@+id/item_delete"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_marginStart="4dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="Delete"
+            android:padding="5dp"
+            android:src="@drawable/ic_delete" />
+    </LinearLayout>
+
+    <!-- Rangée 2 : host:port ... protocole + ping (jaune, style NPV) -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/item_detail"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:singleLine="true"
             android:text=""
             android:textColor="@color/npv_grey"
-            android:textSize="11sp"
+            android:textSize="13sp"
             android:typeface="monospace" />
 
         <TextView
@@ -99,11 +100,30 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:text="RR"
+            android:text=""
             android:textColor="@color/npv_green"
-            android:textSize="11sp"
-            android:textStyle="bold"
+            android:textSize="12sp"
             android:typeface="monospace"
             android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/item_type"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:text=""
+            android:textColor="@color/npv_grey"
+            android:textSize="13sp"
+            android:typeface="monospace" />
+
+        <TextView
+            android:id="@+id/item_ping"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Ping"
+            android:textColor="#F2C94C"
+            android:textSize="13sp"
+            android:typeface="monospace" />
     </LinearLayout>
 </LinearLayout>

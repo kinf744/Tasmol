@@ -86,12 +86,18 @@ public class ConfigsFragment extends Fragment {
             }
 
             @Override
-            public void onClone(JSONObject tunnel) {
+            public void onShare(JSONObject tunnel) {
                 if (ProfileTransfer.isLocked(tunnel)) {
-                    toast("Profil verrouillé : clonage impossible");
+                    toast("Profil verrouillé : partage impossible");
                     return;
                 }
-                cloneTunnel(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
+                if (ProfileTransfer.isApiManaged(tunnel)) {
+                    toast("Les configs de l'API sont sécurisées : partage impossible");
+                    return;
+                }
+                java.util.List<JSONObject> one = new java.util.ArrayList<>();
+                one.add(tunnel);
+                showExportMenu(one);
             }
 
             @Override
@@ -293,44 +299,64 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
+    /** PING ALL (style NPV) : pinge tous les profils visibles en parallèle
+     *  et affiche le résultat sur chaque carte ("Ping <ms>"). */
     private void pingActive() {
-        JSONObject target = null;
+        java.util.List<JSONObject> targets = new java.util.ArrayList<>();
         try {
             JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
-            java.util.LinkedHashSet<String> selected =
-                    VPNApplication.getInstance().getSelectedIds();
-            String first = selected.isEmpty() ? "" : selected.iterator().next();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
-                if (!first.isEmpty()) {
-                    if (t.optString("id", "").equals(first)) {
-                        target = t;
-                        break;
-                    }
-                } else if (target == null) {
-                    target = t;
+                JSONObject adv = t.optJSONObject("advanced");
+                if (adv != null && adv.optBoolean(ApiSession.ADV_API_MANAGED, false)) {
+                    continue;
                 }
+                targets.add(t);
             }
         } catch (Exception ignored) {
         }
-        if (target == null) {
-            toast("No server selected");
+        if (targets.isEmpty()) {
+            toast("Aucun profil à pinger");
             return;
         }
-        final String tid = target.optString("id", "");
-        TunnelPing.ping(requireContext(), target, (ms, via) -> {
-            if (ms >= 0) {
-                if (!tid.isEmpty()) {
-                    VPNApplication.getInstance().setTunnelPing(tid, ms);
-                }
-                toast(ms + " ms");
-            } else if (ms == -2) {
-                toast("UDP server: TCP closed (normal). Connect, then PING measures real latency.");
-            } else {
-                toast("Ping failed");
-            }
-            reload();
-        });
+        toast("Ping de " + targets.size() + " profil(s)…");
+        if (lastPingText != null) {
+            lastPingText.setText("…");
+        }
+        final android.content.Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+        final long t0 = System.currentTimeMillis();
+        final java.util.concurrent.ExecutorService es =
+                java.util.concurrent.Executors.newFixedThreadPool(5);
+        final java.util.concurrent.atomic.AtomicInteger done =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        for (final JSONObject t : targets) {
+            es.execute(() -> {
+                final String tid = t.optString("id", "");
+                TunnelPing.ping(ctx, t, (ms, via) -> {
+                    if (!tid.isEmpty() && ms >= 0) {
+                        VPNApplication.getInstance().setTunnelPing(tid, ms);
+                    }
+                    if (done.incrementAndGet() == targets.size()) {
+                        es.shutdown();
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() -> {
+                                if (lastPingText != null) {
+                                    lastPingText.setText(new java.text.SimpleDateFormat(
+                                            "HH:mm", java.util.Locale.US)
+                                            .format(new java.util.Date()));
+                                }
+                                long dt = (System.currentTimeMillis() - t0) / 1000;
+                                toast("Test terminé (" + dt + " s)");
+                                reload();
+                            });
+                        }
+                    }
+                });
+            });
+        }
     }
 
     /** Tap a card: toggle its selection (green frame = will connect). */
@@ -490,8 +516,11 @@ public class ConfigsFragment extends Fragment {
             toast("Sélectionnez d'abord 1+ profils (cadre vert)");
             return;
         }
-        final List<JSONObject> tunnels =
-                ProfileTransfer.selectedTunnels(requireContext(), selected);
+        showExportMenu(ProfileTransfer.selectedTunnels(requireContext(), selected));
+    }
+
+    /** Backup form for an explicit list of profiles (selection or single). */
+    private void showExportMenu(List<JSONObject> tunnels) {
         if (tunnels.isEmpty()) {
             toast("Les configs de l'API sont sécurisées : export impossible");
             return;
