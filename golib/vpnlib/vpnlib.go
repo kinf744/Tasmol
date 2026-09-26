@@ -343,7 +343,16 @@ func (c *Controller) Start(paramsJSON string) string {
 // tun2socks drain or a blocked follow tick must never hang Stop
 // forever (that left the Android service — and its VPN key icon —
 // stuck with no way to disconnect).
-func (c *Controller) Stop() string {
+func (c *Controller) Stop() (out string) {
+	// Barrière finale : un panic survivant n'emporte jamais le processus
+	// (gomobile propagerait un SIGABRT = fermeture brutale de l'app).
+	defer func() {
+		if r := recover(); r != nil {
+			tunnel.Errorf("session", "stop panic (swallowed): %v", r)
+			c.running = false
+			out = ""
+		}
+	}()
 	c.mu.Lock()
 	if !c.running {
 		c.mu.Unlock()
@@ -370,7 +379,19 @@ func (c *Controller) Stop() string {
 // Used so teardown always makes progress even when something wedges.
 func waitBounded(wait func(), d time.Duration, what string) {
 	done := make(chan struct{})
-	go func() { wait(); close(done) }()
+	go func() {
+		// Un panic dans une goroutine native (gVisor/tun2socks pendant
+		// stack.Close sur des sockets actifs) tue tout le processus —
+		// symptôme "l'app se ferme toute seule à la déconnexion".
+		// On convertit en warning : le teardown continue quoi qu'il arrive.
+		defer func() {
+			if r := recover(); r != nil {
+				tunnel.Warnf("session", "teardown panic in %s: %v", what, r)
+			}
+		}()
+		wait()
+		close(done)
+	}()
 	select {
 	case <-done:
 	case <-time.After(d):
@@ -378,39 +399,53 @@ func waitBounded(wait func(), d time.Duration, what string) {
 	}
 }
 
+// safeCall exécute fn en avalant tout panic : la destruction du plan de
+// données ne doit JAMAIS emporter le processus (crash utilisateur).
+func safeCall(what string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			tunnel.Warnf("session", "teardown panic in %s: %v", what, r)
+		}
+	}()
+	fn()
+}
+
 func (c *Controller) cleanupLocked() {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	c.killFrontLocked()
+	safeCall("killFront", func() { c.killFrontLocked() })
 	if c.stack != nil {
-		c.stack.Close()
 		st := c.stack
-		waitBounded(st.Wait, 5*time.Second, "tun2socks drain")
 		c.stack = nil
+		safeCall("stack.Close", func() { st.Close() })
+		waitBounded(st.Wait, 5*time.Second, "tun2socks drain")
 	}
 	if c.dev != nil {
-		c.dev.Close()
+		d := c.dev
 		c.dev = nil
+		safeCall("dev.Close", func() { d.Close() })
 	}
 	c.tun = nil
 	c.dialer = nil
 	c.rrIDs = nil
 	if c.vpn != nil {
 		v := c.vpn
-		waitBounded(func() { _ = v.Stop(context.Background()) }, 10*time.Second, "tunnels stop")
 		c.vpn = nil
+		waitBounded(func() { _ = v.Stop(context.Background()) }, 10*time.Second, "tunnels stop")
 	}
 	if c.cfgMgr != nil {
-		_ = c.cfgMgr.Close()
+		m := c.cfgMgr
 		c.cfgMgr = nil
+		safeCall("cfgMgr.Close", func() { _ = m.Close() })
 	}
 	c.apiSrv = nil
 	c.running = false
 	c.activeID = ""
 	if c.logFile != nil {
-		_ = c.logFile.Close()
+		f := c.logFile
 		c.logFile = nil
+		safeCall("logFile.Close", func() { _ = f.Close() })
 	}
 	tunnel.LogFunc = nil
 }
