@@ -184,7 +184,79 @@ public final class ProfileTransfer {
         public boolean customBanner = false;
         public String expiresAt = "";
         public String userNote = "";
+        public String password = ""; // chiffrement fort (vide = pas de chiffrement)
         public List<String> allowedHardwareIds = new ArrayList<>();
+    }
+
+    // --- chiffrement fort des exports (optionnel, par mot de passe) ---
+
+    private static final String ENC_SCHEME = "PBKDF2-AES256-GCM";
+    private static final int ENC_ITERATIONS = 310_000; // ligne 2024+ OWASP PBKDF2-HMAC-SHA256
+    private static final int SALT_LEN = 16;
+    private static final int IV_LEN = 12;
+    private static final int GCM_TAG_BITS = 128;
+
+    /** Levée quand l'import détecte un export chiffré sans mot de passe. */
+    public static class PasswordRequiredException extends Exception {
+        public PasswordRequiredException() {
+            super("Export chiffré — mot de passe requis");
+        }
+    }
+
+    private static byte[] deriveKey(char[] password, byte[] salt, int iter) throws Exception {
+        javax.crypto.spec.PBEKeySpec spec =
+                new javax.crypto.spec.PBEKeySpec(password, salt, iter, 256);
+        javax.crypto.SecretKeyFactory skf =
+                javax.crypto.SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256");
+        byte[] key = skf.generateSecret(spec).getEncoded();
+        spec.clearPassword();
+        return key;
+    }
+
+    /**
+     * Chiffre la charge JSON de l'export : PBKDF2-HMAC-SHA256 (310k itérations,
+     * sel aléatoire 128 bits) -> clé AES-256, puis AES-GCM (IV 96 bits aléatoire,
+     * tag 128 bits). Le GCM authentifie : toute modification du fichier ou
+     * mot de passe erroné échoue à l'ouverture, impossible à craquer offline
+     * à moindre coût et impossible à altérer silencieusement.
+     */
+    public static String buildExportEncrypted(String payload, String password) throws Exception {
+        byte[] salt = new byte[SALT_LEN];
+        byte[] iv = new byte[IV_LEN];
+        new java.security.SecureRandom().nextBytes(salt);
+        new java.security.SecureRandom().nextBytes(iv);
+        byte[] key = deriveKey(password.toCharArray(), salt, ENC_ITERATIONS);
+        javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        c.init(javax.crypto.Cipher.ENCRYPT_MODE,
+                new javax.crypto.spec.SecretKeySpec(key, "AES"),
+                new javax.crypto.spec.GCMParameterSpec(GCM_TAG_BITS, iv));
+        byte[] ct = c.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+        JSONObject root = new JSONObject();
+        root.put("schemaVersion", SCHEMA_VERSION);
+        root.put("application", APPLICATION);
+        root.put("enc", ENC_SCHEME);
+        root.put("iter", ENC_ITERATIONS);
+        root.put("salt", Base64.encodeToString(salt, Base64.NO_WRAP));
+        root.put("iv", Base64.encodeToString(iv, Base64.NO_WRAP));
+        root.put("ct", Base64.encodeToString(ct, Base64.NO_WRAP));
+        return root.toString();
+    }
+
+    /** Déchiffre un export chiffré; échoue proprement sur mauvais mot de passe. */
+    public static String decryptExport(JSONObject root, String password) throws Exception {
+        if (!ENC_SCHEME.equals(root.optString("enc", ""))) {
+            throw new Exception("Chiffrement d'export inconnu.");
+        }
+        byte[] salt = Base64.decode(root.optString("salt", ""), Base64.DEFAULT);
+        byte[] iv = Base64.decode(root.optString("iv", ""), Base64.DEFAULT);
+        byte[] ct = Base64.decode(root.optString("ct", ""), Base64.DEFAULT);
+        int iter = root.optInt("iter", ENC_ITERATIONS);
+        byte[] key = deriveKey(password.toCharArray(), salt, iter);
+        javax.crypto.Cipher c = javax.crypto.Cipher.getInstance("AES/GCM/NoPadding");
+        c.init(javax.crypto.Cipher.DECRYPT_MODE,
+                new javax.crypto.spec.SecretKeySpec(key, "AES"),
+                new javax.crypto.spec.GCMParameterSpec(GCM_TAG_BITS, iv));
+        return new String(c.doFinal(ct), StandardCharsets.UTF_8);
     }
 
     /** Build the .epha / clipboard JSON for the given tunnel objects. */
@@ -285,6 +357,11 @@ public final class ProfileTransfer {
 
     /** Parse .epha content or an ephang:// link. Throws with a clear message. */
     public static ImportResult parseImport(String raw) throws Exception {
+        return parseImport(raw, null);
+    }
+
+    /** Parse with password for encrypted exports (PasswordRequiredException sinon). */
+    public static ImportResult parseImport(String raw, String password) throws Exception {
         String content = raw == null ? "" : raw.trim();
         if (content.startsWith(CLIPBOARD_PREFIX)) {
             String b64 = content.substring(CLIPBOARD_PREFIX.length()).trim()
@@ -306,6 +383,18 @@ public final class ProfileTransfer {
             root = new JSONObject(content);
         } catch (Exception e) {
             throw new Exception("JSON invalide.");
+        }
+        // Export chiffré ? Le contenu utile est dans "ct".
+        if (!root.optString("enc", "").isEmpty()) {
+            if (password == null || password.isEmpty()) {
+                throw new PasswordRequiredException();
+            }
+            content = decryptExport(root, password);
+            try {
+                root = new JSONObject(content);
+            } catch (Exception e) {
+                throw new Exception("Mot de passe invalide (déchiffrement impossible).");
+            }
         }
         if (root.optInt("schemaVersion", -1) != SCHEMA_VERSION
                 || !APPLICATION.equals(root.optString("application", ""))

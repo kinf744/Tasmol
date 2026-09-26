@@ -549,6 +549,7 @@ public class ConfigsFragment extends Fragment {
                 {"hideserver", "Hide Server"}, {"hideupass", "Hide UPass"},
                 {"blockroot", "Block Root"}, {"hwid", "HWID"},
                 {"note", "Note"}, {"expired", "Expired"},
+                {"password", "Mot de passe (chiffrement fort)"},
         };
         boolean[] defaults = {false, true, false, false, false, false, false, false};
         for (int i = 0; i < opts.length; i++) {
@@ -577,6 +578,16 @@ public class ConfigsFragment extends Fragment {
         hwidInput.setAlpha(0.4f);
         layout.addView(hwidInput);
 
+        final android.widget.EditText passwordInput = new android.widget.EditText(requireContext());
+        passwordInput.setHint("4+ caractères — requis à l'ouverture");
+        passwordInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passwordInput.setTextColor(0xFFFFFFFF);
+        passwordInput.setHintTextColor(0xFF616161);
+        passwordInput.setEnabled(false);
+        passwordInput.setAlpha(0.4f);
+        layout.addView(passwordInput);
+
         final android.widget.EditText noteInput = new android.widget.EditText(requireContext());
         noteInput.setHint("Note (ex. 2026 © Ephang Team)");
         noteInput.setTextColor(0xFFFFFFFF);
@@ -595,6 +606,10 @@ public class ConfigsFragment extends Fragment {
         boxes.get("hwid").setOnCheckedChangeListener((b, c) -> {
             hwidInput.setEnabled(c);
             hwidInput.setAlpha(c ? 1f : 0.4f);
+        });
+        boxes.get("password").setOnCheckedChangeListener((b, c) -> {
+            passwordInput.setEnabled(c);
+            passwordInput.setAlpha(c ? 1f : 0.4f);
         });
         boxes.get("note").setOnCheckedChangeListener((b, c) -> {
             noteInput.setEnabled(c);
@@ -621,7 +636,8 @@ public class ConfigsFragment extends Fragment {
                 .setPositiveButton("Fichier .epha", (d, w) -> {
                     ProfileTransfer.Restrictions r = readBackupOptions(
                             boxes, hwidInput.getText().toString(),
-                            noteInput.getText().toString(), expiry[0]);
+                            noteInput.getText().toString(), expiry[0],
+                            passwordInput.getText().toString());
                     if (r == null) {
                         return;
                     }
@@ -630,7 +646,8 @@ public class ConfigsFragment extends Fragment {
                 .setNeutralButton("Clipboard", (d, w) -> {
                     ProfileTransfer.Restrictions r = readBackupOptions(
                             boxes, hwidInput.getText().toString(),
-                            noteInput.getText().toString(), expiry[0]);
+                            noteInput.getText().toString(), expiry[0],
+                            passwordInput.getText().toString());
                     if (r == null) {
                         return;
                     }
@@ -674,7 +691,7 @@ public class ConfigsFragment extends Fragment {
     /** Validate Backup options; null = invalid (toast shown). */
     private ProfileTransfer.Restrictions readBackupOptions(
             java.util.Map<String, android.widget.CheckBox> boxes,
-            String hwids, String note, String expiry) {
+            String hwids, String note, String expiry, String password) {
         ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
         r.lockConfiguration = boxes.get("lock").isChecked();
         r.external = boxes.get("external").isChecked();
@@ -711,6 +728,13 @@ public class ConfigsFragment extends Fragment {
         if (boxes.get("note").isChecked()) {
             r.userNote = note == null ? "" : note.trim();
         }
+        if (boxes.get("password").isChecked()) {
+            if (password == null || password.length() < 4) {
+                toast("Mot de passe : 4 caractères minimum");
+                return null;
+            }
+            r.password = password;
+        }
         return r;
     }
 
@@ -724,6 +748,9 @@ public class ConfigsFragment extends Fragment {
         }
         try {
             String json = ProfileTransfer.buildExport(tunnels, r, filename);
+            if (r.password != null && !r.password.isEmpty()) {
+                json = ProfileTransfer.buildExportEncrypted(json, r.password);
+            }
             pendingExport = json;
             String name = filename == null ? "" : filename.trim();
             if (name.isEmpty()) {
@@ -750,6 +777,9 @@ public class ConfigsFragment extends Fragment {
         }
         try {
             String json = ProfileTransfer.buildExport(tunnels, r, null);
+            if (r.password != null && !r.password.isEmpty()) {
+                json = ProfileTransfer.buildExportEncrypted(json, r.password);
+            }
             String link = ProfileTransfer.toClipboard(json);
             android.content.ClipboardManager cm = (android.content.ClipboardManager) requireContext()
                     .getSystemService(Context.CLIPBOARD_SERVICE);
@@ -795,9 +825,31 @@ public class ConfigsFragment extends Fragment {
     }
 
     private void doImport(String raw) {
+        doImportWithPassword(raw, null);
+    }
+
+    private void doImportWithPassword(String raw, String password) {
         ProfileTransfer.ImportResult res;
         try {
-            res = ProfileTransfer.parseImport(raw);
+            res = ProfileTransfer.parseImport(raw, password);
+        } catch (ProfileTransfer.PasswordRequiredException e) {
+            // Export chiffré : on demande le mot de passe puis on réessaie.
+            final android.widget.EditText pw = new android.widget.EditText(requireContext());
+            pw.setHint("Mot de passe de l'export");
+            pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            pw.setTextColor(0xFFFFFFFF);
+            pw.setHintTextColor(0xFF616161);
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Export chiffré")
+                    .setMessage("Ce fichier/lien est protégé par mot de passe "
+                            + "(PBKDF2 310k + AES-256-GCM).")
+                    .setView(pw)
+                    .setPositiveButton("Déchiffrer", (d, w) ->
+                            doImportWithPassword(raw, pw.getText().toString()))
+                    .setNegativeButton("Annuler", null)
+                    .show();
+            return;
         } catch (Exception e) {
             toast("Import impossible : " + e.getMessage());
             return;
