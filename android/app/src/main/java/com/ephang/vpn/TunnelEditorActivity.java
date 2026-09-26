@@ -258,8 +258,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
         syncXrayInputVisuals();
 
-        edPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
-        lblPort.setVisibility(isZivpn ? View.GONE : View.VISIBLE);
+        // Port masqué pour zivpn ET hysteria : le hopping 20000-50000 est
+        // la norme — un port fixe n'a pas lieu d'être saisi.
+        int portVis = (isZivpn || isHysteria) ? View.GONE : View.VISIBLE;
+        edPort.setVisibility(portVis);
+        lblPort.setVisibility(portVis);
     }
 
     private void loadTunnel(String id) {
@@ -656,20 +659,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (!hpr.matches("\\d+(-\\d+)?(,\\d+(-\\d+)?)*")) {
                     toast("Port hopping invalide (ex : 20000-50000)");
                     return;
-                }
-                String ptxt = edPort.getText().toString().trim();
-                if (!ptxt.isEmpty()) {
-                    int hp;
-                    try {
-                        hp = Integer.parseInt(ptxt);
-                    } catch (NumberFormatException e) {
-                        toast("Port Hysteria invalide");
-                        return;
-                    }
-                    if (hp < 1 || hp > 65535) {
-                        toast("Port Hysteria invalide");
-                        return;
-                    }
                 }
             }
 
