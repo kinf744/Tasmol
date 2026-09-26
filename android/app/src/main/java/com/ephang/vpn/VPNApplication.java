@@ -6,12 +6,38 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.util.Log;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 public class VPNApplication extends Application {
     private static VPNApplication instance;
     private SharedPreferences prefs;
 
     @Override
     public void onCreate() {
+        // Captureur de crash AVANT tout : toute exception non interceptée
+        // finit dans Download/kighmu.txt avec sa stacktrace complète —
+        // indispensable pour diagnostiquer les fermetures brutales
+        // (ex. « l'app se ferme à la déconnexion »).
+        Thread.UncaughtExceptionHandler previous =
+                Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((thread, err) -> {
+            try {
+                StringWriter sw = new StringWriter();
+                err.printStackTrace(new PrintWriter(sw));
+                TasVpnService.logEvent("error", "app",
+                        "CRASH on " + thread.getName() + ": " + err + "\n" + sw);
+            } catch (Throwable ignored) {
+            }
+            try {
+                if (previous != null) {
+                    previous.uncaughtException(thread, err);
+                    return;
+                }
+            } catch (Throwable ignored) {
+            }
+            android.os.Process.killProcess(android.os.Process.myPid());
+        });
         // Initialise le coffre chiffré + client API durci (libpho).
         PhoHelper.init(this);
         // Self-check runtime (non bloquant): trace/émulateur -> log.
