@@ -130,14 +130,19 @@ public class LogsFragment extends Fragment {
 
     /** Parse "[time] [level] [component] message" rows into colored spans.
      *  Journal mode (default) shows journal+connection+warning+error only
-     *  (capped to the last 300); Verbose shows the full firehose. */
+     *  (capped to the last 300); Verbose shows the full firehose.
+     *  Palette exacte demandée :
+     *   - connecté   : blanc (texte/horodatage) + vert vif (connexion/journal)
+     *                  + orange vif (warnings) + rouge (erreurs)
+     *   - déconnecté/échec : blanc + rouge + gris clair (le reste). */
     private CharSequence renderJournal(String raw) {
-        int grey = ContextCompat.getColor(requireContext(), R.color.npv_grey);
-        int dim = ContextCompat.getColor(requireContext(), R.color.npv_dim);
-        int text = ContextCompat.getColor(requireContext(), R.color.npv_text);
-        int red = ContextCompat.getColor(requireContext(), R.color.npv_red);
-        int yellow = ContextCompat.getColor(requireContext(), R.color.npv_yellow);
-        int cyan = ContextCompat.getColor(requireContext(), R.color.npv_green);
+        final int white = 0xFFFFFFFF;
+        final int red = 0xFFFF5252;
+        final int greenVif = 0xFF00E676;
+        final int orangeVif = 0xFFFF9500;
+        final int greyLight = 0xFFB0BEC5;
+        final boolean up = TasVpnService.isRunning() && !TasVpnService.isStarting();
+
         java.util.ArrayList<String[]> rows = new java.util.ArrayList<>();
         for (String line : raw.split("\n")) {
             line = line.trim();
@@ -179,31 +184,26 @@ public class LogsFragment extends Fragment {
             String level = r[1];
             String comp = r[2];
             String msg = r[3];
-            int tagColor = dim;
-            int msgColor = text;
+            int tagColor;
+            int msgColor = white;
             switch (level) {
                 case "error":
                     tagColor = red;
                     msgColor = red;
                     break;
                 case "warning":
-                    tagColor = yellow;
-                    msgColor = yellow;
+                    tagColor = up ? orangeVif : greyLight;
+                    msgColor = tagColor;
                     break;
                 case "connection":
-                    tagColor = cyan;
-                    msgColor = text;
-                    break;
                 case "journal":
-                    tagColor = cyan;
-                    msgColor = text;
+                    tagColor = up ? greenVif : greyLight;
                     break;
                 default:
-                    tagColor = dim;
-                    msgColor = text;
+                    tagColor = greyLight;
                     break;
             }
-            appendSpan(sb, "[" + time + "] ", grey);
+            appendSpan(sb, "[" + time + "] ", up ? white : greyLight);
             if (!comp.isEmpty()) {
                 appendSpan(sb, "[" + comp + "] ", tagColor);
             } else if (!level.equals("info")) {

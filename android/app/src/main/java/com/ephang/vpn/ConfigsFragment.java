@@ -550,6 +550,7 @@ public class ConfigsFragment extends Fragment {
                 {"blockroot", "Block Root"}, {"hwid", "HWID"},
                 {"note", "Note"}, {"expired", "Expired"},
                 {"password", "Mot de passe (chiffrement fort)"},
+                {"isp", "Bloquer opérateur"},
         };
         boolean[] defaults = {false, true, false, false, false, false, false, false};
         for (int i = 0; i < opts.length; i++) {
@@ -577,6 +578,14 @@ public class ConfigsFragment extends Fragment {
         hwidInput.setEnabled(false);
         hwidInput.setAlpha(0.4f);
         layout.addView(hwidInput);
+
+        final android.widget.EditText ispInput = new android.widget.EditText(requireContext());
+        ispInput.setHint("nom opérateur, ex : mtn / orange / camtel");
+        ispInput.setTextColor(0xFFFFFFFF);
+        ispInput.setHintTextColor(0xFF616161);
+        ispInput.setEnabled(false);
+        ispInput.setAlpha(0.4f);
+        layout.addView(ispInput);
 
         final android.widget.EditText passwordInput = new android.widget.EditText(requireContext());
         passwordInput.setHint("4+ caractères — requis à l'ouverture");
@@ -606,6 +615,10 @@ public class ConfigsFragment extends Fragment {
         boxes.get("hwid").setOnCheckedChangeListener((b, c) -> {
             hwidInput.setEnabled(c);
             hwidInput.setAlpha(c ? 1f : 0.4f);
+        });
+        boxes.get("isp").setOnCheckedChangeListener((b, c) -> {
+            ispInput.setEnabled(c);
+            ispInput.setAlpha(c ? 1f : 0.4f);
         });
         boxes.get("password").setOnCheckedChangeListener((b, c) -> {
             passwordInput.setEnabled(c);
@@ -637,7 +650,8 @@ public class ConfigsFragment extends Fragment {
                     ProfileTransfer.Restrictions r = readBackupOptions(
                             boxes, hwidInput.getText().toString(),
                             noteInput.getText().toString(), expiry[0],
-                            passwordInput.getText().toString());
+                            passwordInput.getText().toString(),
+                            ispInput.getText().toString());
                     if (r == null) {
                         return;
                     }
@@ -647,7 +661,8 @@ public class ConfigsFragment extends Fragment {
                     ProfileTransfer.Restrictions r = readBackupOptions(
                             boxes, hwidInput.getText().toString(),
                             noteInput.getText().toString(), expiry[0],
-                            passwordInput.getText().toString());
+                            passwordInput.getText().toString(),
+                            ispInput.getText().toString());
                     if (r == null) {
                         return;
                     }
@@ -691,7 +706,7 @@ public class ConfigsFragment extends Fragment {
     /** Validate Backup options; null = invalid (toast shown). */
     private ProfileTransfer.Restrictions readBackupOptions(
             java.util.Map<String, android.widget.CheckBox> boxes,
-            String hwids, String note, String expiry, String password) {
+            String hwids, String note, String expiry, String password, String isp) {
         ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
         r.lockConfiguration = boxes.get("lock").isChecked();
         r.external = boxes.get("external").isChecked();
@@ -734,6 +749,14 @@ public class ConfigsFragment extends Fragment {
                 return null;
             }
             r.password = password;
+        }
+        if (boxes.get("isp").isChecked()) {
+            String v = isp == null ? "" : isp.trim().toLowerCase(java.util.Locale.US);
+            if (!v.matches("[a-z0-9][a-z0-9 ._-]{1,30}")) {
+                toast("Opérateur invalide (ex : mtn)");
+                return null;
+            }
+            r.allowedIsp = v;
         }
         return r;
     }

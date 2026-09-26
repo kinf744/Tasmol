@@ -125,7 +125,50 @@ public final class ProfileTransfer {
         if (isBlockRoot(tunnel) && isRooted()) {
             return "Profil interdit sur appareil rooté";
         }
+        if (!isIspAllowed(ctx, tunnel)) {
+            String want = lockIsp(tunnel);
+            return "Profil lié à l'opérateur « " + want + " » (SIM actuelle différente)";
+        }
         return "";
+    }
+
+    /** Nom d'opérateur courant en minuscules (MTN/Orange/Camtel…). */
+    public static String currentIsp(Context ctx) {
+        try {
+            android.telephony.TelephonyManager tm =
+                    (android.telephony.TelephonyManager)
+                            ctx.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm == null) {
+                return "";
+            }
+            String n = tm.getSimOperatorName();
+            if (n == null || n.trim().isEmpty()) {
+                try {
+                    n = tm.getNetworkOperatorName();
+                } catch (Throwable ignored) {
+                }
+            }
+            return n == null ? "" : n.trim().toLowerCase(Locale.US);
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
+    // Opérateur imposé par l'export ("lock_isp"), "" = toutes SIMs.
+    public static String lockIsp(JSONObject tunnel) {
+        if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
+            return "";
+        }
+        return tunnel.optJSONObject("advanced").optString("lock_isp", "").trim();
+    }
+
+    public static boolean isIspAllowed(Context ctx, JSONObject tunnel) {
+        String want = lockIsp(tunnel);
+        if (want.isEmpty()) {
+            return true;
+        }
+        String cur = currentIsp(ctx);
+        return !cur.isEmpty() && cur.contains(want);
     }
 
     public static boolean isBlockRoot(JSONObject tunnel) {
@@ -185,6 +228,7 @@ public final class ProfileTransfer {
         public String expiresAt = "";
         public String userNote = "";
         public String password = ""; // chiffrement fort (vide = pas de chiffrement)
+        public String allowedIsp = ""; // opérateur imposé, ex "mtn" (vide = tous)
         public List<String> allowedHardwareIds = new ArrayList<>();
     }
 
@@ -307,6 +351,10 @@ public final class ProfileTransfer {
                 adv.put("user_note", r.userNote.length() > 600
                         ? r.userNote.substring(0, 600) : r.userNote);
             }
+            if (r.allowedIsp != null && !r.allowedIsp.isEmpty()) {
+                adv.put("locked", true);
+                adv.put("lock_isp", r.allowedIsp.trim().toLowerCase(Locale.US));
+            }
             arr.put(copy);
         }
         JSONObject root = new JSONObject();
@@ -327,6 +375,7 @@ public final class ProfileTransfer {
         rr.put("customBanner", r.customBanner);
         rr.put("expiresAt", r.expiresAt);
         rr.put("userNote", r.userNote == null ? "" : r.userNote);
+        rr.put("allowedIsp", r.allowedIsp == null ? "" : r.allowedIsp);
         JSONArray hw = new JSONArray();
         for (String id : r.allowedHardwareIds) {
             hw.put(id);
