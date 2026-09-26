@@ -244,7 +244,10 @@ public class MainActivity extends AppCompatActivity {
         // genuinely wedged service (still alive at 18s, past the 15s forced
         // cleanup) pops the dialog — no more false alarms.
         handler.postDelayed(() -> {
-            if ((TasVpnService.isRunning() || TasVpnService.isStarting()) && !isFinishing()) {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
+            if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
                 showToast("Still disconnecting...");
             }
         }, 8000);
@@ -273,7 +276,9 @@ public class MainActivity extends AppCompatActivity {
         if (!TasVpnService.isRunning() && !TasVpnService.isStarting()) {
             return;
         }
-        if (stuckDialogShowing || isFinishing()) {
+        // BadTokenException sinon : l'activité peut être détruite entre le
+        // postDelayed et l'affichage (long disconnect + sortie de l'app).
+        if (stuckDialogShowing || isFinishing() || isDestroyed()) {
             return;
         }
         stuckDialogShowing = true;

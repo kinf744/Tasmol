@@ -347,6 +347,12 @@ public final class ProfileTransfer {
                 out.skipped++;
                 continue;
             }
+            // Les profils du plan de contrôle (API) ne sont NI exportables
+            // NI importables : un fichier contenant ce marqueur est refusé.
+            if (isApiManaged(t)) {
+                out.skipped++;
+                continue;
+            }
             JSONObject copy;
             try {
                 copy = new JSONObject(t.toString());
@@ -419,7 +425,16 @@ public final class ProfileTransfer {
         return out;
     }
 
-    /** Full tunnel JSON objects of the selected ids, in selection order. */
+    /** True for profiles materialized from the secured remote API: they
+     *  must NEVER be exportable/importable (credentials belong to the
+     *  control plane, not to shareable files). */
+    public static boolean isApiManaged(JSONObject t) {
+        JSONObject adv = t != null ? t.optJSONObject("advanced") : null;
+        return adv != null && adv.optBoolean(ApiSession.ADV_API_MANAGED, false);
+    }
+
+    /** Full tunnel JSON objects of the selected ids, in selection order.
+     *  API-managed profiles are excluded: they stay bound to the account. */
     public static List<JSONObject> selectedTunnels(Context ctx, LinkedHashSet<String> ids) {
         List<JSONObject> out = new ArrayList<>();
         if (ids == null || ids.isEmpty()) {
@@ -431,7 +446,7 @@ public final class ProfileTransfer {
             java.util.Map<String, JSONObject> byId = new java.util.HashMap<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.optJSONObject(i);
-                if (t != null) {
+                if (t != null && !isApiManaged(t)) {
                     byId.put(t.optString("id", ""), t);
                 }
             }

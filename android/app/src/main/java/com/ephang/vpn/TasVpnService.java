@@ -147,7 +147,11 @@ public class TasVpnService extends VpnService {
         if (ACTION_CONNECT.equals(action)) {
             String tunnelId = intent.getStringExtra(EXTRA_TUNNEL_ID);
             startSession(tunnelId);
-            return START_STICKY;
+            // START_NOT_STICKY : si le processus est tué (déconnexion
+            // nucléaire), Android ne doit PAS relivrer cet intent — sinon
+            // le service ressuscite et la clé VPN revient aussitôt
+            // (c'était la cause du "nuclear inefficace en CONNECTING").
+            return START_NOT_STICKY;
         }
         return START_NOT_STICKY;
     }
@@ -384,47 +388,53 @@ public class TasVpnService extends VpnService {
         // Invalidate any in-flight connect first.
         sessionGen.incrementAndGet();
         starting = false;
-        // Heavy teardown (process kills, stack drain) runs off the main
-        // thread to avoid ANR dialogs.
+        // 1) RELEASE THE KEY IMMEDIATELY: fermer le TUN et quitter le
+        // foreground fait disparaître l'icône clé sur le champ, même si
+        // l'arrêt lourd du plan Go traîne ensuite (ou plante).
+        try {
+            if (tunFd != null) {
+                tunFd.close();
+            }
+        } catch (Exception ignored) {
+        } finally {
+            tunFd = null;
+        }
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {
+        }
+        // 2) Heavy teardown (Go process kills, stack drain) off main thread
+        // — jamais d'ANR, jamais de crash de l'UI quand la session a duré.
+        final Object ctrl = controller;
+        controller = null;
+        activeTunnelId = null;
+        if (ctrl == null) {
+            logEvent("connection", "app", "disconnected");
+            releaseWakeLock();
+            stopSelf();
+            return;
+        }
         new Thread(() -> {
             try {
-                if (controller != null) {
-                    // Bounded: a wedged data-plane stop must never hang
-                    // this thread forever (that left the VPN key stuck).
-                    // The Go side is time-bounded too; this is belt & braces.
-                    final Object ctrl = controller;
-                    java.util.concurrent.ExecutorService exec =
-                            java.util.concurrent.Executors.newSingleThreadExecutor();
-                    java.util.concurrent.Future<?> f =
-                            exec.submit(() -> invokeStop(ctrl));
-                    exec.shutdown();
-                    try {
-                        f.get(15, java.util.concurrent.TimeUnit.SECONDS);
-                    } catch (java.util.concurrent.TimeoutException te) {
-                        Log.e(TAG, "controller stop timed out, forcing cleanup");
-                        logEvent("warning", "app", "stop hung - forcing cleanup");
-                        f.cancel(true);
-                    } catch (Exception e) {
-                        Log.e(TAG, "controller stop failed", e);
-                    }
+                java.util.concurrent.ExecutorService exec =
+                        java.util.concurrent.Executors.newSingleThreadExecutor();
+                java.util.concurrent.Future<?> f =
+                        exec.submit(() -> invokeStop(ctrl));
+                exec.shutdown();
+                try {
+                    f.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                } catch (java.util.concurrent.TimeoutException te) {
+                    Log.e(TAG, "controller stop timed out, forcing cleanup");
+                    logEvent("warning", "app", "stop hung - forcing cleanup");
+                    f.cancel(true);
+                } catch (Exception e) {
+                    Log.e(TAG, "controller stop failed", e);
                 }
             } catch (Exception e) {
                 Log.e(TAG, "controller stop failed", e);
-            } finally {
-                controller = null;
-                activeTunnelId = null;
-            }
-            try {
-                if (tunFd != null) {
-                    tunFd.close();
-                }
-            } catch (Exception ignored) {
-            } finally {
-                tunFd = null;
             }
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
-            stopForeground(true);
             stopSelf();
         }, "ephang-disconnect").start();
     }

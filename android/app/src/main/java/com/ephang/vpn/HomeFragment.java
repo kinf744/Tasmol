@@ -124,7 +124,9 @@ public class HomeFragment extends Fragment {
     }
 
     public void refreshStatus() {
-        if (connectBtn == null || getActivity() == null) {
+        // !isAdded() : fragment détaché pendant un refresh différé (ex. après
+        // une déconnexion longue) — requireContext() planterait sinon.
+        if (connectBtn == null || getActivity() == null || !isAdded()) {
             return;
         }
         updateApiSection();
@@ -252,8 +254,12 @@ public class HomeFragment extends Fragment {
             JSONObject server = pick.optJSONObject("server");
             String host = server != null ? server.optString("host", "") : "";
             int port = server != null ? PingUtil.dialPort(server) : 0;
-            boolean hidden = ProfileTransfer.isHideServer(pick);
-            serverDetail.setText(hidden ? "serveur masqué"
+            boolean hidden = ProfileTransfer.isHideServer(pick)
+                    || ProfileTransfer.isApiManaged(pick);
+            // Configs API : jamais d'host:port à l'écran — le nom seul suffit
+            // (ex. "Camtel UDP", "MTN 150Mo"), les adresses restent côté
+            // plan de contrôle.
+            serverDetail.setText(hidden ? ""
                     : (host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "")));
             serverType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
         } catch (Exception e) {

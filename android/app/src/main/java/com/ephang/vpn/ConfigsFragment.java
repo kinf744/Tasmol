@@ -491,7 +491,7 @@ public class ConfigsFragment extends Fragment {
         final List<JSONObject> tunnels =
                 ProfileTransfer.selectedTunnels(requireContext(), selected);
         if (tunnels.isEmpty()) {
-            toast("Sélection vide");
+            toast("Les configs de l'API sont sécurisées : export impossible");
             return;
         }
 
