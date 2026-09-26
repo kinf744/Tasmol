@@ -286,6 +286,8 @@ public class ConfigsFragment extends Fragment {
                 return type.equals("xray") || type.equals("xray_slowdns");
             case "zivpn":
                 return type.equals("zivpn");
+            case "hysteria":
+                return type.equals("hysteria");
             default:
                 return true;
         }
@@ -901,8 +903,8 @@ public class ConfigsFragment extends Fragment {
     }
 
     private void showFilter() {
-        String[] opts = {"All", "SSH", "Xray", "Zivpn UDP"};
-        String[] vals = {"all", "ssh", "xray", "zivpn"};
+        String[] opts = {"All", "SSH", "Xray", "Zivpn UDP", "Hysteria UDP"};
+        String[] vals = {"all", "ssh", "xray", "zivpn", "hysteria"};
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle("Filter by type")
                 .setItems(opts, (d, which) -> {

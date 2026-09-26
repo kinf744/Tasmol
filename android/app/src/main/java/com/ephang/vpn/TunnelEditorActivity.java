@@ -26,7 +26,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
     private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria"};
-    private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Xray + SlowDNS", "Zivpn UDP"};
+    private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Xray + SlowDNS", "Zivpn UDP", "Hysteria UDP"};
     private static final String[] NETWORKS = {"tcp", "udp", "ws", "grpc", "xhttp", "httpupgrade"};
     private static final String[] SECURITIES = {"", "tls", "reality"};
     private static final String[] SECURITY_LABELS = {"None", "TLS", "Reality"};
