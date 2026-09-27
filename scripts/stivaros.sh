@@ -49,7 +49,7 @@ readonly ZIVPN_PORT=5668
 # DNAT serveur (nft) — plage dédiée, distincte de l'autre instance.
 readonly ZIVPN_RANGE="34000-49999"
 # Plages clients round-robin (8 sous-plages, un processus par plage).
-readonly ZIVPN_RANGES="34000-35999,36000-37999,38000-39999,40000-41999,42000-43999,44000-45999,46000-47999,48000-49999"
+readonly ZIVPN_RANGES="34000-39332,39333-44665,44666-49999"
 
 # SlowDNS (dnstt + dnsdist)
 readonly SLOWDNS_DIR="/etc/slowdns"
@@ -1146,9 +1146,9 @@ def init_db():
     conn.execute(
         "UPDATE vpn_configs SET server_port = 5668, port_range = ?"
         " WHERE mode = 'zivpn'"
-        "   AND (server_port != 5668 OR port_range NOT LIKE '34000-%')",
-        ("34000-35999,36000-37999,38000-39999,40000-41999,"
-         "42000-43999,44000-45999,46000-47999,48000-49999",))
+        "   AND port_range != ?",
+        ("34000-39332,39333-44665,44666-49999",
+         "34000-39332,39333-44665,44666-49999"))
 
     conn.commit()
     conn.close()
@@ -1282,8 +1282,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 if mode == "zivpn":
                     entry["zivpn_password"] = cfg["zivpn_password"] or ""
                     entry["port_range"] = cfg["port_range"] or \
-                        "6000-7750,7751-9500,9501-11250,11251-13000," \
-                        "13001-14750,14751-16500,16501-18250,18251-19999"
+                        "34000-39332,39333-44665,44666-49999"
                 if mode in ("v2raydns", "sshslowdns"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""

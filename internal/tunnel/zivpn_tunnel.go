@@ -67,8 +67,8 @@ const DefaultZivpnObfsPassword = "hu``hqb`c"
 // DefaultZivpnPortRange is used when no range is configured: the full
 // client range split into 8 sub-ranges, one uz_core process each,
 // load-balanced by the round-robin front for higher throughput.
-const DefaultZivpnPortRange = "6000-7750,7751-9500,9501-11250,11251-13000," +
-	"13001-14750,14751-16500,16501-18250,18251-19999"
+// 3 plages (au lieu de 8) : moins de processus uz_core -> moins de RAM/CPU.
+const DefaultZivpnPortRange = "6000-10665,10666-15332,15333-19999"
 
 func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
 	return &ZivpnTunnel{
