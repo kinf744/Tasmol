@@ -518,12 +518,30 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 
 // ensureHelpersNLocked starts every selected helper (3 tries each). Profiles
 // failing 3 times are dropped from the rotation; an error is returned only
-// when fewer than 2 profiles survive.
+// when fewer than 2 profiles survive. Les helpers démarrent EN PARALLÈLE
+// (deux profils SlowDNS, ~2× plus lent autrement — chacun a sa propre
+// dnstt/uz/xray et son mutex interne).
 func (c *Controller) ensureHelpersNLocked(ids []string) error {
+	type result struct {
+		id  string
+		err error
+	}
+	resCh := make(chan result, len(ids))
+	for _, id := range ids {
+		go func(id string) {
+			resCh <- result{id, c.ensureHelperRetryLocked(id)}
+		}(id)
+	}
 	var okIDs []string
 	var lastErr error
+	// Préserver l'ordre de sélection (le premier reste la référence UI).
+	byID := map[string]error{}
+	for range ids {
+		r := <-resCh
+		byID[r.id] = r.err
+	}
 	for _, id := range ids {
-		if err := c.ensureHelperRetryLocked(id); err != nil {
+		if err := byID[id]; err != nil {
 			tunnel.Tracef("[rr] dropping profile %s: %v", id, err)
 			lastErr = err
 			continue

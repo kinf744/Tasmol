@@ -333,17 +333,38 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		up := &uzProc{cmd: cmd, uzPort: uzPort, rng: rng, stderr: stderr}
 		procs = append(procs, up)
 		go t.watchOutput(up)
+	}
 
-		// Readiness: uz exposes its SOCKS port (5s budget, like reference).
-		if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", uzPort), 5*time.Second); err != nil {
-			Errorf("zivpn", "[%d] SOCKS %d not ready: %v", i, uzPort, err)
+	// Readiness PARALLÈLE : on attend tous les SOCKS en même temps au lieu
+	// de les attendre l'un après l'autre — avec 4 plages, la session monte
+	// en ~1 s au lieu de ~2,5-4 s.
+	if len(procs) > 0 {
+		errc := make(chan error, len(procs))
+		for i, up := range procs {
+			i, up := i, up
+			go func() {
+				if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", up.uzPort), 5*time.Second); err != nil {
+					errc <- fmt.Errorf("zivpn range %s not ready: %w", up.rng, err)
+					return
+				}
+				Tracef("[zivpn][%d] SOCKS %d ready", i, up.uzPort)
+				up.started = true
+				errc <- nil
+			}()
+		}
+		var firstErr error
+		for range procs {
+			if err := <-errc; err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		if firstErr != nil {
+			Errorf("zivpn", "%v", firstErr)
 			t.killProcsLocked(procs)
 			t.status = StatusError
-			t.setError(fmt.Sprintf("zivpn range %s not ready: %v", rng, err))
-			return fmt.Errorf("zivpn range %s not ready: %w", rng, err)
+			t.setError(firstErr.Error())
+			return firstErr
 		}
-		Tracef("[zivpn][%d] SOCKS %d ready", i, uzPort)
-		up.started = true
 	}
 
 	// Round-robin balancer unifying the uz SOCKS endpoints. The LB port is
