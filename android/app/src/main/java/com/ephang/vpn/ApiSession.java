@@ -280,7 +280,7 @@ public final class ApiSession {
             // (server DNATs them all to :5667). API may override.
             String ranges = c.optString("port_range", "");
             if (ranges.isEmpty()) {
-                ranges = "6000-10665,10666-15332,15333-19999";
+                ranges = "6000-9499,9500-12999,13000-16499,16500-19999";
             }
             server.put("port_range", ranges);
         } else if ("sshslowdns".equalsIgnoreCase(mode)) {

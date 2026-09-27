@@ -181,7 +181,7 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 		// Defaults: full client range split into 8 sub-ranges (one
 		// uz_core per sub-range, round-robin balanced for throughput).
 		if tunnel.Server.PortRange == "" && tunnel.Server.Port == 0 {
-			tunnel.Server.PortRange = "6000-10665,10666-15332,15333-19999"
+			tunnel.Server.PortRange = "6000-9499,9500-12999,13000-16499,16500-19999"
 		}
 		if tunnel.Transport.Network == "" {
 			tunnel.Transport.Network = "udp"
