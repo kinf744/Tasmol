@@ -40,6 +40,11 @@ public class LogsFragment extends Fragment {
     private static final Pattern BARE_RE =
             Pattern.compile("^\\[(udp-ok|udp|ready)\\] ?(.*)$", Pattern.DOTALL);
 
+    /** First line of a session block — marks a block boundary. */
+    private static final String BLOCK_START = "Connecting udp server";
+    /** Dim rule drawn between two session blocks. */
+    private static final String SEPARATOR = "───────────────────────────────────────";
+
     private TextView logText;
     private ScrollView scroller;
     private android.widget.Button modeBtn;
@@ -59,6 +64,10 @@ public class LogsFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_logs, container, false);
         logText = v.findViewById(R.id.logs_text);
+        // Interlignage : 1.45x sur une police 13sp donne ~5px de respiration
+        // entre deux lignes, sans casser la lecture en police fixe.
+        logText.setLineSpacing(0f, 1.45f);
+        logText.setIncludeFontPadding(true);
         scroller = v.findViewById(R.id.logs_scroll);
         v.findViewById(R.id.logs_clear).setOnClickListener(view -> {
             TasVpnService.clearLog();
@@ -185,6 +194,13 @@ public class LogsFragment extends Fragment {
      *   - connecté   : blanc (texte/horodatage) + vert vif (connexion/journal)
      *                  + orange vif (warnings) + rouge (erreurs)
      *   - déconnecté/échec : blanc + rouge + gris clair (le reste). */
+    /** Levels kept in the filtered "Journal" view: the session block plus
+     *  anything the user must not miss (failures, warnings). */
+    private static boolean isJournalLine(String level) {
+        return level.equals("udp") || level.equals("udp-ok") || level.equals("ready")
+                || level.equals("error") || level.equals("warning");
+    }
+
     private CharSequence renderJournal(String raw) {
         final int white = 0xFFFFFFFF;
         final int red = 0xFFFF5252;
@@ -223,7 +239,13 @@ public class LogsFragment extends Fragment {
                 comp = tm.group(2);
                 msg = tm.group(3).trim();
             }
-            if (!verbose && level.equals("info")) {
+            // Mode Journal : on ne montre que le bloc de session et les
+            // incidents. Tout le reste — "[session] starting session",
+            // "[session] mode=single", "[zivvn] udp <ip> (8 range(s))",
+            // "[session] starting helper ...", "[app] connected (id)" — est
+            // du bruit technique demande par personne : il reste accessible
+            // en mode Verbose, qui affiche le flux complet.
+            if (!verbose && !isJournalLine(level)) {
                 continue;
             }
             rows.add(new String[]{time, level, comp, msg});
@@ -233,6 +255,7 @@ public class LogsFragment extends Fragment {
             rows = new java.util.ArrayList<>(rows.subList(rows.size() - 300, rows.size()));
         }
         SpannableStringBuilder sb = new SpannableStringBuilder();
+        boolean firstBlockLine = true;
         for (String[] r : rows) {
             String time = r[0];
             String level = r[1];
@@ -240,11 +263,24 @@ public class LogsFragment extends Fragment {
             String msg = r[3];
             int tagColor;
             int msgColor = white;
-            // Journal de session UDP (zivvn / Hysteria) : la couleur porte sur
-            // le texte, pas sur un tag — [HH:mm:ss] alone, message in full
-            // green/orange, exactly like a native VPN client's connect log.
+            // Journal de session (zivvn / Hysteria / Xray / SSH) : la couleur
+            // porte sur le texte, pas sur un tag — [HH:mm:ss] seul, message
+            // entierement vert ou orange.
             boolean bare = level.equals("udp") || level.equals("udp-ok")
                     || level.equals("ready");
+            // Professional rhythm: each connect block is separated from the
+            // previous one by a blank line and a dim rule, so several
+            // consecutive sessions read as distinct units instead of a wall
+            // of undifferentiated lines.
+            if (bare && level.equals("udp") && msg.startsWith(BLOCK_START)
+                    && !firstBlockLine) {
+                sb.append('\n');
+                appendSpan(sb, SEPARATOR, 0xFF37474F);
+                sb.append('\n');
+            }
+            if (bare) {
+                firstBlockLine = false;
+            }
             switch (level) {
                 case "error":
                     tagColor = red;
@@ -255,18 +291,20 @@ public class LogsFragment extends Fragment {
                     msgColor = tagColor;
                     break;
                 case "ready":
-                    // Availability stays amber whether or not the session is
-                    // still up: it marks the moment the tunnel became usable.
+                    // The block keeps its own palette whatever the current
+                    // session state: these lines described one specific
+                    // moment, greying them out on a later disconnect made the
+                    // requested colours look like they had not been applied.
                     tagColor = orangeVif;
                     msgColor = orangeVif;
                     break;
                 case "udp-ok":
-                    tagColor = up ? greenVif : greyLight;
-                    msgColor = up ? greenVif : greyLight;
+                    tagColor = greenVif;
+                    msgColor = greenVif;
                     break;
                 case "udp":
-                    tagColor = up ? greenVif : greyLight;
-                    msgColor = up ? greenVif : greyLight;
+                    tagColor = greenVif;
+                    msgColor = greenVif;
                     break;
                 case "connection":
                 case "journal":
@@ -276,7 +314,7 @@ public class LogsFragment extends Fragment {
                     tagColor = greyLight;
                     break;
             }
-            appendSpan(sb, "[" + time + "] ", up ? white : greyLight);
+            appendSpan(sb, "[" + time + "] ", bare ? white : (up ? white : greyLight));
             if (bare) {
                 appendSpan(sb, msg + "\n", msgColor);
                 continue;
@@ -289,18 +327,27 @@ public class LogsFragment extends Fragment {
             appendSpan(sb, msg + "\n", msgColor);
         }
         if (sb.length() == 0) {
-            // The 120 KB tail can be entirely Tracef (level "info"), which
-            // Journal mode filters out — the view used to look dead exactly
-            // when a connect burst flooded the file. Fall back to the raw
-            // tail instead of showing an empty screen.
-            String[] rawLines = raw.split("\n");
-            int from = Math.max(0, rawLines.length - 40);
-            StringBuilder fb = new StringBuilder();
-            fb.append("(Journal filtré — fin du journal brut)\n");
-            for (int i = from; i < rawLines.length; i++) {
-                fb.append(rawLines[i].trim()).append('\n');
+            // Mode Journal filtre tout sauf le bloc de session et les
+            // incidents. Afficher le brut ici rejouerait exactement le bruit
+            // que le filtre vient de retirer, donc on explique l'etat vide et
+            // on renvoie vers le mode Verbose qui, lui, montre le flux brut.
+            SpannableStringBuilder empty = new SpannableStringBuilder();
+            if (verbose) {
+                String[] rawLines = raw.split("\n");
+                int from = Math.max(0, rawLines.length - 40);
+                appendSpan(empty, "(fin du journal brut)\n", greyLight);
+                for (int i = from; i < rawLines.length; i++) {
+                    appendSpan(empty, rawLines[i].trim() + "\n", white);
+                }
+            } else {
+                appendSpan(empty, "Aucune session affichable.\n\n", greyLight);
+                appendSpan(empty, "Le journal ne montre que les connexions "
+                        + "(zivpn, Hysteria, Xray, SSH) et les erreurs.\n",
+                        greyLight);
+                appendSpan(empty, "Basculer sur Verbose pour le flux technique "
+                        + "complet.\n", greyLight);
             }
-            return fb.toString();
+            return empty;
         }
         return sb;
     }
