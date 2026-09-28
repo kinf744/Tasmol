@@ -35,6 +35,10 @@ public class LogsFragment extends Fragment {
     private static final Pattern TAGGED_RE =
             Pattern.compile("^\\[(info|journal|connection|warning|error)\\] \\[([^\\]]*)\\] ?(.*)$",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    /** Lignes "barres" du journal de session UDP: [level] message, sans
+     *  composant. La couleur porte sur le texte entier. */
+    private static final Pattern BARE_RE =
+            Pattern.compile("^\\[(udp-ok|udp|ready)\\] ?(.*)$", Pattern.DOTALL);
 
     private TextView logText;
     private ScrollView scroller;
@@ -209,8 +213,12 @@ public class LogsFragment extends Fragment {
             String level = "info";
             String comp = "";
             String msg = rest;
+            Matcher bm = BARE_RE.matcher(rest);
             Matcher tm = TAGGED_RE.matcher(rest);
-            if (tm.matches()) {
+            if (bm.matches()) {
+                level = bm.group(1).toLowerCase();
+                msg = bm.group(2).trim();
+            } else if (tm.matches()) {
                 level = tm.group(1).toLowerCase();
                 comp = tm.group(2);
                 msg = tm.group(3).trim();
@@ -232,6 +240,11 @@ public class LogsFragment extends Fragment {
             String msg = r[3];
             int tagColor;
             int msgColor = white;
+            // Journal de session UDP (zivvn / Hysteria) : la couleur porte sur
+            // le texte, pas sur un tag — [HH:mm:ss] alone, message in full
+            // green/orange, exactly like a native VPN client's connect log.
+            boolean bare = level.equals("udp") || level.equals("udp-ok")
+                    || level.equals("ready");
             switch (level) {
                 case "error":
                     tagColor = red;
@@ -240,6 +253,20 @@ public class LogsFragment extends Fragment {
                 case "warning":
                     tagColor = up ? orangeVif : greyLight;
                     msgColor = tagColor;
+                    break;
+                case "ready":
+                    // Availability stays amber whether or not the session is
+                    // still up: it marks the moment the tunnel became usable.
+                    tagColor = orangeVif;
+                    msgColor = orangeVif;
+                    break;
+                case "udp-ok":
+                    tagColor = up ? greenVif : greyLight;
+                    msgColor = up ? greenVif : greyLight;
+                    break;
+                case "udp":
+                    tagColor = up ? greenVif : greyLight;
+                    msgColor = up ? greenVif : greyLight;
                     break;
                 case "connection":
                 case "journal":
@@ -250,6 +277,10 @@ public class LogsFragment extends Fragment {
                     break;
             }
             appendSpan(sb, "[" + time + "] ", up ? white : greyLight);
+            if (bare) {
+                appendSpan(sb, msg + "\n", msgColor);
+                continue;
+            }
             if (!comp.isEmpty()) {
                 appendSpan(sb, "[" + comp + "] ", tagColor);
             } else if (!level.equals("info")) {

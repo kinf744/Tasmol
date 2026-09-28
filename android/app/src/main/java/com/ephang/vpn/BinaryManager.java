@@ -235,14 +235,22 @@ public class BinaryManager {
     /** Append one line to the journal (unified connection journal).
      *  Best-effort: never throws, never blocks the caller long. */
     public static synchronized void appendKighmu(String line) {
+        appendKighmuRaw(null, line);
+    }
+
+    /** Append a journal row with a caller-supplied timestamp column.
+     *  @param timePrefix "HH:mm:ss.SSS" (null = now) — the row is written
+     *  verbatim so a caller can control the exact journal layout. */
+    public static synchronized void appendKighmuRaw(String timePrefix, String line) {
         try {
             File d = logDir();
             if (!d.exists() && !d.mkdirs()) {
                 return;
             }
-            java.text.SimpleDateFormat fmt =
-                    new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US);
-            String row = fmt.format(new java.util.Date()) + "  " + line + "\n";
+            String stamp = timePrefix != null ? timePrefix
+                    : new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
+                    .format(new java.util.Date());
+            String row = stamp + "  " + line + "\n";
             try (java.io.FileOutputStream out =
                          new java.io.FileOutputStream(logFile(), true)) {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));

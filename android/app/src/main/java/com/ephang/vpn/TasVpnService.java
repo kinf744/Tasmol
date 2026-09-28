@@ -224,10 +224,23 @@ public class TasVpnService extends VpnService {
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
 
+                    // Journal de session UDP (zivvn / Hysteria) : same layout
+                    // as the rest of the file so the Logs tab shows one
+                    // chronology. Empty prettyType => not a UDP tunnel, the
+                    // block is skipped entirely.
+                    final String udpType =
+                            UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, tid));
+                    if (!udpType.isEmpty()) {
+                        UdpSessionLog.connecting();
+                    }
+
                     ctrl = Vpnlib.newController();
                     String err = invokeStart(ctrl, params);
                     if (err != null && !err.isEmpty()) {
                         closeTunQuietly();
+                        if (!udpType.isEmpty()) {
+                            UdpSessionLog.failed(udpType, err);
+                        }
                         throw new IllegalStateException("data plane: " + err);
                     }
 
@@ -252,6 +265,9 @@ public class TasVpnService extends VpnService {
 
                     notifyText("Connected");
                     Log.i(TAG, "VPN session running");
+                    if (!udpType.isEmpty()) {
+                        UdpSessionLog.connected(udpType);
+                    }
                     logEvent("connection", "app", "connected (" + tid + ")");
                     return;
                 } catch (Exception e) {
@@ -388,6 +404,14 @@ public class TasVpnService extends VpnService {
         // Invalidate any in-flight connect first.
         sessionGen.incrementAndGet();
         starting = false;
+        // Journal de session UDP : la séquence d'arrêt complète la ligne de
+        // connexion. Résolu avant que activeTunnelId ne soit effacé.
+        if (controller != null && activeTunnelId != null) {
+            String t = UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, activeTunnelId));
+            if (!t.isEmpty()) {
+                UdpSessionLog.stopping();
+            }
+        }
         // 1) RELEASE THE KEY IMMEDIATELY: fermer le TUN et quitter le
         // foreground fait disparaître l'icône clé sur le champ, même si
         // l'arrêt lourd du plan Go traîne ensuite (ou plante).
