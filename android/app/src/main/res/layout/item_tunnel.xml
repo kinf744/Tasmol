@@ -7,7 +7,9 @@
     android:orientation="vertical"
     android:padding="10dp">
 
-    <!-- Rangée 1 : nom [+ coche sélection] ... modifier / partager / supprimer -->
+    <!-- Rangée 1 : nom [+ coche sélection] ... modifier / cloner / supprimer.
+         Le partage n'est PAS ici : il passe uniquement par le menu ⋮ de
+         l'en-tête, qui exporte/importe la sélection. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -41,14 +43,14 @@
             android:src="@drawable/ic_edit" />
 
         <ImageButton
-            android:id="@+id/item_share"
+            android:id="@+id/item_clone"
             android:layout_width="30dp"
             android:layout_height="30dp"
             android:layout_marginStart="4dp"
             android:background="@android:color/transparent"
-            android:contentDescription="Share"
+            android:contentDescription="Cloner le profil"
             android:padding="5dp"
-            android:src="@drawable/ic_share" />
+            android:src="@drawable/ic_clone" />
 
         <ImageButton
             android:id="@+id/item_delete"

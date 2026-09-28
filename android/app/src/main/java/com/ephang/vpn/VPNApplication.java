@@ -95,16 +95,16 @@ public class VPNApplication extends Application {
             sb.append("DERNIERS ÉVÉNEMENTS (journal):\n");
             sb.append(TasVpnService.getLog()).append('\n');
 
-            java.io.File d = android.os.Environment
-                    .getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS);
-            if (d == null || (!d.exists() && !d.mkdirs())) {
-                return;
-            }
+            // App-private storage: Download/ is read-only for the app on
+            // Android 10+ (scoped storage, and WRITE_EXTERNAL_STORAGE is
+            // capped at maxSdkVersion 28), so the report was silently lost.
             try (java.io.FileOutputStream out =
-                    new java.io.FileOutputStream(new java.io.File(d, "crash.txt"), false)) {
+                         new java.io.FileOutputStream(
+                                 new java.io.File(BinaryManager.logDir(), "crash.txt"), false)) {
                 out.write(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-            TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err);
+            TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err
+                    + " — rapport dans " + BinaryManager.logDir().getAbsolutePath());
         } catch (Throwable ignored) {
         }
     }

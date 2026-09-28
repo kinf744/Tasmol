@@ -86,18 +86,12 @@ public class ConfigsFragment extends Fragment {
             }
 
             @Override
-            public void onShare(JSONObject tunnel) {
+            public void onClone(JSONObject tunnel) {
                 if (ProfileTransfer.isLocked(tunnel)) {
-                    toast("Profil verrouillé : partage impossible");
+                    toast("Profil verrouillé : clonage impossible");
                     return;
                 }
-                if (ProfileTransfer.isApiManaged(tunnel)) {
-                    toast("Les configs de l'API sont sécurisées : partage impossible");
-                    return;
-                }
-                java.util.List<JSONObject> one = new java.util.ArrayList<>();
-                one.add(tunnel);
-                showExportMenu(one);
+                cloneTunnel(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
             }
 
             @Override
@@ -487,16 +481,20 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    /** Share menu for the SELECTED profiles (header card). Works only with
-     *  1+ selected. Options: lock, expiry, hardware ids, then two buttons:
-     *  export to .epha file, or export to clipboard (ephang://). */
-    /** Partager + Importer via the card's ⋮ menu (same line as server name). */
+    /** Partager + Importer via le menu ⋮ de l'en-tête : c'est le SEUL point
+     *  d'entrée du partage. Il porte toujours sur la sélection (1+ profils au
+     *  cadre vert) — le partage d'un profil isolé n'existe plus, l'icône de
+     *  la carte est devenue un Clone. */
     private void showShareMenu() {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
         String[] options = {"Partager la sélection", "Importer"};
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Export Config")
+                .setTitle(selected.isEmpty()
+                        ? "Partager / Importer"
+                        : "Partager / Importer (" + selected.size() + " profil(s))")
+                .setMessage("Le partage porte uniquement sur les profils sélectionnés "
+                        + "(cadre vert). L'icône ⧉ d'une carte la duplique.")
                 .setItems(options, (d, which) -> {
                     if (which == 0) {
                         showExportMenu();
@@ -552,7 +550,12 @@ public class ConfigsFragment extends Fragment {
                 {"password", "Mot de passe (chiffrement fort)"},
                 {"isp", "Bloquer opérateur"},
         };
-        boolean[] defaults = {false, true, false, false, false, false, false, false};
+        // MUST stay the same length as opts[]: the loop below indexes it
+        // with i. A shorter array crashed the app with
+        // ArrayIndexOutOfBoundsException as soon as "password"/"isp" were
+        // added to the list.
+        boolean[] defaults = new boolean[opts.length];
+        defaults[1] = true;   // "external" on by default (legacy behaviour)
         for (int i = 0; i < opts.length; i++) {
             android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
             cb.setText(opts[i][1]);
@@ -703,19 +706,29 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
+    /** Read an export option, tolerating options that have no checkbox. */
+    private static boolean checked(java.util.Map<String, android.widget.CheckBox> boxes,
+                                   String key) {
+        android.widget.CheckBox cb = boxes.get(key);
+        return cb != null && cb.isChecked();
+    }
+
     /** Validate Backup options; null = invalid (toast shown). */
     private ProfileTransfer.Restrictions readBackupOptions(
             java.util.Map<String, android.widget.CheckBox> boxes,
             String hwids, String note, String expiry, String password, String isp) {
         ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
-        r.lockConfiguration = boxes.get("lock").isChecked();
-        r.external = boxes.get("external").isChecked();
-        r.hideServer = boxes.get("hideserver").isChecked();
-        r.hideUpass = boxes.get("hideupass").isChecked();
-        r.blockRoot = boxes.get("blockroot").isChecked();
-        r.removeBanner = boxes.get("rmbanner").isChecked();
-        r.customBanner = boxes.get("custombanner").isChecked();
-        if (boxes.get("expired").isChecked()) {
+        r.lockConfiguration = checked(boxes, "lock");
+        r.external = checked(boxes, "external");
+        r.hideServer = checked(boxes, "hideserver");
+        r.hideUpass = checked(boxes, "hideupass");
+        r.blockRoot = checked(boxes, "blockroot");
+        // "rmbanner"/"custombanner" have no checkbox in the grid any more:
+        // read them defensively (a missing key means "off"), otherwise this
+        // threw NullPointerException right after the dialog was validated.
+        r.removeBanner = checked(boxes, "rmbanner");
+        r.customBanner = checked(boxes, "custombanner");
+        if (checked(boxes, "expired")) {
             if (expiry == null || !expiry.matches("\\d{4}-\\d{2}-\\d{2}")) {
                 toast("Choisissez une date d'expiration");
                 return null;

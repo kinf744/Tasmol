@@ -188,8 +188,11 @@ public class BinaryManager {
         // Writable app-private temp dir (cache dir) for xray configs.
         // Android has no /tmp and CWD is read-only.
         p.put("tmp_dir", ctx.getCacheDir().getAbsolutePath());
-        // Diagnostic log file in the public Download folder.
-        p.put("log_dir", downloadDir());
+        // Diagnostic log file. MUST be app-private: the Go logger opens
+        // <log_dir>/kighmu.txt for append and silently disables itself
+        // (makeFileLogger returns nil) if the path is not writable, which
+        // is what happened with Download/ on Android 10+.
+        p.put("log_dir", logDir().getAbsolutePath());
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
         // is unreachable through the tunnel).
         p.put("dns_ip", VPNApplication.getInstance().getCustomDnsPrimary());
@@ -209,14 +212,31 @@ public class BinaryManager {
         return d.getAbsolutePath();
     }
 
-    /** Append one line to Download/kighmu.txt (unified connection journal).
+    /** Journal directory. The live journal MUST live in app-private storage:
+     *  Download/ is read-only for the app on Android 10+ (API 29) with
+     *  targetSdk 34, and WRITE_EXTERNAL_STORAGE is capped at maxSdkVersion 28.
+     *  Writing there silently failed (scoped storage), so appendKighmu threw
+     *  into an empty catch and the Go logger returned nil — the Logs tab
+     *  simply never received a single line. The public Download copy is now
+     *  an explicit user action (shareJournal), not the live sink. */
+    public static File logDir() {
+        File d = new File(VPNApplication.getInstance().getFilesDir(), "logs");
+        if (!d.exists()) {
+            //noinspection ResultOfMethodCallIgnored
+            d.mkdirs();
+        }
+        return d;
+    }
+
+    public static File logFile() {
+        return new File(logDir(), "kighmu.txt");
+    }
+
+    /** Append one line to the journal (unified connection journal).
      *  Best-effort: never throws, never blocks the caller long. */
     public static synchronized void appendKighmu(String line) {
         try {
-            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (d == null) {
-                return;
-            }
+            File d = logDir();
             if (!d.exists() && !d.mkdirs()) {
                 return;
             }
@@ -224,23 +244,19 @@ public class BinaryManager {
                     new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US);
             String row = fmt.format(new java.util.Date()) + "  " + line + "\n";
             try (java.io.FileOutputStream out =
-                         new java.io.FileOutputStream(new File(d, "kighmu.txt"), true)) {
+                         new java.io.FileOutputStream(logFile(), true)) {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            android.util.Log.w("Tasmol", "appendKighmu: " + e);
         }
     }
 
-    /** Read the tail of Download/kighmu.txt ("" when missing/unreadable). */
     /** Stamp bon marché du journal (taille ^ mtime) : 0 si absent. Les écrans
      *  l'utilisent pour sauter les re-rendus quand rien n'a changé. */
     public static long kighmuStamp() {
         try {
-            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (d == null) {
-                return 0;
-            }
-            File f = new File(d, "kighmu.txt");
+            File f = logFile();
             return f.exists() ? (f.length() ^ (f.lastModified() << 1)) : 0;
         } catch (Exception e) {
             return 0;
@@ -249,11 +265,7 @@ public class BinaryManager {
 
     public static String readKighmuTail(int maxChars) {
         try {
-            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (d == null) {
-                return "";
-            }
-            File f = new File(d, "kighmu.txt");
+            File f = logFile();
             if (!f.exists()) {
                 return "";
             }
@@ -276,23 +288,20 @@ public class BinaryManager {
                 }
                 return text;
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
             return "";
         }
     }
 
-    /** Truncate Download/kighmu.txt. */
+    /** Truncate the journal. */
     public static void clearKighmu() {
         try {
-            File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (d == null) {
-                return;
-            }
-            File f = new File(d, "kighmu.txt");
+            File f = logFile();
             if (f.exists()) {
                 new java.io.FileOutputStream(f, false).close();
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            android.util.Log.w("Tasmol", "clearKighmu: " + e);
         }
     }
     /** Tunnel list (id/name/type) via the Go parser (reliable, offline). */

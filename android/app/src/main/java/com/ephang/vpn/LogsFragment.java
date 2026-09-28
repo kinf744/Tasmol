@@ -29,6 +29,7 @@ import java.util.regex.Pattern;
  */
 public class LogsFragment extends Fragment {
     private static final int TAIL_CHARS = 120_000;
+    private static final int REQ_SAVE_JOURNAL = 3101;
     private static final Pattern LINE_RE =
             Pattern.compile("^(\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)\\s+(.*)$", Pattern.DOTALL);
     private static final Pattern TAGGED_RE =
@@ -93,9 +94,12 @@ public class LogsFragment extends Fragment {
             return;
         }
         // Skip total: ni lecture ni re-render si le journal n'a pas bougé
-        // (2s tick). Gros gain de fluidité UI (le fichier fait ~300 Ko).
+        // (2s tick). Le cache est invalidé dès que le fichier est tronqué
+        // (clear) pour ne pas garder un écran figé.
         long stamp = BinaryManager.kighmuStamp();
-        if (stamp == lastSeenStamp && verbose == lastSeenVerbose) {
+        if (stamp == 0) {
+            lastSeenStamp = -1;
+        } else if (stamp == lastSeenStamp && verbose == lastSeenVerbose) {
             return;
         }
         lastSeenStamp = stamp;
@@ -111,6 +115,9 @@ public class LogsFragment extends Fragment {
         }
     }
 
+    /** Share the journal. The app can no longer write to Download/ on
+     *  Android 10+, so saving the file goes through the system document
+     *  picker (ACTION_CREATE_DOCUMENT) instead of a direct write. */
     private void shareJournal() {
         try {
             String raw = BinaryManager.readKighmuTail(300_000);
@@ -118,13 +125,52 @@ public class LogsFragment extends Fragment {
                 Toast.makeText(getContext(), "Nothing to share yet", Toast.LENGTH_SHORT).show();
                 return;
             }
-            Intent i = new Intent(Intent.ACTION_SEND);
-            i.setType("text/plain");
-            i.putExtra(Intent.EXTRA_TEXT, raw);
-            i.putExtra(Intent.EXTRA_SUBJECT, "kighmu.txt");
-            startActivity(Intent.createChooser(i, "Share journal via"));
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Journal")
+                    .setItems(new String[]{"Partager le texte", "Enregistrer en fichier"}, (d, which) -> {
+                        if (which == 0) {
+                            Intent i = new Intent(Intent.ACTION_SEND);
+                            i.setType("text/plain");
+                            i.putExtra(Intent.EXTRA_TEXT, raw);
+                            i.putExtra(Intent.EXTRA_SUBJECT, "kighmu.txt");
+                            startActivity(Intent.createChooser(i, "Share journal via"));
+                        } else {
+                            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+                            i.addCategory(Intent.CATEGORY_OPENABLE);
+                            i.setType("text/plain");
+                            i.putExtra(Intent.EXTRA_TITLE, "kighmu.txt");
+                            startActivityForResult(i, REQ_SAVE_JOURNAL);
+                        }
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
         } catch (Exception e) {
-            Toast.makeText(getContext(), "Share failed", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), "Share failed: " + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_SAVE_JOURNAL) {
+            return;
+        }
+        if (resultCode != android.app.Activity.RESULT_OK || data == null
+                || data.getData() == null) {
+            return;
+        }
+        try (java.io.OutputStream out = requireContext().getContentResolver()
+                .openOutputStream(data.getData())) {
+            if (out == null) {
+                throw new IllegalStateException("openOutputStream returned null");
+            }
+            out.write(BinaryManager.readKighmuTail(2_000_000)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            Toast.makeText(getContext(), "Journal enregistré", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Enregistrement impossible : " + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -212,7 +258,18 @@ public class LogsFragment extends Fragment {
             appendSpan(sb, msg + "\n", msgColor);
         }
         if (sb.length() == 0) {
-            return "Journal is empty for this filter.\nConnect to start logging.";
+            // The 120 KB tail can be entirely Tracef (level "info"), which
+            // Journal mode filters out — the view used to look dead exactly
+            // when a connect burst flooded the file. Fall back to the raw
+            // tail instead of showing an empty screen.
+            String[] rawLines = raw.split("\n");
+            int from = Math.max(0, rawLines.length - 40);
+            StringBuilder fb = new StringBuilder();
+            fb.append("(Journal filtré — fin du journal brut)\n");
+            for (int i = from; i < rawLines.length; i++) {
+                fb.append(rawLines[i].trim()).append('\n');
+            }
+            return fb.toString();
         }
         return sb;
     }

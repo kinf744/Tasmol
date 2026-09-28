@@ -24,7 +24,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         void onEdit(JSONObject tunnel);
 
-        void onShare(JSONObject tunnel);
+        void onClone(JSONObject tunnel);
 
         void onDelete(JSONObject tunnel);
     }
@@ -105,7 +105,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         // Locked (imported) profiles: no edit, no clone. Ever.
         boolean locked = ProfileTransfer.isLocked(t);
         h.edit.setVisibility(locked ? View.GONE : View.VISIBLE);
-        h.share.setVisibility(locked ? View.GONE : View.VISIBLE);
+        h.clone.setVisibility(locked ? View.GONE : View.VISIBLE);
         if (locked) {
             h.rr.setVisibility(View.VISIBLE);
             h.rr.setText("LOCK");
@@ -120,7 +120,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             return true;
         });
         h.edit.setOnClickListener(v -> listener.onEdit(t));
-        h.share.setOnClickListener(v -> listener.onShare(t));
+        h.clone.setOnClickListener(v -> listener.onClone(t));
         h.delete.setOnClickListener(v -> listener.onDelete(t));
     }
 
@@ -137,7 +137,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         final TextView ping;
         final TextView rr;
         final View edit;
-        final View share;
+        final View clone;
         final View delete;
 
         Holder(View v) {
@@ -149,7 +149,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             ping = v.findViewById(R.id.item_ping);
             rr = v.findViewById(R.id.item_rr);
             edit = v.findViewById(R.id.item_edit);
-            share = v.findViewById(R.id.item_share);
+            clone = v.findViewById(R.id.item_clone);
             delete = v.findViewById(R.id.item_delete);
         }
     }
