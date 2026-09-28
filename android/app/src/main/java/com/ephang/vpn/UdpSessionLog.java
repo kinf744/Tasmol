@@ -4,9 +4,8 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Journal de session des tunnels UDP (zivvn / Hysteria), écrit dans le même
- * fichier que le reste (kighmu.txt) pour que l'onglet Logs affiche une seule
- * chronologie.
+ * Journal de session des tunnels, écrit dans le même fichier que le reste
+ * (kighmu.txt) pour que l'onglet Logs affiche une seule chronologie.
  *
  * <p>Les lignes suivent le format {@code [HH:mm:ss] message}. Trois niveaux
  * sont utilisés pour la couleur du texte dans l'onglet Logs :
@@ -15,6 +14,11 @@ import org.json.JSONObject;
  *   <li>{@code udp-ok}  — confirmation (vert vif)</li>
  *   <li>{@code ready}   — disponibilité finale (orange)</li>
  * </ul>
+ *
+ * <p>Le libellé dépend du type de tunnel : la ligne de confirmation porte la
+ * famille de transport ({@code UDP}, {@code XRAY}, {@code SSH}) et la ligne de
+ * routage porte le nom du moteur ({@code zivvn}, {@code Xray slowdns},
+ * {@code SSH}, …). Voir {@link #kindOf}.
  *
  * <p>Seuls des faits vérifiables côté Java sont journalisés : l'état réel de
  * l'interface TUN, les serveurs DNS effectivement configurés, le type de
@@ -30,18 +34,48 @@ final class UdpSessionLog {
     private static final String LEVEL_UDP_OK = "udp-ok";
     private static final String LEVEL_READY = "ready";
 
-    /** Tunnel type as shown in the journal. Empty when the type is unknown. */
-    static String prettyType(String type) {
+    /** Per-type journal labels. {@code name} is the display name used on the
+     *  "routing through" line, {@code family} the transport shown on the
+     *  "Connected Successfully" line. */
+    private static final class Kind {
+        final String family;
+        final String name;
+
+        Kind(String family, String name) {
+            this.family = family;
+            this.name = name;
+        }
+    }
+
+    private static Kind kindOf(String type) {
         if (type == null) {
-            return "";
+            return null;
         }
         if (type.equals("zivpn")) {
-            return "zivpn";
+            return new Kind("UDP", "zivpn");
         }
         if (type.equals("hysteria")) {
-            return "Hysteria";
+            return new Kind("UDP", "Hysteria");
         }
-        return "";
+        if (type.equals("xray")) {
+            return new Kind("XRAY", "Xray");
+        }
+        if (type.equals("xray_slowdns")) {
+            return new Kind("XRAY", "Xray slowdns");
+        }
+        if (type.equals("ssh")) {
+            return new Kind("SSH", "SSH");
+        }
+        if (type.equals("ssh_slowdns")) {
+            return new Kind("SSH", "SSH slowdns");
+        }
+        return null;
+    }
+
+    /** Tunnel name as shown in the journal. Empty when the type is unknown. */
+    static String prettyType(String type) {
+        Kind k = kindOf(type);
+        return k == null ? "" : k.name;
     }
 
     /** Resolve a tunnel's type from the staged configuration. "" if unknown. */
@@ -95,10 +129,14 @@ final class UdpSessionLog {
     }
 
     /** Emitted once Controller.start() returned without error. */
-    static void connected(String prettyType) {
-        line(LEVEL_UDP_OK, "UDP Connected Successfully");
+    static void connected(String type) {
+        Kind k = kindOf(type);
+        if (k == null) {
+            return;
+        }
+        line(LEVEL_UDP_OK, k.family + " Connected Successfully");
         routes();
-        line(LEVEL_UDP_OK, "routing through " + prettyType + " tunnel");
+        line(LEVEL_UDP_OK, "routing through " + k.name);
         line(LEVEL_READY, "You are ready to go");
     }
 
@@ -112,6 +150,6 @@ final class UdpSessionLog {
      *  Uses the two-bracket event form so the Logs tab renders it red. */
     static void failed(String prettyType, String reason) {
         TasVpnService.logEvent("error", "udp",
-                "UDP connection failed (" + prettyType + ") : " + reason);
+                prettyType + " connection failed : " + reason);
     }
 }

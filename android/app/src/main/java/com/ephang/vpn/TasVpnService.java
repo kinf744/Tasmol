@@ -224,13 +224,12 @@ public class TasVpnService extends VpnService {
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
 
-                    // Journal de session UDP (zivvn / Hysteria) : same layout
-                    // as the rest of the file so the Logs tab shows one
-                    // chronology. Empty prettyType => not a UDP tunnel, the
-                    // block is skipped entirely.
-                    final String udpType =
-                            UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, tid));
-                    if (!udpType.isEmpty()) {
+                    // Journal de session par tunnel (zivvn, Hysteria, Xray,
+                    // Xray slowdns, SSH, SSH slowdns) : same layout as the rest
+                    // of the file so the Logs tab shows one chronology. An
+                    // unrecognised type yields "" and the block is skipped.
+                    final String tunnelType = UdpSessionLog.typeOfTunnel(this, tid);
+                    if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
                         UdpSessionLog.connecting();
                     }
 
@@ -238,8 +237,8 @@ public class TasVpnService extends VpnService {
                     String err = invokeStart(ctrl, params);
                     if (err != null && !err.isEmpty()) {
                         closeTunQuietly();
-                        if (!udpType.isEmpty()) {
-                            UdpSessionLog.failed(udpType, err);
+                        if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
+                            UdpSessionLog.failed(UdpSessionLog.prettyType(tunnelType), err);
                         }
                         throw new IllegalStateException("data plane: " + err);
                     }
@@ -265,8 +264,8 @@ public class TasVpnService extends VpnService {
 
                     notifyText("Connected");
                     Log.i(TAG, "VPN session running");
-                    if (!udpType.isEmpty()) {
-                        UdpSessionLog.connected(udpType);
+                    if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
+                        UdpSessionLog.connected(tunnelType);
                     }
                     logEvent("connection", "app", "connected (" + tid + ")");
                     return;
