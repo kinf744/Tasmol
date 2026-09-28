@@ -33,6 +33,9 @@ import java.util.List;
 public class ConfigsFragment extends Fragment {
     private static final int REQ_IMPORT_SHARE = 3001;
     private static final int REQ_EXPORT_SHARE = 3002;
+    /** Destination bound to the ⋮ menu entry that opened the export form. */
+    private static final String TARGET_FILE = "file";
+    private static final String TARGET_CLIPBOARD = "clipboard";
     private String pendingExport = null;
     private TextView lastPingText;
     private LinearLayout activeCard;
@@ -484,41 +487,70 @@ public class ConfigsFragment extends Fragment {
     /** Partager + Importer via le menu ⋮ de l'en-tête : c'est le SEUL point
      *  d'entrée du partage. Il porte toujours sur la sélection (1+ profils au
      *  cadre vert) — le partage d'un profil isolé n'existe plus, l'icône de
-     *  la carte est devenue un Clone. */
+     *  la carte est devenue un Clone.
+     *
+     *  Les 4 actions sont listées à plat, sans sous-menu ni paragraphe
+     *  explicatif : chaque entrée fait ce qu'elle annonce. L'export passe
+     *  ensuite par le formulaire de restrictions (verrou, mot de passe, HWID,
+     *  opérateur, expiration), qui est une saisie d'options et non un niveau
+     *  de navigation. */
     private void showShareMenu() {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
-        String[] options = {"Partager la sélection", "Importer"};
+        String[] options = {
+                "Exporter en fichier .epha",
+                "Exporter vers le clipboard",
+                "Importer un fichier .epha",
+                "Importer depuis le clipboard",
+        };
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle(selected.isEmpty()
                         ? "Partager / Importer"
                         : "Partager / Importer (" + selected.size() + " profil(s))")
-                .setMessage("Le partage porte uniquement sur les profils sélectionnés "
-                        + "(cadre vert). L'icône ⧉ d'une carte la duplique.")
                 .setItems(options, (d, which) -> {
-                    if (which == 0) {
-                        showExportMenu();
-                    } else {
-                        showImportChoice();
+                    switch (which) {
+                        case 0:
+                            showExportMenu(TARGET_FILE);
+                            break;
+                        case 1:
+                            showExportMenu(TARGET_CLIPBOARD);
+                            break;
+                        case 2:
+                            openImportFile();
+                            break;
+                        default:
+                            showClipboardImport();
+                            break;
                     }
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
     }
 
-    /** Show the Backup form for the currently selected profiles. */
-    private void showExportMenu() {
+    /** Show the Backup form for the currently selected profiles, bound to
+     *  one export destination (file or clipboard). */
+    private void showExportMenu(String target) {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
         if (selected.isEmpty()) {
             toast("Sélectionnez d'abord 1+ profils (cadre vert)");
             return;
         }
-        showExportMenu(ProfileTransfer.selectedTunnels(requireContext(), selected));
+        showExportMenu(ProfileTransfer.selectedTunnels(requireContext(), selected), target);
     }
 
-    /** Backup form for an explicit list of profiles (selection or single). */
-    private void showExportMenu(List<JSONObject> tunnels) {
+    /** Open the .epha picker directly (import path, no options form). */
+    private void openImportFile() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(i, REQ_IMPORT_SHARE);
+    }
+
+    /** Backup form for an explicit list of profiles, ending on `target`
+     *  (TARGET_FILE or TARGET_CLIPBOARD). The form collects the restrictions
+     *  (lock, password, HWID, ISP, expiry) then performs that one action. */
+    private void showExportMenu(List<JSONObject> tunnels, String target) {
         if (tunnels.isEmpty()) {
             toast("Les configs de l'API sont sécurisées : export impossible");
             return;
@@ -536,6 +568,10 @@ public class ConfigsFragment extends Fragment {
         filenameInput.setText("ephang-" + tunnels.size() + "-profils.epha");
         filenameInput.setTextColor(0xFFFFFFFF);
         filenameInput.setHintTextColor(0xFF616161);
+        // Only meaningful when the form ends on a file: a clipboard export has
+        // no filename, so the field is hidden instead of misleading.
+        filenameInput.setVisibility(TARGET_FILE.equals(target)
+                ? android.view.View.VISIBLE : android.view.View.GONE);
         layout.addView(filenameInput);
 
         android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
@@ -646,10 +682,11 @@ public class ConfigsFragment extends Fragment {
         summary.setPadding(0, pad / 2, 0, 0);
         layout.addView(summary);
 
+        final boolean toFile = TARGET_FILE.equals(target);
         new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                 .setTitle("Export Config")
                 .setView(layout)
-                .setPositiveButton("Fichier .epha", (d, w) -> {
+                .setPositiveButton(toFile ? "Enregistrer le .epha" : "Copier le lien", (d, w) -> {
                     ProfileTransfer.Restrictions r = readBackupOptions(
                             boxes, hwidInput.getText().toString(),
                             noteInput.getText().toString(), expiry[0],
@@ -658,18 +695,11 @@ public class ConfigsFragment extends Fragment {
                     if (r == null) {
                         return;
                     }
-                    exportToFile(tunnels, r, filenameInput.getText().toString());
-                })
-                .setNeutralButton("Clipboard", (d, w) -> {
-                    ProfileTransfer.Restrictions r = readBackupOptions(
-                            boxes, hwidInput.getText().toString(),
-                            noteInput.getText().toString(), expiry[0],
-                            passwordInput.getText().toString(),
-                            ispInput.getText().toString());
-                    if (r == null) {
-                        return;
+                    if (toFile) {
+                        exportToFile(tunnels, r, filenameInput.getText().toString());
+                    } else {
+                        exportToClipboard(tunnels, r);
                     }
-                    exportToClipboard(tunnels, r);
                 })
                 .setNegativeButton("Annuler", null)
                 .show();
@@ -826,24 +856,6 @@ public class ConfigsFragment extends Fragment {
         } catch (Exception e) {
             toast("Export impossible : " + e.getMessage());
         }
-    }
-
-    /** Import entry: file (.epha) or clipboard (ephang://). */
-    private void showImportChoice() {
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Importer des profils")
-                .setItems(new String[]{"Fichier .epha", "Clipboard (ephang://...)"}, (d, which) -> {
-                    if (which == 0) {
-                        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                        i.addCategory(Intent.CATEGORY_OPENABLE);
-                        i.setType("*/*");
-                        startActivityForResult(i, REQ_IMPORT_SHARE);
-                    } else {
-                        showClipboardImport();
-                    }
-                })
-                .setNegativeButton("Annuler", null)
-                .show();
     }
 
     private void showClipboardImport() {
