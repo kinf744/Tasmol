@@ -32,8 +32,10 @@ import java.util.List;
 public class TunnelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
-    private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria"};
-    private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Xray + SlowDNS", "Zivpn UDP", "Hysteria UDP"};
+    // "Xray + SlowDNS" n'est plus un type séparé : c'est le type Xray avec
+    // la case SlowDNS cochée (sw_xray_slowdns) -> type effectif xray_slowdns.
+    private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "zivpn", "hysteria"};
+    private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Zivpn UDP", "Hysteria UDP"};
     private static final String[] NETWORKS = {"tcp", "udp", "ws", "grpc", "xhttp", "httpupgrade"};
     private static final String[] SECURITIES = {"", "tls", "reality"};
     private static final String[] SECURITY_LABELS = {"None", "TLS", "Reality"};
@@ -91,6 +93,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
     private LinearLayout cardXrayManualToggle;
     private Switch swXrayManual;
+    private LinearLayout cardXraySlowdns;
+    private Switch swXraySlowdns;
     private Button btnXrayImport;
     private LinearLayout xrayManualForm;
     private LinearLayout xrayPasteBox;
@@ -236,6 +240,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // Xray manual form ("Configure manually").
         cardXrayManualToggle = findViewById(R.id.card_xray_manual_toggle);
         swXrayManual = findViewById(R.id.sw_xray_manual);
+        cardXraySlowdns = findViewById(R.id.card_xray_slowdns);
+        swXraySlowdns = findViewById(R.id.sw_xray_slowdns);
         btnXrayImport = findViewById(R.id.btn_xray_import);
         xrayManualForm = findViewById(R.id.xray_manual_form);
         xrayPasteBox = findViewById(R.id.xray_paste_box);
@@ -319,6 +325,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         spXmSecurity.setOnItemSelectedListener(refreshManual);
 
         swXrayManual.setOnCheckedChangeListener((b, on) -> refreshSections());
+        swXraySlowdns.setOnCheckedChangeListener((b, on) -> refreshSections());
         btnXrayPaste.setOnClickListener(v -> pasteIntoXrayInput());
         btnXrayClear.setOnClickListener(v -> {
             edXrayInput.setText("");
@@ -343,9 +350,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         int secPos = edSecurity.getSelectedItemPosition();
         String security = secPos >= 0 ? SECURITIES[secPos] : "";
 
+        // SlowDNS n'est plus un type du spinner : case a cocher sur Xray.
+        boolean xrayUi = type.equals("xray");
+        boolean slowXray = xrayUi && swXraySlowdns != null && swXraySlowdns.isChecked();
         boolean isSSH = type.equals("ssh") || type.equals("ssh_slowdns");
-        boolean isXray = type.equals("xray") || type.equals("xray_slowdns");
-        boolean isSlowDNS = type.equals("ssh_slowdns") || type.equals("xray_slowdns");
+        boolean isXray = xrayUi;
+        boolean isSlowDNS = type.equals("ssh_slowdns") || slowXray;
         boolean isZivpn = type.equals("zivpn");
         boolean isHysteria = type.equals("hysteria");
         boolean showServer = !type.equals("ssh_slowdns") && !type.equals("xray");
@@ -356,7 +366,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean showXrayAuth = false;
         // No visible transport section: Xray works from link/JSON only.
         boolean showTransport = false;
-        boolean isXraySlowDns = type.equals("xray_slowdns");
+        boolean isXraySlowDns = slowXray;
 
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
         // Proxy/payload are plain-SSH only: ssh_slowdns dials through the
@@ -387,14 +397,14 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secPath.setVisibility(!isXraySlowDns && showPath ? View.VISIBLE : View.GONE);
         secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
 
-        // Xray "Configure manually" mode (plain xray only; xray_slowdns and
-        // every other type keep the classic link/JSON paste box).
-        boolean manualXray = type.equals("xray") && swXrayManual != null && swXrayManual.isChecked();
-        cardXrayManualToggle.setVisibility(type.equals("xray") ? View.VISIBLE : View.GONE);
+        // Xray "Configure manually" mode (xray UI incl. SlowDNS checkbox).
+        boolean manualXray = xrayUi && swXrayManual != null && swXrayManual.isChecked();
+        cardXrayManualToggle.setVisibility(xrayUi ? View.VISIBLE : View.GONE);
+        cardXraySlowdns.setVisibility(xrayUi ? View.VISIBLE : View.GONE);
         btnXrayImport.setVisibility(manualXray ? View.VISIBLE : View.GONE);
         xrayManualForm.setVisibility(manualXray ? View.VISIBLE : View.GONE);
         xrayPasteBox.setVisibility(manualXray ? View.GONE : View.VISIBLE);
-        rowXrayPasteActions.setVisibility(type.equals("xray") ? View.VISIBLE : View.GONE);
+        rowXrayPasteActions.setVisibility(xrayUi ? View.VISIBLE : View.GONE);
         if (manualXray) {
             refreshXrayManualFields();
         }
@@ -431,7 +441,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     continue;
                 }
                 edName.setText(t.optString("name", ""));
-                selectSpinner(edType, TYPES, t.optString("type", "ssh"));
+                String storedType = t.optString("type", "ssh");
+                // Profil xray_slowdns existant => spinner Xray + case SlowDNS.
+                if (storedType.equals("xray_slowdns")) {
+                    selectSpinner(edType, TYPES, "xray");
+                    swXraySlowdns.setChecked(true);
+                } else {
+                    swXraySlowdns.setChecked(false);
+                    selectSpinner(edType, TYPES, storedType);
+                }
                 edEnabled.setChecked(t.optBoolean("enabled", true));
 
                 JSONObject server = t.optJSONObject("server");
@@ -490,7 +508,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     String json = adv.optString("outbound_json", "");
                     // JSON mode wins when a stored config exists (and the
                     // type allows it); the link stays stashed for a switch.
-                    boolean jsonMode = !json.isEmpty() && !currentType().equals("xray_slowdns");
+                    boolean jsonMode = !json.isEmpty() && !storedType.equals("xray_slowdns");
                     if (jsonMode) {
                         rbModeJson.setChecked(true);
                     } else {
@@ -502,7 +520,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     lastXrayLinkMode = xrayLinkMode();
                     // Profile built with the manual form: restore it as-is
                     // (the outbound JSON carries every field back).
-                    if (currentType().equals("xray")
+                    if ((storedType.equals("xray") || storedType.equals("xray_slowdns"))
                             && adv.optString("manual_form", "").equals("1")
                             && !json.isEmpty()) {
                         lastImportedLink = link;
@@ -514,7 +532,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     }
                     // xray_slowdns keeps its SlowDNS key in advanced (the
                     // server key belongs to Reality): prefer it on load.
-                    if (currentType().equals("xray_slowdns")
+                    if (storedType.equals("xray_slowdns")
                             && !adv.optString("slowdns_pubkey", "").isEmpty()) {
                         edPubkey.setText(adv.optString("slowdns_pubkey"));
                     }
@@ -1074,6 +1092,76 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Base config for a manual-form save (plain xray or xray+slowdns):
+     * server/auth/transport/advanced sections built from the form and the
+     * generated outbound (already validated by buildManualOutbound).
+     */
+    private JSONObject buildManualBase(JSONObject manualOb) {
+        try {
+            JSONObject base = new JSONObject();
+            JSONObject server = new JSONObject();
+            server.put("host", edXmHost.getText().toString().trim());
+            int port = 0;
+            try {
+                port = Integer.parseInt(edXmPort.getText().toString().trim());
+            } catch (NumberFormatException ignored) {
+            }
+            server.put("port", port);
+            JSONObject stream = manualOb != null ? manualOb.optJSONObject("streamSettings") : null;
+            JSONObject tls = stream != null ? stream.optJSONObject("tlsSettings") : null;
+            if (tls == null && stream != null) {
+                tls = stream.optJSONObject("realitySettings");
+            }
+            if (tls != null) {
+                if (!tls.optString("serverName", "").isEmpty()) {
+                    server.put("sni", tls.optString("serverName"));
+                }
+                if (!tls.optString("publicKey", "").isEmpty()) {
+                    server.put("public_key", tls.optString("publicKey"));
+                }
+                if (!tls.optString("shortId", "").isEmpty()) {
+                    server.put("short_id", tls.optString("shortId"));
+                }
+            }
+            base.put("server", server);
+
+            JSONObject auth = new JSONObject();
+            auth.put("uuid", edXmUuid.getText().toString().trim());
+            auth.put("flow", edXmFlow.getText().toString().trim());
+            auth.put("password", edXmPass.getText().toString());
+            String proto = xmProtocol();
+            String method = "";
+            if ((proto.equals("vmess") || proto.equals("shadowsocks"))
+                    && spXmEnc.getSelectedItem() != null) {
+                method = spXmEnc.getSelectedItem().toString();
+            }
+            auth.put("method", method);
+            base.put("auth", auth);
+
+            JSONObject transport = new JSONObject();
+            transport.put("network", xmNetwork());
+            transport.put("security", xmSecurity());
+            transport.put("path", edXmPath.getText().toString().trim());
+            transport.put("host", edXmHostHeader.getText().toString().trim());
+            base.put("transport", transport);
+
+            JSONObject adv = new JSONObject();
+            if (manualOb != null) {
+                adv.put("outbound_json", manualOb.toString());
+            }
+            adv.put("manual_form", "1");
+            if (!lastImportedLink.isEmpty()) {
+                adv.put("link", lastImportedLink);
+            }
+            base.put("advanced", adv);
+            return base;
+        } catch (Exception e) {
+            toast("Invalid form: " + e.getMessage());
+            return null;
+        }
+    }
+
     /** Parse a subscription link through the Go core; null after a toast. */
     private JSONObject parseLinkConfig(String link) {
         try {
@@ -1114,7 +1202,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
     }
 
     private void save() {
-        String type = currentType();
+        String uiType = currentType();
+        boolean xrayUi = uiType.equals("xray");
+        // "Configure manually" builds the outbound from the structured form
+        // instead of the pasted link/JSON (works with or without SlowDNS).
+        boolean manualXray = xrayUi && swXrayManual.isChecked();
+        // Case SlowDNS cochée sur Xray => type effectif xray_slowdns.
+        String type = xrayUi && swXraySlowdns.isChecked() ? "xray_slowdns" : uiType;
 
         // Xray: validate/auto-parse the single input now (no Parse button).
         // Link mode parses through the Go core and uses the parsed profile
@@ -1122,9 +1216,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // to be a valid object.
         JSONObject xrayBase = null;
         String xrayJson = "";
-        // "Configure manually" builds the outbound from the structured form
-        // instead of the pasted link/JSON (plain xray only).
-        boolean manualXray = type.equals("xray") && swXrayManual.isChecked();
         JSONObject manualOb = null;
         if (type.equals("xray") && !manualXray) {
             String input = edXrayInput.getText().toString().trim();
@@ -1182,7 +1273,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
             // SlowDNS key + NS + resolver.
             JSONObject slowBase = null;
             if (type.equals("xray_slowdns")) {
-                slowBase = resolveXraySlowDnsBase();
+                // Manual form: the generated outbound IS the base (the Go
+                // core rewrites its address to the dnstt forward at start).
+                slowBase = manualXray ? buildManualBase(manualOb)
+                        : resolveXraySlowDnsBase();
                 if (slowBase == null) {
                     return;
                 }
@@ -1446,7 +1540,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     if (ba != null) {
                         advanced = new JSONObject(ba.toString());
                     }
-                    advanced.put("link", edXrayInput.getText().toString().trim());
+                advanced.put("link", manualXray ? lastImportedLink
+                        : edXrayInput.getText().toString().trim());
                 } else {
                     // Full client config or single outbound, stored verbatim;
                     // the Go core detects full configs by the "outbounds" key.

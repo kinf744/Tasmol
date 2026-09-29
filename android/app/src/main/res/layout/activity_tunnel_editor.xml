@@ -65,12 +65,15 @@
             android:id="@+id/sec_server"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:layout_marginTop="14dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="Server"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -108,13 +111,16 @@
             android:id="@+id/sec_ssh"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
             android:orientation="vertical"
+            android:padding="14dp"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="SSH authentication"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -845,19 +851,63 @@
                     android:textSize="10sp"
                     android:typeface="monospace" />
             </LinearLayout>
+
+            <!-- Case a cocher SlowDNS : Xray devient Xray + SlowDNS. -->
+            <LinearLayout
+                android:id="@+id/card_xray_slowdns"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:background="@drawable/card_bg"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="14dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Use SlowDNS"
+                        android:textColor="?android:attr/textColorPrimary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Route the tunnel through DNS (dnstt)"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <Switch
+                    android:id="@+id/sw_xray_slowdns"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
             android:id="@+id/sec_zivpn"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
             android:orientation="vertical"
+            android:padding="14dp"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="Zivpn UDP"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -918,13 +968,16 @@
             android:id="@+id/sec_hysteria"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
             android:orientation="vertical"
+            android:padding="14dp"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="Hysteria UDP"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -1018,13 +1071,16 @@
             android:id="@+id/sec_slowdns"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
             android:orientation="vertical"
+            android:padding="14dp"
             android:visibility="gone">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="SlowDNS (dnstt)"
                 android:textSize="16sp"
                 android:textStyle="bold" />
@@ -1074,7 +1130,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="14dp"
+                android:layout_marginTop="0dp"
                 android:text="Transport"
                 android:textSize="16sp"
                 android:textStyle="bold" />
