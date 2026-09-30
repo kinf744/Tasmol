@@ -236,16 +236,61 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void disconnectVpn() {
-        Intent intent = new Intent(this, TasVpnService.class);
-        intent.setAction(TasVpnService.ACTION_DISCONNECT);
-        startService(intent);
+        // startService() can throw IllegalStateException when the app is not
+        // in the foreground on API 31+ (background start restriction). Left
+        // uncaught it crashed the main thread from the UncaughtExceptionHandler
+        // and the disconnect simply never happened.
+        try {
+            Intent intent = new Intent(this, TasVpnService.class);
+            intent.setAction(TasVpnService.ACTION_DISCONNECT);
+            startService(intent);
+        } catch (Exception e) {
+            showToast("Disconnect blocked by Android: force stopping...");
+            forceStopVpn();
+            return;
+        }
         showToast("Disconnecting...");
         // Two-stage watchdog. Teardown is time-bounded on both sides, so a
         // healthy disconnect finishes in ~1-3s and nothing shows. Only a
-        // genuinely wedged service (still alive at 18s, past the 15s forced
-        // cleanup) pops the dialog — no more false alarms.
+        // genuinely wedged service pops the dialog — the check is armed past
+        // the 15s forced cleanup.
         handler.postDelayed(stuckToastTask, 8000);
         handler.postDelayed(stuckCheckTask, 18000);
+    }
+
+    /**
+     * True while something is still up: a live session, a start in flight, or
+     * a Go teardown that has not come back.
+     *
+     * <p>The third term is the one that used to be missing. stopSession()
+     * clears controller and starting as its very first act, so a watchdog
+     * looking only at those two saw "nothing to do" and walked away — while
+     * the teardown was in fact wedged and the VPN key was still in the shade.
+     */
+    private boolean vpnTeardownOutstanding() {
+        return TasVpnService.isRunning()
+                || TasVpnService.isStarting()
+                || TasVpnService.isTeardownHanging();
+    }
+
+    /**
+     * Best-effort stop that does not depend on the service being startable:
+     * flags the generation invalid, drops the notification and, past a short
+     * delay, kills the process. Android always revokes the VPN key of a dead
+     * service, so this is the guaranteed way to make the key disappear.
+     */
+    private void forceStopVpn() {
+        try {
+            Intent intent = new Intent(this, TasVpnService.class);
+            intent.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
+            startService(intent);
+        } catch (Exception ignored) {
+        }
+        handler.postDelayed(() -> {
+            if (vpnTeardownOutstanding()) {
+                forceKillProcess();
+            }
+        }, 3500);
     }
 
     /** Power-button path: confirm first when the setting requires it. */
@@ -270,7 +315,7 @@ public class MainActivity extends AppCompatActivity {
         if (isFinishing() || isDestroyed()) {
             return;
         }
-        if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+        if (vpnTeardownOutstanding()) {
             showToast("Still disconnecting...");
         }
     };
@@ -286,7 +331,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** If a disconnect left the service alive, propose a nuclear cleanup. */
     private void checkDisconnectStuck() {
-        if (!TasVpnService.isRunning() && !TasVpnService.isStarting()) {
+        if (!vpnTeardownOutstanding()) {
             return;
         }
         // BadTokenException sinon : l'activité peut être détruite entre le
@@ -321,18 +366,25 @@ public class MainActivity extends AppCompatActivity {
      */
     public void nuclearDisconnect() {
         cancelDisconnectWatchdogs();
+        // The service tears down with a short bound (4s instead of 15s), drops
+        // the notification immediately and arms its own process-kill watchdog
+        // at 5s. The Go core now really does kill the helper processes (xray,
+        // uz_core, hysteria, openssh, dnstt) on this path. Our own kill is
+        // armed at 3.5s so that, when an Activity is alive, finishAffinity()
+        // closes the task cleanly before the process goes; when it is not,
+        // the service-side watchdog still guarantees the key is gone.
         try {
             Intent intent = new Intent(this, TasVpnService.class);
-            intent.setAction(TasVpnService.ACTION_DISCONNECT);
+            intent.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
             startService(intent);
         } catch (Exception ignored) {
         }
         showToast("Nuclear disconnect: killing all VPN processes...");
         handler.postDelayed(() -> {
-            if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+            if (vpnTeardownOutstanding()) {
                 forceKillProcess();
             }
-        }, 4000);
+        }, 3500);
     }
 
     /** Kill our own process: children die, system revokes the VPN key. */
