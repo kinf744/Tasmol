@@ -358,6 +358,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edXmSni = findViewById(R.id.ed_xm_sni);
         edXmFp = findViewById(R.id.ed_xm_fp);
         edXmAlpn = findViewById(R.id.ed_xm_alpn);
+        spXmInsecure = findViewById(R.id.sp_xm_insecure);
         secXmReality = findViewById(R.id.sec_xm_reality);
         edXmPubkey = findViewById(R.id.ed_xm_pubkey);
         edXmSid = findViewById(R.id.ed_xm_sid);
