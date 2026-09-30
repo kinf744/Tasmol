@@ -154,20 +154,23 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         }
     }
 
+    /**
+     * Display name of a profile type. The *_slowdns types are internal
+     * storage details (the Go core needs them to pick the DNS-tunnel engine),
+     * so the user only ever sees the base type: a SlowDNS SSH profile shows
+     * "ssh" and a SlowDNS Xray profile shows "xray".
+     */
     public static String prettyType(String type) {
         switch (type) {
-            case "ssh":
-                return "ssh";
             case "ssh_slowdns":
-                return "ssh_slowdns";
-            case "xray":
-                return "xray";
+                return "ssh";
             case "xray_slowdns":
-                return "xray_slowdns";
+                return "xray";
+            case "ssh":
+            case "xray":
             case "zivpn":
-                return "zivpn";
             case "hysteria":
-                return "hysteria";
+                return type;
             default:
                 return type;
         }

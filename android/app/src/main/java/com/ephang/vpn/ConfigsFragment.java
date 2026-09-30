@@ -184,7 +184,11 @@ public class ConfigsFragment extends Fragment {
                 items.add(t);
             }
             if (sortByType) {
-                Collections.sort(items, (a, b) -> a.optString("type", "").compareTo(b.optString("type", "")));
+                // Tri par type affiche : les variantes *SlowDNS se rangeent
+                // avec leur type de base (ssh / xray).
+                Collections.sort(items, (a, b) -> TunnelAdapter.prettyType(
+                        a.optString("type", "")).compareTo(TunnelAdapter.prettyType(
+                        b.optString("type", ""))));
             } else {
                 Collections.sort(items, (a, b) -> a.optString("name", "").compareToIgnoreCase(b.optString("name", "")));
             }
