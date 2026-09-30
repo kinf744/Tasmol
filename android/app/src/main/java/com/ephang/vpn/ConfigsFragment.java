@@ -772,11 +772,11 @@ public class ConfigsFragment extends Fragment {
         final String[] keys = {"hwid", "isp", "password", "note", "expired"};
         for (int i = 0; i < cards.length; i++) {
             android.widget.CheckBox cb = boxes.get(keys[i]);
-            final android.view.View target = cards[i];
-            target.setVisibility(cb.isChecked() ? android.view.View.VISIBLE : android.view.View.GONE);
+            final android.view.View field = cards[i];
+            field.setVisibility(cb.isChecked() ? android.view.View.VISIBLE : android.view.View.GONE);
             if (!"expired".equals(keys[i])) {
                 cb.setOnCheckedChangeListener((b, c) ->
-                        target.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE));
+                        field.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE));
             }
         }
         // La date d'expiration demande un choix : on ouvre le picker quand
