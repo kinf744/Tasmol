@@ -450,16 +450,19 @@ public class MainActivity extends AppCompatActivity {
         if (app == null || !app.hasPendingCrash()) {
             return;
         }
-        String firstLine = "";
+        final String firstLine;
         try {
             String report = app.consumeLastCrashReport();
-            for (String line : report.split("\n")) {
-                if (line.startsWith("Exception")) {
-                    firstLine = line.trim();
+            String line = "";
+            for (String l : report.split("\n")) {
+                if (l.startsWith("Exception")) {
+                    line = l.trim();
                     break;
                 }
             }
+            firstLine = line;
         } catch (Throwable ignored) {
+            firstLine = "";
         }
         handler.postDelayed(() -> {
             if (isFinishing()) {
