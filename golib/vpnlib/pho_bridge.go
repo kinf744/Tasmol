@@ -60,6 +60,52 @@ func PhoVaultClear(uuid string) { pho.VaultClear(uuid) }
 // PhoResetPin forgets the TLS pin (only for deliberate cert rotation).
 func PhoResetPin() { pho.ResetPin() }
 
+// --- Secrets de tunnels & credentials API (vault chiffré) -------------
+
+// PhoTunPut stores a tunnel secret in the encrypted vault.
+// kind: ssh, ssh_slowdns, xray, xray_slowdns, zivpn, hysteria, slowdns.
+// Typical fields:
+//   hysteria: auth, obfs      ssh: user, pass, private_key, passphrase
+//   xray: uuid, flow, password, method      zivpn: password
+// Returns "" on success, or the error message.
+func PhoTunPut(uuid, kind, field, value string) string {
+	if err := pho.TunPut(uuid, kind, field, value); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// PhoTunGet reads a tunnel secret ("" if absent).
+func PhoTunGet(uuid, kind, field string) string { return pho.TunGet(uuid, kind, field) }
+
+// PhoTunClear wipes every secret of one tunnel kind. Returns "" or error.
+func PhoTunClear(uuid, kind string) string {
+	if err := pho.TunClear(uuid, kind); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// PhoSaveAccount stores the activation credentials (phone + 6-digit code)
+// in the vault. Returns "" on success, or the error message.
+func PhoSaveAccount(uuid, phone, code string) string {
+	if err := pho.SaveAccount(uuid, phone, code); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// PhoLoadAccount returns {"phone":"...","code":"..."} (empty values if unset).
+func PhoLoadAccount(uuid string) string { return pho.LoadAccount(uuid) }
+
+// PhoClearAccount forgets the activation credentials. Returns "" or error.
+func PhoClearAccount(uuid string) string {
+	if err := pho.ClearAccount(uuid); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
 func phoErrJSON(err error) string {
 	msg := err.Error()
 	out := make([]byte, 0, len(msg)+20)

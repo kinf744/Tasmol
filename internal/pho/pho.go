@@ -373,6 +373,109 @@ func vaultDecrypt(uuid string, data []byte) ([]byte, error) {
 	return g.Open(nil, data[:g.NonceSize()], data[g.NonceSize():], nil)
 }
 
+// -- Secrets de tunnels (namespace dédié du vault) -------------------------
+//
+// Les informations sensibles des tunnels (mot de passe hysteria, user/pass
+// et clé privée SSH, uuid xray, …) ne doivent vivre ni dans les préférences
+// en clair ni dans les fichiers de config YAML : elles sont stockées dans
+// le vault AES-256-GCM sous des clés espacées "tun.<kind>.<field>".
+// Valeurs sensibles classiques par tunnel :
+//   ssh       : user, pass, private_key, passphrase, proxy_user, proxy_pass
+//   xray      : uuid, flow, password (trojan/ss), method
+//   hysteria  : auth (auth_str), obfs
+//   zivpn     : password
+//   slowdns*  : pubkey, nameserver
+var tunnelKinds = map[string]bool{
+	"ssh": true, "ssh_slowdns": true,
+	"xray": true, "xray_slowdns": true,
+	"zivpn": true, "hysteria": true,
+	"slowdns": true,
+}
+
+func validTunField(s string) bool {
+	if len(s) == 0 || len(s) > 48 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// TunPut stocke un secret de tunnel (clé vault: tun.<kind>.<field>).
+func TunPut(uuid, kind, field, value string) error {
+	if !tunnelKinds[kind] {
+		return errors.New("unknown tunnel kind")
+	}
+	if !validTunField(field) {
+		return errors.New("invalid field name")
+	}
+	return VaultPut(uuid, "tun."+kind+"."+field, value)
+}
+
+// TunGet relit un secret de tunnel ("" si absent).
+func TunGet(uuid, kind, field string) string {
+	if !tunnelKinds[kind] || !validTunField(field) {
+		return ""
+	}
+	return VaultGet(uuid, "tun."+kind+"."+field)
+}
+
+// TunClear supprime tout le namespace d'un tunnel donné.
+func TunClear(uuid, kind string) error {
+	if !tunnelKinds[kind] {
+		return errors.New("unknown tunnel kind")
+	}
+	v, _ := vaultRead(uuid)
+	if v == nil {
+		return nil
+	}
+	prefix := "tun." + kind + "."
+	for k := range v {
+		if strings.HasPrefix(k, prefix) {
+			delete(v, k)
+		}
+	}
+	return vaultWrite(uuid, v)
+}
+
+// -- Credentials API (compte d'activation) ---------------------------------
+//
+// Le couple (téléphone, code à 6 chiffres) est le secret qui débloque
+// /user/configs : il vivait dans le stockage Java en clair. Il rejoint le
+// vault, toujours dérivé de l'UUID appareil.
+
+// SaveAccount mémorise les credentials d'activation dans le vault.
+func SaveAccount(uuid, phone, code string) error {
+	if err := VaultPut(uuid, "api.phone", phone); err != nil {
+		return err
+	}
+	return VaultPut(uuid, "api.code", code)
+}
+
+// LoadAccount renvoie {"phone":"...","code":"..."} depuis le vault
+// (chaîne vide "" si jamais sauvegardés).
+func LoadAccount(uuid string) string {
+	out, _ := json.Marshal(map[string]string{
+		"phone": VaultGet(uuid, "api.phone"),
+		"code":  VaultGet(uuid, "api.code"),
+	})
+	return string(out)
+}
+
+// ClearAccount oublie les credentials d'activation.
+func ClearAccount(uuid string) error {
+	v, _ := vaultRead(uuid)
+	if v == nil {
+		return nil
+	}
+	delete(v, "api.phone")
+	delete(v, "api.code")
+	return vaultWrite(uuid, v)
+}
+
 // -- Self-check runtime (anti-debug / environnement) -----------------------
 
 // SelfCheck renvoie des drapeaux JSON: {"traced":bool,"emulator":bool}.
