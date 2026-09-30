@@ -51,6 +51,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
 
+      # garble: identifiants/paquets internes renommés, littéraux encodés
+      # (-literals), infos runtime retirées (-tiny), seed aléatoire par build.
+      # Retire aux analystes (strings/Ghidra/radare2) les noms et chaînes
+      # sensibles du binaire, comme pour l'AAR Android (build-mobile.yml).
+      - name: Install garble (obfuscation anti-analyse statique)
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH && go install mvdan.cc/garble@latest
+
       - name: Verify bundled tunnel binaries
         run: |
           echo "Repository bundle bin/armv7/:"
@@ -80,13 +87,19 @@ jobs:
           LDFLAGS="-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE"
 
           mkdir -p build/armv7
-          go build -ldflags="$LDFLAGS" -o build/armv7/vpn-app ./cmd/vpn-app
+          garble -literals -tiny -seed=random build \
+            -trimpath -ldflags="$LDFLAGS" -o build/armv7/vpn-app ./cmd/vpn-app
 
       - name: Verify binary
         run: |
           file build/armv7/vpn-app
           ls -lh build/armv7/vpn-app
           ./build/armv7/vpn-app -version 2>&1 || true
+          echo '--- litteraux sensibles absents du binaire ---'
+          if strings build/armv7/vpn-app | grep -iE 'ggff\.net|pho\.vault|hu``hqb|kingom'; then
+            echo '::error::littéraux sensibles visibles dans le binaire'
+            exit 1
+          fi
 
       - name: Strip binary
         run: |

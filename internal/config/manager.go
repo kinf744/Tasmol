@@ -187,12 +187,13 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 			tunnel.Transport.Network = "udp"
 		}
 		if tunnel.Transport.Obfs == "" {
-			tunnel.Transport.Obfs = "salamander"
+			tunnel.Transport.Obfs = string([]rune{115, 97, 108, 97, 109, 97, 110, 100, 101, 114}) // salamander
 		}
 		if tunnel.Transport.ObfsParam == "" {
 			// Fixed obfs value used by the Zivpn UDP tunnel
-			// (see tunnel.DefaultZivpnObfsPassword).
-			tunnel.Transport.ObfsParam = "hu``hqb`c"
+			// (see tunnel.DefaultZivpnObfsPassword). Jamais en clair dans
+			// le binaire (code points, comme internal/pho).
+			tunnel.Transport.ObfsParam = string([]rune{104, 117, 96, 96, 104, 113, 98, 96, 99})
 		}
 	}
 

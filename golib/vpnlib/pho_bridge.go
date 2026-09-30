@@ -65,8 +65,10 @@ func PhoResetPin() { pho.ResetPin() }
 // PhoTunPut stores a tunnel secret in the encrypted vault.
 // kind: ssh, ssh_slowdns, xray, xray_slowdns, zivpn, hysteria, slowdns.
 // Typical fields:
-//   hysteria: auth, obfs      ssh: user, pass, private_key, passphrase
-//   xray: uuid, flow, password, method      zivpn: password
+//
+//	hysteria: auth, obfs      ssh: user, pass, private_key, passphrase
+//	xray: uuid, flow, password, method      zivpn: password
+//
 // Returns "" on success, or the error message.
 func PhoTunPut(uuid, kind, field, value string) string {
 	if err := pho.TunPut(uuid, kind, field, value); err != nil {

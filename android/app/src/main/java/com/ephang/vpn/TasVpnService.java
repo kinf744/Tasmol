@@ -574,6 +574,13 @@ public class TasVpnService extends VpnService {
             // onDestroy() after stopSelf(). Disarming now would cancel the
             // very watchdog the first call armed. The runnable is a no-op when
             // no teardown is in flight, so leaving it armed is harmless.
+            // Exception : un teardown PRÉCÉDENT peut être resté coincé (ex.
+            // cleanup borné entre deux retries) — en nucléaire, armer le
+            // watchdog pour garantir que le processus finisse par mourir.
+            if (nuclear && goStopHanging.get()) {
+                logEvent("warning", "app", "nuclear disconnect (teardown already hanging)");
+                armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
+            }
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
             cancelNotification();
@@ -642,7 +649,17 @@ public class TasVpnService extends VpnService {
             }
             cancelNotification();
             releaseWakeLock();
-            disarmNuclearWatchdog();
+            // Ne désarmer le watchdog kill QUE si le teardown Go a réellement
+            // retourné. En CONNECTING, Controller.stop() attend le mutex d'un
+            // start() encore en vol (attentes SOCKS/dnstt jusqu'à ~20 s) : le
+            // Future a expiré mais l'appel gomobile reste coincé et
+            // goStopHanging est toujours vrai. Désarmer ici supprimait le
+            // seul recours (kill du processus) et laissait le start()
+            // construire la session jusqu'au bout — c'était la cause du
+            // "nucléaire qui ne marche pas à tous les coups en CONNECTING".
+            if (!goStopHanging.get()) {
+                disarmNuclearWatchdog();
+            }
         }, "ephang-disconnect").start();
     }
 

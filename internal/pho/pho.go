@@ -76,7 +76,17 @@ func Init(dir string) error {
 
 // -- TLS pinning (TOFU sur SHA-256 du certificat, PAR endpoint) -----------
 
-const pinFile = "pho.pin"
+// Noms de fichiers et marqueurs runtime : jamais en clair non plus (un
+// analyste greppant "pho.pin" ou "/proc/self/status" dans le .so ne doit
+// rien trouver).
+var (
+	pinFile        = r2(112, 104, 111, 46, 112, 105, 110)                                                      // "pho.pin"
+	vaultFile      = r2(112, 104, 111, 46, 118, 97, 117, 108, 116)                                             // "pho.vault"
+	procSelfStatus = r2(47, 112, 114, 111, 99, 47, 115, 101, 108, 102, 47, 115, 116, 97, 116, 117, 115)        // /proc/self/status
+	tracerPidStr   = r2(84, 114, 97, 99, 101, 114, 80, 105, 100, 58)                                           // "TracerPid:"
+	devQemuPipe    = r2(47, 100, 101, 118, 47, 113, 101, 109, 117, 95, 112, 105, 112, 101)                     // /dev/qemu_pipe
+	devGoldfish    = r2(47, 100, 101, 118, 47, 103, 111, 108, 100, 102, 105, 115, 104, 95, 112, 105, 112, 101) // /dev/goldfish_pipe
+)
 
 // hostKey renvoie la clé de pin "host:port" d'une URL de base
 // (port 443 implicite pour https, 80 pour http).
@@ -276,8 +286,6 @@ func jsonString(m map[string]interface{}, err error) (string, error) {
 
 // -- Coffre chiffré au repos ----------------------------------------------
 
-const vaultFile = "pho.vault"
-
 // vaultKey dérive une clé AES-256 du couple (uuid appareil, sel) — le vault
 // reste illisible hors de l'appareil même si le fichier est exfiltré.
 func vaultKey(uuid string) []byte {
@@ -380,11 +388,12 @@ func vaultDecrypt(uuid string, data []byte) ([]byte, error) {
 // en clair ni dans les fichiers de config YAML : elles sont stockées dans
 // le vault AES-256-GCM sous des clés espacées "tun.<kind>.<field>".
 // Valeurs sensibles classiques par tunnel :
-//   ssh       : user, pass, private_key, passphrase, proxy_user, proxy_pass
-//   xray      : uuid, flow, password (trojan/ss), method
-//   hysteria  : auth (auth_str), obfs
-//   zivpn     : password
-//   slowdns*  : pubkey, nameserver
+//
+//	ssh       : user, pass, private_key, passphrase, proxy_user, proxy_pass
+//	xray      : uuid, flow, password (trojan/ss), method
+//	hysteria  : auth (auth_str), obfs
+//	zivpn     : password
+//	slowdns*  : pubkey, nameserver
 var tunnelKinds = map[string]bool{
 	"ssh": true, "ssh_slowdns": true,
 	"xray": true, "xray_slowdns": true,
@@ -482,16 +491,16 @@ func ClearAccount(uuid string) error {
 // Non bloquant: la stratégie (avertir/dégrader) reste côté appelant.
 func SelfCheck() string {
 	traced := false
-	if b, err := os.ReadFile("/proc/self/status"); err == nil {
+	if b, err := os.ReadFile(procSelfStatus); err == nil {
 		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, "TracerPid:") {
+			if strings.HasPrefix(line, tracerPidStr) {
 				var pid int
-				fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, "TracerPid:")), "%d", &pid)
+				fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, tracerPidStr)), "%d", &pid)
 				traced = pid != 0
 			}
 		}
 	}
-	emu := runtime.GOOS == "android" && (fileExists("/dev/qemu_pipe") || fileExists("/dev/goldfish_pipe"))
+	emu := runtime.GOOS == "android" && (fileExists(devQemuPipe) || fileExists(devGoldfish))
 	b, _ := json.Marshal(map[string]bool{"traced": traced, "emulator": emu})
 	return string(b)
 }

@@ -60,9 +60,11 @@ type uzProc struct {
 	started bool
 }
 
-// DefaultZivpnObfsPassword is the fixed obfs value hardcoded for the
-// Zivpn UDP tunnel (no UI field).
-const DefaultZivpnObfsPassword = "hu``hqb`c"
+// DefaultZivpnObfsPassword is the fixed obfs value for the Zivpn UDP
+// tunnel (no UI field). Construit à l'exécution depuis des code points :
+// la valeur n'existe jamais en clair dans le binaire (anti strings/grep,
+// cf. internal/pho).
+var DefaultZivpnObfsPassword = string([]rune{104, 117, 96, 96, 104, 113, 98, 96, 99})
 
 // DefaultZivpnPortRange is used when no range is configured: the full
 // client range split into 8 sub-ranges, one uz_core process each,

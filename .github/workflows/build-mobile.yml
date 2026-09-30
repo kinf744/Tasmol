@@ -75,6 +75,15 @@ jobs:
           go install "golang.org/x/mobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}"
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
+      # Obfuscation du plan de contrôle (libpho) et de tout le code Go de
+      # l'AAR. garble renomme les identifiants/paquets internes et, avec
+      # -literals, encode les littéraux : strings/objdump/Ghidra ne
+      # retrouvent ni endpoints ni noms de fonctions. -tiny retire les infos
+      # de runtime inutiles. seed aléatoire à chaque build -> les maps
+      # d'obfuscation d'une version ne valent rien sur la suivante.
+      - name: Install garble (obfuscation anti-analyse statique)
+        run: go install mvdan.cc/garble@latest
+
       - name: gomobile init
         run: gomobile init
 
@@ -91,6 +100,11 @@ jobs:
           # -trimpath: chemins sources absents; -s -w -buildid= : symboles
           # et id retirés. Les fonctions libpho (api/vault/self-check)
           # sont exposées via vpnlib.Pho*.
+          # GOFLAGS=-toolexec=garble : tout le code Go (y compris le main
+          # généré par gobind et ses dépendances) compile à travers garble.
+          # Les symboles JNI exportés (Java_vpnlib_*) sont des symboles C :
+          # ils restent requis et inchangés, seuls les internes disparaissent.
+          export GOFLAGS="-toolexec=garble -literals -tiny -seed=random"
           gomobile bind \
             -target=android/arm \
             -androidapi 24 \
@@ -98,12 +112,39 @@ jobs:
             -ldflags='-s -w -buildid=' \
             -o android/app/libs/vpnlib.aar \
             ./golib/vpnlib
+          unset GOFLAGS
+
+      - name: Strip native symbols (anti nm/readelf/objdump)
+        run: |
+          # -ldflags '-s -w' retire déjà la table des symboles Go; on passe
+          # en plus le strip LLVM du NDK sur chaque .so pour vider ce qui
+          # resterait (sections .symtab/.debug résiduelles côté cgo). nm et
+          # readelf -s ne doivent plus montrer que les exports dynamiques
+          # indispensables (JNI_OnLoad, Java_vpnlib_*).
+          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          [ -x "$STRIP" ] || STRIP="$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)"
+          mkdir -p /tmp/aar && cd /tmp/aar
+          rm -rf jni && unzip -o -q "$OLDPWD/android/app/libs/vpnlib.aar" 'jni/*'
+          for so in jni/armeabi-v7a/*.so; do
+            "$STRIP" --strip-all --strip-unneeded "$so" || true
+          done
+          cd "$OLDPWD/android/app/libs"
+          zip -q -r vpnlib.aar -f jni >/dev/null 2>&1 || \
+            (cd /tmp/aar && zip -q -u "$OLDPWD/vpnlib.aar" 'jni/*')
+          ls -lh "$OLDPWD/vpnlib.aar"
 
       - name: Verify AAR
         run: |
           ls -lh android/app/libs/vpnlib.aar
           unzip -p android/app/libs/vpnlib.aar jni/armeabi-v7a/libgojni.so > /tmp/libgojni.so
           file /tmp/libgojni.so
+          echo '--- aucun symbole statique ne doit subsister ---'
+          readelf -h /tmp/libgojni.so | grep -i stripped || { nm /tmp/libgojni.so 2>&1 | head -3; }
+          echo '--- litteraux sensibles absents du .so ---'
+          if strings /tmp/libgojni.so | grep -iE 'ggff\.net|pho\.vault|hu``hqb' ; then
+            echo '::error::littéraux sensibles visibles dans libgojni.so'
+            exit 1
+          fi
           echo '--- bindings (jan/gobind camelCase) ---'
           mkdir -p /tmp/aarx && unzip -o -q android/app/libs/vpnlib.aar classes.jar -d /tmp/aarx
           javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho
