@@ -82,7 +82,7 @@ jobs:
       # de runtime inutiles. seed aléatoire à chaque build -> les maps
       # d'obfuscation d'une version ne valent rien sur la suivante.
       - name: Install garble (obfuscation anti-analyse statique)
-        run: go install mvdan.cc/garble@v0.13.0  # derniere version compatible Go 1.23
+        run: go install mvdan.cc/garble@v0.14.2  # toolexec corrige, compatible Go 1.23
 
       - name: gomobile init
         run: gomobile init
