@@ -134,7 +134,7 @@ func ResetPin() {
 	_ = os.Remove(filepath.Join(storeDir, pinFile))
 }
 
-// pinTransport returns an http.RoundTripper that:
+// mkTransport returns an http.RoundTripper that:
 //   - never keys trust on the (unusable) system pool: the infra's cert is
 //     auto-signé et porte un autre CN par design;
 //   - TOFU-pins the peer leaf cert SHA-256 PER ENDPOINT (host:port) on
@@ -144,7 +144,7 @@ func ResetPin() {
 //     le nouveau cert est épinglé (le secret d'activation reste valide et
 //     ses 15 s de timeout bornent toute fenêtre MitM). C'est ce comportement
 //     qui évite le blocage définitif des clients à chaque renouvellement.
-func pinTransport(remember bool, base string) *http.Transport {
+func mkTransport(remember bool, base string) *http.Transport {
 	key := hostKey(base)
 	return &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -190,7 +190,7 @@ func postJSON(uuid, path string, payload map[string]string) (map[string]interfac
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true, base)}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: mkTransport(true, base)}
 		resp, err := cli.Do(req)
 		if err != nil {
 			lastErr = err
@@ -227,7 +227,7 @@ func getJSON(pathQuery string) (map[string]interface{}, error) {
 		if err != nil {
 			continue
 		}
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: pinTransport(true, base)}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: mkTransport(true, base)}
 		resp, err := cli.Do(req)
 		if err != nil {
 			lastErr = err
