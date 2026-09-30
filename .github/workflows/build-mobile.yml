@@ -114,15 +114,16 @@ jobs:
           # indispensables (JNI_OnLoad, Java_vpnlib_*).
           STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
           [ -x "$STRIP" ] || STRIP="$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)"
-          mkdir -p /tmp/aar && cd /tmp/aar
-          rm -rf jni && unzip -o -q "$OLDPWD/android/app/libs/vpnlib.aar" 'jni/*'
+          AAR="$GITHUB_WORKSPACE/android/app/libs/vpnlib.aar"
+          rm -rf /tmp/aar && mkdir -p /tmp/aar && cd /tmp/aar
+          unzip -o -q "$AAR" 'jni/*'
           for so in jni/armeabi-v7a/*.so; do
             "$STRIP" --strip-all --strip-unneeded "$so" || true
           done
-          cd "$OLDPWD/android/app/libs"
-          zip -q -r vpnlib.aar -f jni >/dev/null 2>&1 || \
-            (cd /tmp/aar && zip -q -u "$OLDPWD/vpnlib.aar" 'jni/*')
-          ls -lh "$OLDPWD/vpnlib.aar"
+          # zip -u depuis /tmp/aar: met a jour les entrees jni/* avec les
+          # .so strippee (meme arborescence relative que dans l'AAR).
+          zip -q -u "$AAR" 'jni/*'
+          ls -lh "$AAR"
 
       - name: Verify AAR
         run: |
