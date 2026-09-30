@@ -106,13 +106,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private static final String[] XM_PROTOCOL_LABELS = {"VMess", "VLESS", "Trojan", "Shadowsocks",
             "Http", "Socks", "Hysteria"};
     private static final String[] XM_INSECURE = {"false", "true"};
-    // Transports Xray du formulaire manuel. mKCP (kcp), HTTP/2 (http) et
-    // QUIC sont pris en charge par le coeur Go (kcpSettings/httpSettings/
-    // quicSettings) ; mKCP a des champs propres (header type, seed, mtu...).
+    // Transports Xray du formulaire manuel. mKCP (mkcp) est pris en charge
+    // par le coeur Go (kcpSettings) mais SANS header/seed : Xray 26.x les a
+    // supprimes (migration finalmask/udp). "http" (HTTP/2) et "quic" ont ete
+    // RETIRES de Xray 26.x (migrés vers XHTTP stream-one) et faisaient
+    // echouer le demarrage du process, ils ne sont donc plus proposé.
     private static final String[] XM_NETWORKS = {"tcp", "ws", "grpc", "xhttp", "httpupgrade",
-            "kcp", "http", "quic"};
+            "kcp"};
     private static final String[] XM_NETWORK_LABELS = {"TCP", "WebSocket (ws)", "gRPC", "XHTTP",
-            "HTTPUpgrade", "mKCP", "HTTP/2", "QUIC"};
+            "HTTPUpgrade", "mKCP"};
+    // Transports supprimes par Xray : on les signale a l'edition au lieu de
+    // les laisser disparaitre silencieusement du formulaire.
+    private static final String[] XM_NETWORKS_REMOVED = {"http", "quic"};
     private static final String[] XM_KCP_HEADERS = {"none", "srtp", "utp", "wechat-video",
             "dtls", "wireguard"};
     private static final String[] XM_ENC_VMESS = {"auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero"};
@@ -148,6 +153,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secXmKcp;
     private Spinner spXmKcpHeader;
     private EditText edXmKcpSeed;
+    private TextView lblXmKcpHeader;
+    private TextView lblXmKcpSeed;
     private EditText edXmKcpMtu;
     private EditText edXmKcpTti;
     private EditText edXmKcpUp;
@@ -345,6 +352,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXmKcp = findViewById(R.id.sec_xm_kcp);
         spXmKcpHeader = findViewById(R.id.sp_xm_kcp_header);
         edXmKcpSeed = findViewById(R.id.ed_xm_kcp_seed);
+        lblXmKcpHeader = findViewById(R.id.lbl_xm_kcp_header);
+        lblXmKcpSeed = findViewById(R.id.lbl_xm_kcp_seed);
         edXmKcpMtu = findViewById(R.id.ed_xm_kcp_mtu);
         edXmKcpTti = findViewById(R.id.ed_xm_kcp_tti);
         edXmKcpUp = findViewById(R.id.ed_xm_kcp_up);
@@ -976,7 +985,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // Http / Socks : le champ "User ID" devient un nom d'utilisateur
         // d'authentification du proxy (users[].user de Xray).
         boolean userProto = proto.equals("http") || proto.equals("socks");
-        boolean passProto = proto.equals("trojan") || proto.equals("shadowsocks") || userProto;
+        // Hysteria 2 est un outbound Xray natif depuis la v26.1.23. Son mot
+        // de passe partage est porte par streamSettings.hysteriaSettings.auth,
+        // donc il est saisi dans le meme champ que trojan/shadowsocks.
+        boolean hyProto = proto.equals("hysteria");
+        boolean passProto = proto.equals("trojan") || proto.equals("shadowsocks")
+                || userProto || hyProto;
         secXmUuid.setVisibility(idProto || userProto ? View.VISIBLE : View.GONE);
         lblXmUuid.setText(userProto ? "Username" : "User ID / UUID");
         secXmPass.setVisibility(passProto ? View.VISIBLE : View.GONE);
@@ -993,8 +1007,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
             // VLESS encryption is always "none", Trojan uses none.
             secXmEnc.setVisibility(View.GONE);
         }
-        if (proto.equals("hysteria")) {
-            toast("Hysteria n'est pas un protocole Xray : utilisez le type « Hysteria UDP »");
+        if (hyProto) {
+            // Xray refuse security "none" ET "reality" pour hysteria (tls
+            // est la seule valeur acceptee), et le transport "hysteria" est
+            // obligatoire : le protocole proxy n'a aucune authentification
+            // propre et ne peut pas relayer l'UDP sans lui. On epingle donc
+            // tls et on neutralise le choix du transport.
+            if (!"tls".equals(xmSecurity())) {
+                selectSpinnerByValue(spXmSecurity, SECURITIES, "tls");
+            }
+            spXmNetwork.setEnabled(false);
+        } else {
+            spXmNetwork.setEnabled(true);
         }
         refreshXrayManualFields();
     }
@@ -1003,12 +1027,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private void refreshXrayManualFields() {
         String net = xmNetwork();
         boolean hasPath = net.equals("ws") || net.equals("grpc") || net.equals("xhttp")
-                || net.equals("httpupgrade") || net.equals("http");
+                || net.equals("httpupgrade");
         secXmPath.setVisibility(hasPath ? View.VISIBLE : View.GONE);
         // Custom headers are a WebSocket feature (wsSettings.headers).
         secXmHeaders.setVisibility(net.equals("ws") ? View.VISIBLE : View.GONE);
-        // mKCP a son propre bloc (type d'en-tete, seed, MTU, Tti, capacites).
+        // mKCP a son propre bloc (MTU, Tti, capacites).
         secXmKcp.setVisibility(net.equals("kcp") || net.equals("mkcp") ? View.VISIBLE : View.GONE);
+        // Header type et seed ne sont plus emis : Xray 26.x a supprime
+        // kcpSettings.header et kcpSettings.seed. On masque les champs plutot
+        // que de laisser un formulaire qui accepte une saisie sans effet.
+        int kcpGone = View.GONE;
+        lblXmKcpHeader.setVisibility(kcpGone);
+        spXmKcpHeader.setVisibility(kcpGone);
+        lblXmKcpSeed.setVisibility(kcpGone);
+        edXmKcpSeed.setVisibility(kcpGone);
         String sec = xmSecurity();
         secXmTls.setVisibility((sec.equals("tls") || sec.equals("reality")) ? View.VISIBLE : View.GONE);
         secXmReality.setVisibility(sec.equals("reality") ? View.VISIBLE : View.GONE);
@@ -1169,6 +1201,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
         JSONObject transport = parsed.optJSONObject("transport");
         if (transport != null) {
+            warnRemovedTransport(transport.optString("network", "tcp"));
             selectSpinner(spXmNetwork, XM_NETWORKS, transport.optString("network", "tcp"));
             selectSpinnerByValue(spXmSecurity, SECURITIES, transport.optString("security", ""));
             edXmPath.setText(transport.optString("path", ""));
@@ -1213,14 +1246,28 @@ public class TunnelEditorActivity extends AppCompatActivity {
         String net = xmNetwork();
         adv.put("xm_network", net);
         if (net.equals("kcp") || net.equals("mkcp")) {
-            adv.put("kcp_header", spXmKcpHeader.getSelectedItem().toString());
+            // kcp_header / kcp_seed ne sont plus persistes : Xray 26.x a
+            // supprime kcpSettings.header et kcpSettings.seed, les conserver
+            // ne ferait qu'entretenir une config morte.
             adv.put("kcp_mtu", xmInt(edXmKcpMtu, 1350));
             adv.put("kcp_tti", xmInt(edXmKcpTti, 50));
             adv.put("kcp_up", xmInt(edXmKcpUp, 5));
             adv.put("kcp_down", xmInt(edXmKcpDown, 20));
-            String seed = edXmKcpSeed.getText().toString().trim();
-            if (!seed.isEmpty()) {
-                adv.put("kcp_seed", seed);
+        }
+    }
+
+    /**
+     * Avertit qu'un transport enregistre n'existe plus dans Xray 26.x.
+     * selectSpinner retombe silencieusement sur la premiere entree de la
+     * liste : sans cet avertissement, un enregistrement "http" ou "quic"
+     * semblerait avoir ete migre vers TCP alors que personne ne l'a demande.
+     */
+    private void warnRemovedTransport(String net) {
+        for (String gone : XM_NETWORKS_REMOVED) {
+            if (gone.equalsIgnoreCase(net)) {
+                toast("Le transport \"" + net + "\" a ete supprime par Xray 26.x : "
+                        + "XHTTP stream-one le remplace. Choisis un autre transport puis sauvegarde.");
+                return;
             }
         }
     }
@@ -1241,6 +1288,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
             JSONArray servers = settings.optJSONArray("servers");
             if (endpoint == null && servers != null && servers.length() > 0) {
                 endpoint = servers.optJSONObject(0);
+            }
+            // Hysteria : settings PLATS (version/address/port), sans
+            // vnext[] ni servers[] — le bloc endpoint ci-dessous s'applique
+            // tel quel (address/port y sont lus directement).
+            if (endpoint == null && settings.has("address")) {
+                endpoint = settings;
             }
         }
         if (endpoint != null) {
@@ -1273,9 +1326,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
         JSONObject ss = ob.optJSONObject("streamSettings");
         if (ss != null) {
+            warnRemovedTransport(ss.optString("network", "tcp"));
             selectSpinner(spXmNetwork, XM_NETWORKS, ss.optString("network", "tcp"));
             String sec = ss.optString("security", "");
             selectSpinnerByValue(spXmSecurity, SECURITIES, sec.equals("none") ? "" : sec);
+            // Hysteria : le mot de passe partage vit dans hysteriaSettings.auth.
+            JSONObject hy = ss.optJSONObject("hysteriaSettings");
+            if (hy != null) {
+                edXmPass.setText(hy.optString("auth", ""));
+            }
             JSONObject ws = ss.optJSONObject("wsSettings");
             if (ws != null) {
                 edXmPath.setText(ws.optString("path", ""));
@@ -1364,6 +1423,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmSid.setText(tls.optString("shortId", ""));
             }
         }
+        // Un profil hysteria importe ou colle avec security "none"/"reality"
+        // serait rejete par Xray. buildManualOutbound() ecrirait de toute
+        // facon tls ; on repropose tls ici pour que le formulaire affiche ce
+        // qui sera reellement enregistre (sinon le bloc SNI resterait masque).
+        if (proto.equals("hysteria") && !"tls".equals(xmSecurity())) {
+            selectSpinnerByValue(spXmSecurity, SECURITIES, "tls");
+        }
         refreshXrayManualFields();
     }
 
@@ -1374,13 +1440,6 @@ public class TunnelEditorActivity extends AppCompatActivity {
      */
     private JSONObject buildManualOutbound() {
         String proto = xmProtocol();
-        if (proto.equals("hysteria")) {
-            // Hysteria n'est pas un outbound Xray : le faire produire
-            // ici rendrait xray inutilisable au demarrage. On renvoie
-            // l'utilisateur vers le type dedie.
-            toast("Hysteria n'est pas un protocole Xray : choisissez le type « Hysteria UDP »");
-            return null;
-        }
         String host = edXmHost.getText().toString().trim();
         int port = 0;
         try {
@@ -1401,11 +1460,14 @@ public class TunnelEditorActivity extends AppCompatActivity {
             toast("User ID / UUID is required");
             return null;
         }
-        if ((proto.equals("trojan") || proto.equals("shadowsocks")) && pass.isEmpty()) {
+        if ((proto.equals("trojan") || proto.equals("shadowsocks") || proto.equals("hysteria"))
+                && pass.isEmpty()) {
             toast("Password is required");
             return null;
         }
-        String security = xmSecurity();
+        // Xray n'accepte que security="tls" pour hysteria : "none" et
+        // "reality" sont tous deux refuses par le build du stream settings.
+        String security = proto.equals("hysteria") ? "tls" : xmSecurity();
         if (security.equals("reality") && edXmPubkey.getText().toString().trim().isEmpty()) {
             toast("Reality public key is required");
             return null;
@@ -1442,6 +1504,16 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("port", port)
                         .put("method", spXmEnc.getSelectedItem().toString())
                         .put("password", pass)));
+            } else if (proto.equals("hysteria")) {
+                // Outbound Hysteria 2 natif de Xray : les settings sont PLATS
+                // (version/address/port), sans tableau vnext[] ni servers[].
+                // "version" doit valoir 2 (controle dans infra/conf, v26.5.9).
+                // Le mot de passe, lui, n'appartient PAS ici : le struct Go
+                // HysteriaClientConfig n'a aucun champ "auth", il serait donc
+                // silencieusement ignore. Il part dans hysteriaSettings.
+                settings.put("version", 2)
+                        .put("address", host)
+                        .put("port", port);
             } else {
                 // Http / Socks : meme forme (settings.servers) avec un
                 // tableau users optionnel pour l'authentification du proxy.
@@ -1457,7 +1529,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 settings.put("servers", new JSONArray().put(server));
             }
 
-            String network = xmNetwork();
+            // Le transport "hysteria" est impose : le protocole proxy
+            // n'a pas d'authentification propre et ne peut pas relayer
+            // l'UDP sans ce transport. Le spinner reseau est desactive
+            // dans onXmProtocolChanged() pour ne pas laisser croire
+            // qu'un autre choix est possible.
+            String network = proto.equals("hysteria") ? "hysteria" : xmNetwork();
             String path = edXmPath.getText().toString().trim();
             String hostHeader = edXmHostHeader.getText().toString().trim();
             if (network.equals("ws") && path.isEmpty()) {
@@ -1498,8 +1575,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 stream.put("tcpSettings", new JSONObject()
                         .put("header", new JSONObject().put("type", "none")));
             }
-            if (network.equals("kcp") || network.equals("mkcp")) {
-                // mKCP : paquets obfusques, seed + en-tete au choix.
+            if (network.equals("hysteria")) {
+                // "version": 2 est obligatoire ici ET dans settings.
+                // "auth" est le mot de passe partage client/serveur.
+                stream.put("hysteriaSettings", new JSONObject()
+                        .put("version", 2)
+                        .put("auth", pass));
+            } else if (network.equals("kcp") || network.equals("mkcp")) {
+                // mKCP : paquets obfusques. "header" et "seed" ne sont plus
+                // emis : Xray 26.x les a supprimes (l'obfuscation est passee
+                // a finalmask/udp header-*) et KCPConfig.Build() echoue
+                // durement des qu'un des deux est present, ce qui empechait
+                // tout tunnel mKCP de demarrer. Les champs header/seed du
+                // formulaire restent sans effet tant que la migration
+                // finalmask n'est pas implementee.
                 JSONObject kcp = new JSONObject()
                         .put("mtu", xmInt(edXmKcpMtu, 1350))
                         .put("tti", xmInt(edXmKcpTti, 50))
@@ -1507,13 +1596,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("downlinkCapacity", xmInt(edXmKcpDown, 20))
                         .put("congestion", false)
                         .put("readBufferSize", 2)
-                        .put("writeBufferSize", 2)
-                        .put("header", new JSONObject().put("type",
-                                spXmKcpHeader.getSelectedItem().toString()));
-                String seed = edXmKcpSeed.getText().toString().trim();
-                if (!seed.isEmpty()) {
-                    kcp.put("seed", seed);
-                }
+                        .put("writeBufferSize", 2);
                 stream.put("kcpSettings", kcp);
             } else if (network.equals("http")) {
                 // HTTP/2 : host accepte une liste separee par des virgules.

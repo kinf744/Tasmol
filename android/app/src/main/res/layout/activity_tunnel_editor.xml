@@ -807,6 +807,7 @@
                         android:visibility="gone">
 
                         <TextView
+                            android:id="@+id/lbl_xm_kcp_header"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
@@ -821,6 +822,7 @@
                             android:layout_height="wrap_content" />
 
                         <TextView
+                            android:id="@+id/lbl_xm_kcp_seed"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"

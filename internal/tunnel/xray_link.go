@@ -31,7 +31,7 @@ const (
 
 // Supported transports for Xray/Xray-SlowDNS tunnels (manual fields,
 // links and raw JSON outbounds).
-var supportedTransports = []string{"tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp", "http", "quic"}
+var supportedTransports = []string{"tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp", "http", "quic", "hysteria"}
 
 // SupportedTransports returns the transport list for UI dropdowns.
 func SupportedTransports() []string {
@@ -136,15 +136,13 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 			"readBufferSize":   advInt(cfg.Advanced, "kcp_read_buf", 2),
 			"writeBufferSize":  advInt(cfg.Advanced, "kcp_write_buf", 2),
 		}
-		headerType := strings.TrimSpace(advStr(cfg.Advanced, "kcp_header", "none"))
-		if headerType == "" {
-			headerType = "none"
-		}
-		kcp["header"] = map[string]interface{}{"type": headerType}
-		if seed := strings.TrimSpace(firstNonEmpty(cfg.Transport.Seed,
-			advStr(cfg.Advanced, "kcp_seed", ""))); seed != "" {
-			kcp["seed"] = seed
-		}
+		// Xray 26.x REMOVED kcpSettings.header and kcpSettings.seed (the
+		// obfuscation moved to finalmask/udp header-*). KCPConfig.Build()
+		// now hard-errors with "mkcp header & seed removed" whenever either
+		// key is present, which aborts the whole Xray process at startup —
+		// so emitting them unconditionally made every mKCP tunnel fail to
+		// start. Only the tunables that still exist are emitted; the
+		// "kcp_header"/"kcp_seed" Advanced keys are kept unread on purpose.
 		ss["kcpSettings"] = kcp
 	case "http":
 		// HTTP/2 transport: host is a comma-separated list, path the URI.
@@ -173,6 +171,23 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 			},
 		}
 		ss["quicSettings"] = quic
+	case "hysteria":
+		// Xray-core >= 26.1.23 ships Hysteria 2 as a native transport.
+		// Two hard requirements come from infra/conf (v26.5.9):
+		//   - "version" must be 2, in BOTH the outbound settings and here;
+		//   - the transport itself is mandatory: the hysteria proxy carries
+		//     no authentication of its own and cannot proxy UDP without it.
+		// "auth" is the shared password and lives ONLY here — the outbound
+		// settings struct (HysteriaClientConfig) has no auth field, so a
+		// password placed there is silently dropped by the JSON loader.
+		hy := map[string]interface{}{
+			"version": 2,
+			"auth":    cfg.Auth.Password,
+		}
+		if adv := advInt(cfg.Advanced, "hysteria_udp_idle", 0); adv >= 2 && adv <= 600 {
+			hy["udpIdleTimeout"] = adv
+		}
+		ss["hysteriaSettings"] = hy
 	}
 
 	if cfg.Transport.Security == "tls" {
@@ -816,9 +831,16 @@ func SlowDNSOutbound(cfg *config.TunnelConfig, fwdPort int) map[string]interface
 // rewriteOutboundAddr points vnext[] (vless/vmess) or servers[]
 // (trojan/shadowsocks) at addr:port, tolerating both map shapes produced
 // by the builders ([]map) and by JSON decoding ([]interface{}).
+// The Xray "hysteria" outbound uses a FLAT settings.address/settings.port
+// pair instead, so it is handled first.
 func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
 	s, ok := ob["settings"].(map[string]interface{})
 	if !ok {
+		return
+	}
+	if _, flat := s["address"]; flat {
+		s["address"] = addr
+		s["port"] = port
 		return
 	}
 	if rewriteAddrList(s["vnext"], addr, port) {
