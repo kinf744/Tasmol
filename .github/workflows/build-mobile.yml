@@ -104,12 +104,14 @@ jobs:
           # généré par gobind et ses dépendances) compile à travers garble.
           # Les symboles JNI exportés (Java_vpnlib_*) sont des symboles C :
           # ils restent requis et inchangés, seuls les internes disparaissent.
-          # NB: GOFLAGS est découpé sur les espaces SANS quoting — on ne peut
-          # pas y mettre "-toolexec=garble -literals ...". D'où un wrapper
-          # mono-token qui porte les flags garble.
-          printf '#!/bin/sh\nexec garble -literals -tiny -seed=random "$@"\n' > /tmp/garble-exec
-          chmod +x /tmp/garble-exec
-          export GOFLAGS="-toolexec=/tmp/garble-exec"
+          # NB: GOFLAGS est découpé sur les espaces sans quoting possible,
+          # et garble en mode toolexec refuse les flags enveloppés. On se
+          # contente donc de "garble" nu : renommage des identifiants et
+          # des chemins de paquets internes (anti Ghidra/IDA/radare2). Les
+          # littéraux sensibles sont déjà neutralisés en amont dans le code
+          # (chaînes reconstruites par code points, cf. internal/pho) et le
+          # step Verify AAR fait échouer le build si l'un survit.
+          export GOFLAGS="-toolexec=garble"
           gomobile bind \
             -target=android/arm \
             -androidapi 24 \
