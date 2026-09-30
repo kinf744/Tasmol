@@ -661,32 +661,41 @@ public class ConfigsFragment extends Fragment {
         android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
         grid.setColumnCount(2);
         final java.util.Map<String, android.widget.CheckBox> boxes = new java.util.LinkedHashMap<>();
-        String[][] opts = {
-                {"lock", "Lock Backup"}, {"external", "External"},
-                {"hideserver", "Hide Server"}, {"hideupass", "Hide UPass"},
-                {"blockroot", "Block Root"}, {"hwid", "HWID"},
-                {"note", "Note"}, {"expired", "Expired"},
-                {"password", "Mot de passe (chiffrement fort)"},
-                {"isp", "Bloquer opérateur"},
-        };
-        boolean[] defaults = new boolean[opts.length];
-        defaults[1] = true;   // "external" on by default (legacy behaviour)
-        for (int i = 0; i < opts.length; i++) {
+        // Une seule source de verite : cle -> libelle + valeur par defaut.
+        // Aucun tableau parallele a garder aligne (un bug historique
+        // (ArrayIndexOutOfBoundsException) venait d'un defaults[] plus court
+        // que opts[] quand deux options etaient ajoutees).
+        java.util.LinkedHashMap<String, Object[]> opts = new java.util.LinkedHashMap<>();
+        opts.put("lock", new Object[]{"Lock Backup", false});
+        opts.put("external", new Object[]{"External", true});   // défaut historique
+        opts.put("hideserver", new Object[]{"Hide Server", false});
+        opts.put("hideupass", new Object[]{"Hide UPass", false});
+        opts.put("blockroot", new Object[]{"Block Root", false});
+        opts.put("hwid", new Object[]{"HWID", false});
+        opts.put("note", new Object[]{"Note", false});
+        opts.put("expired", new Object[]{"Expired", false});
+        opts.put("password", new Object[]{"Mot de passe (chiffrement fort)", false});
+        opts.put("isp", new Object[]{"Bloquer opérateur", false});
+        int idx = 0;
+        for (java.util.Map.Entry<String, Object[]> e : opts.entrySet()) {
+            String key = e.getKey();
+            Object[] def = e.getValue();
             android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
-            cb.setText(opts[i][1]);
+            cb.setText((String) def[0]);
             cb.setTextColor(0xFFFFFFFF);
             cb.setTextSize(14);
-            cb.setChecked(defaults[i]);
+            cb.setChecked((Boolean) def[1]);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
                 cb.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
             }
             android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
             lp.width = 0;
-            lp.columnSpec = android.widget.GridLayout.spec(i % 2, 1f);
+            lp.columnSpec = android.widget.GridLayout.spec(idx % 2, 1f);
             lp.setMargins(0, (int) (4 * density), (int) (8 * density), (int) (4 * density));
             cb.setLayoutParams(lp);
             grid.addView(cb);
-            boxes.put(opts[i][0], cb);
+            boxes.put(key, cb);
+            idx++;
         }
         optCard.addView(grid);
         layout.addView(optCard);
@@ -902,7 +911,7 @@ public class ConfigsFragment extends Fragment {
             }
             r.expiresAt = expiry;
         }
-        if (boxes.get("hwid").isChecked()) {
+        if (checked(boxes, "hwid")) {
             if (hwids != null) {
                 for (String part : hwids.split("[,;\\n]+")) {
                     String id = part.trim().replaceAll("\\s+", "").toUpperCase(java.util.Locale.US);
@@ -920,17 +929,17 @@ public class ConfigsFragment extends Fragment {
                 return null;
             }
         }
-        if (boxes.get("note").isChecked()) {
+        if (checked(boxes, "note")) {
             r.userNote = note == null ? "" : note.trim();
         }
-        if (boxes.get("password").isChecked()) {
+        if (checked(boxes, "password")) {
             if (password == null || password.length() < 4) {
                 toast("Mot de passe : 4 caractères minimum");
                 return null;
             }
             r.password = password;
         }
-        if (boxes.get("isp").isChecked()) {
+        if (checked(boxes, "isp")) {
             String v = isp == null ? "" : isp.trim().toLowerCase(java.util.Locale.US);
             if (!v.matches("[a-z0-9][a-z0-9 ._-]{1,30}")) {
                 toast("Opérateur invalide (ex : mtn)");
