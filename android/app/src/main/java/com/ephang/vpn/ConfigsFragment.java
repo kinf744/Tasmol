@@ -570,27 +570,96 @@ public class ConfigsFragment extends Fragment {
             }
         }
 
-        final float density = getResources().getDisplayMetrics().density;
-        int pad = (int) (16 * density);
+        buildExportDialog(tunnels, target);
+    }
 
+    /** Label de section du formulaire d'export (style NPV). */
+    private android.widget.TextView sectionLabel(String text) {
+        android.widget.TextView tv = new android.widget.TextView(requireContext());
+        tv.setText(text);
+        tv.setTextColor(0xFF00E676);
+        tv.setTextSize(13);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        tv.setPadding(0, (int) (10 * getResources().getDisplayMetrics().density), 0, (int) (2 * getResources().getDisplayMetrics().density));
+        return tv;
+    }
+
+    /**
+     * Formulaire "Export Config" : en-titre avec croix de fermeture,
+     * cases a cocher, champs conditionnels REELLEMENT masques tant que la
+     * case n'est pas cochee, operateur detecte automatiquement, et un
+     * seul bouton d'action pleine largeur (le "Annuler" est remplace par
+     * la croix).
+     */
+    private void buildExportDialog(List<JSONObject> tunnels, String target) {
+        final float density = getResources().getDisplayMetrics().density;
+        final int pad = (int) (16 * density);
+        final boolean toFile = TARGET_FILE.equals(target);
+        final int green = 0xFF00E676;
+        final int dim = 0xFF9E9E9E;
+
+        // Operateur actif detecte : "Bloquer operateur" n'exige aucune saisie.
+        final String detectedIsp = ProfileTransfer.detectIspCode(requireContext());
+        final String detectedName = ProfileTransfer.displayIspName(requireContext());
+
+        android.widget.LinearLayout root = new android.widget.LinearLayout(requireContext());
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+        // --- En-titre + croix -----------------------------------------------------
+        android.widget.LinearLayout header = new android.widget.LinearLayout(requireContext());
+        header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        header.setPadding(pad, pad, pad, (int) (8 * density));
+
+        android.widget.TextView title = new android.widget.TextView(requireContext());
+        title.setText("EXPORT CONFIG");
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(19);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setLetterSpacing(0.06f);
+        title.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(title);
+
+        android.widget.TextView close = new android.widget.TextView(requireContext());
+        close.setText("✕");
+        close.setTextColor(0xFFB0BEC5);
+        close.setTextSize(20);
+        close.setPadding((int) (10 * density), 0, (int) (4 * density), 0);
+        close.setOnClickListener(v -> {
+            if (exportDialog != null) {
+                exportDialog.dismiss();
+            }
+        });
+        header.addView(close);
+        root.addView(header);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(requireContext());
+        scroll.setFillViewport(true);
         android.widget.LinearLayout layout = new android.widget.LinearLayout(requireContext());
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
-        layout.setPadding(pad, pad, pad, pad);
+        layout.setPadding(pad, 0, pad, 0);
+        scroll.addView(layout);
+        root.addView(scroll, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
+        // --- Nom du fichier (uniquement pour l'export fichier) --------------------
         final android.widget.EditText filenameInput = new android.widget.EditText(requireContext());
-        filenameInput.setHint("Filename");
         filenameInput.setText("ephang-" + tunnels.size() + "-profils.epha");
         filenameInput.setTextColor(0xFFFFFFFF);
         filenameInput.setHintTextColor(0xFF616161);
-        // Only meaningful when the form ends on a file: a clipboard export has
-        // no filename, so the field is hidden instead of misleading.
-        filenameInput.setVisibility(TARGET_FILE.equals(target)
-                ? android.view.View.VISIBLE : android.view.View.GONE);
-        layout.addView(filenameInput);
+        filenameInput.setSingleLine(true);
+        android.widget.LinearLayout fileCard = card(density);
+        fileCard.addView(sectionLabel("NOM DU FICHIER"));
+        fileCard.addView(filenameInput);
+        layout.addView(fileCard);
+        fileCard.setVisibility(toFile ? android.view.View.VISIBLE : android.view.View.GONE);
 
+        // --- Cases a cocher -------------------------------------------------------
+        android.widget.LinearLayout optCard = card(density);
+        optCard.addView(sectionLabel("RESTRICTIONS"));
         android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
         grid.setColumnCount(2);
-        grid.setPadding(0, pad / 2, 0, 0);
         final java.util.Map<String, android.widget.CheckBox> boxes = new java.util.LinkedHashMap<>();
         String[][] opts = {
                 {"lock", "Lock Backup"}, {"external", "External"},
@@ -600,125 +669,179 @@ public class ConfigsFragment extends Fragment {
                 {"password", "Mot de passe (chiffrement fort)"},
                 {"isp", "Bloquer opérateur"},
         };
-        // MUST stay the same length as opts[]: the loop below indexes it
-        // with i. A shorter array crashed the app with
-        // ArrayIndexOutOfBoundsException as soon as "password"/"isp" were
-        // added to the list.
         boolean[] defaults = new boolean[opts.length];
         defaults[1] = true;   // "external" on by default (legacy behaviour)
         for (int i = 0; i < opts.length; i++) {
             android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
             cb.setText(opts[i][1]);
             cb.setTextColor(0xFFFFFFFF);
+            cb.setTextSize(14);
             cb.setChecked(defaults[i]);
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(0xFF00E676));
+                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
             }
             android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
             lp.width = 0;
             lp.columnSpec = android.widget.GridLayout.spec(i % 2, 1f);
-            lp.setMargins(0, (int) (4 * density), 0, (int) (4 * density));
+            lp.setMargins(0, (int) (4 * density), (int) (8 * density), (int) (4 * density));
             cb.setLayoutParams(lp);
             grid.addView(cb);
             boxes.put(opts[i][0], cb);
         }
-        layout.addView(grid);
+        optCard.addView(grid);
+        layout.addView(optCard);
 
+        // --- Champs conditionnels (cartes masquees tant que non coches) ----------
+        // HWID
+        android.widget.LinearLayout hwidCard = card(density);
+        hwidCard.addView(sectionLabel("HARDWARE ID"));
         final android.widget.EditText hwidInput = new android.widget.EditText(requireContext());
-        hwidInput.setHint("HWID");
+        hwidInput.setHint("MD5 du ANDROID_ID, 32 caracteres hexa (A,B,C...)");
         hwidInput.setTextColor(0xFFFFFFFF);
         hwidInput.setHintTextColor(0xFF616161);
-        hwidInput.setEnabled(false);
-        hwidInput.setAlpha(0.4f);
-        layout.addView(hwidInput);
+        hwidCard.addView(hwidInput);
+        layout.addView(hwidCard);
 
+        // Operateur (auto-detecte)
+        android.widget.LinearLayout ispCard = card(density);
+        ispCard.addView(sectionLabel("OPÉRATEUR DÉTECTÉ"));
         final android.widget.EditText ispInput = new android.widget.EditText(requireContext());
-        ispInput.setHint("nom opérateur, ex : mtn / orange / camtel");
+        ispInput.setText(detectedIsp);
         ispInput.setTextColor(0xFFFFFFFF);
         ispInput.setHintTextColor(0xFF616161);
-        ispInput.setEnabled(false);
-        ispInput.setAlpha(0.4f);
-        layout.addView(ispInput);
+        ispInput.setSingleLine(true);
+        ispCard.addView(ispInput);
+        final android.widget.TextView ispInfo = new android.widget.TextView(requireContext());
+        ispInfo.setText(detectedIsp.isEmpty()
+                ? "Aucune SIM détectée : renseignez le nom de l'opérateur ci-dessus."
+                : "SIM active : " + detectedName + " → blocage limité à « " + detectedIsp + " »");
+        ispInfo.setTextColor(detectedIsp.isEmpty() ? 0xFFFF5252 : dim);
+        ispInfo.setTextSize(12);
+        ispInfo.setPadding(0, (int) (6 * density), 0, 0);
+        ispCard.addView(ispInfo);
+        layout.addView(ispCard);
 
+        // Mot de passe
+        android.widget.LinearLayout passCard = card(density);
+        passCard.addView(sectionLabel("MOT DE PASSE"));
         final android.widget.EditText passwordInput = new android.widget.EditText(requireContext());
         passwordInput.setHint("4+ caractères — requis à l'ouverture");
         passwordInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
                 | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         passwordInput.setTextColor(0xFFFFFFFF);
         passwordInput.setHintTextColor(0xFF616161);
-        passwordInput.setEnabled(false);
-        passwordInput.setAlpha(0.4f);
-        layout.addView(passwordInput);
+        passCard.addView(passwordInput);
+        layout.addView(passCard);
 
+        // Note
+        android.widget.LinearLayout noteCard = card(density);
+        noteCard.addView(sectionLabel("NOTE"));
         final android.widget.EditText noteInput = new android.widget.EditText(requireContext());
-        noteInput.setHint("Note (ex. 2026 © Ephang Team)");
+        noteInput.setHint("Ex. 2026 © Ephang Team");
         noteInput.setTextColor(0xFFFFFFFF);
         noteInput.setHintTextColor(0xFF616161);
-        noteInput.setEnabled(false);
-        noteInput.setAlpha(0.4f);
-        layout.addView(noteInput);
+        noteCard.addView(noteInput);
+        layout.addView(noteCard);
 
-        final android.widget.TextView expiryText = new android.widget.TextView(requireContext());
-        expiryText.setText("Expiration : —");
-        expiryText.setTextColor(0xFF9E9E9E);
-        expiryText.setPadding(0, pad / 2, 0, 0);
-        layout.addView(expiryText);
-
+        // Expiration
         final String[] expiry = {""};
-        boxes.get("hwid").setOnCheckedChangeListener((b, c) -> {
-            hwidInput.setEnabled(c);
-            hwidInput.setAlpha(c ? 1f : 0.4f);
-        });
-        boxes.get("isp").setOnCheckedChangeListener((b, c) -> {
-            ispInput.setEnabled(c);
-            ispInput.setAlpha(c ? 1f : 0.4f);
-        });
-        boxes.get("password").setOnCheckedChangeListener((b, c) -> {
-            passwordInput.setEnabled(c);
-            passwordInput.setAlpha(c ? 1f : 0.4f);
-        });
-        boxes.get("note").setOnCheckedChangeListener((b, c) -> {
-            noteInput.setEnabled(c);
-            noteInput.setAlpha(c ? 1f : 0.4f);
-        });
+        android.widget.LinearLayout expCard = card(density);
+        expCard.addView(sectionLabel("EXPIRATION"));
+        final android.widget.TextView expiryText = new android.widget.TextView(requireContext());
+        expiryText.setText("Aucune date —Touchez pour choisir");        expiryText.setTextColor(0xFFFFFFFF);
+        expiryText.setTextSize(15);
+        expiryText.setPadding((int) (12 * density), (int) (12 * density),
+                (int) (12 * density), (int) (12 * density));
+        expiryText.setBackgroundResource(com.ephang.vpn.R.drawable.card_bg);
+        expiryText.setOnClickListener(v -> showExpiryPicker(expiry, expiryText));
+        expCard.addView(expiryText);
+        layout.addView(expCard);
+
+        // Resume
+        android.widget.TextView summary = new android.widget.TextView(requireContext());
+        summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
+        summary.setTextColor(dim);
+        summary.setTextSize(12);
+        summary.setPadding((int) (4 * density), (int) (10 * density), 0, (int) (6 * density));
+        layout.addView(summary);
+
+        // Affichage conditionnel : chaque champ n'existe visuellement que si
+        // sa case est cochee.
+        final android.view.View[] cards = {
+                hwidCard, ispCard, passCard, noteCard, expCard};
+        final String[] keys = {"hwid", "isp", "password", "note", "expired"};
+        for (int i = 0; i < cards.length; i++) {
+            android.widget.CheckBox cb = boxes.get(keys[i]);
+            final android.view.View target = cards[i];
+            target.setVisibility(cb.isChecked() ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (!"expired".equals(keys[i])) {
+                cb.setOnCheckedChangeListener((b, c) ->
+                        target.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE));
+            }
+        }
+        // La date d'expiration demande un choix : on ouvre le picker quand
+        // la case devient cochee.
         boxes.get("expired").setOnCheckedChangeListener((b, c) -> {
+            expCard.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE);
             if (c) {
                 showExpiryPicker(expiry, expiryText);
-            } else {
-                expiry[0] = "";
-                expiryText.setText("Expiration : —");
             }
         });
 
-        android.widget.TextView summary = new android.widget.TextView(requireContext());
-        summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
-        summary.setTextColor(0xFF9E9E9E);
-        summary.setPadding(0, pad / 2, 0, 0);
-        layout.addView(summary);
+        // --- Bouton d'action plein ecran (remplace Annuler + ancien bouton) ---
+        final android.widget.Button action = new android.widget.Button(requireContext());
+        action.setText(toFile ? "ENREGISTRER LE .EPHA" : "COPIER LE LIEN");
+        action.setTextColor(0xFF001B00);
+        action.setTextSize(15);
+        action.setTypeface(null, android.graphics.Typeface.BOLD);
+        action.setAllCaps(false);
+        action.setBackgroundTintList(android.content.res.ColorStateList.valueOf(green));
+        action.setPadding(pad, (int) (14 * density), pad, (int) (14 * density));
+        android.widget.LinearLayout.LayoutParams aplp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        aplp.setMargins(pad, (int) (12 * density), pad, pad);
+        root.addView(action, aplp);
 
-        final boolean toFile = TARGET_FILE.equals(target);
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Export Config")
-                .setView(layout)
-                .setPositiveButton(toFile ? "Enregistrer le .epha" : "Copier le lien", (d, w) -> {
-                    ProfileTransfer.Restrictions r = readBackupOptions(
-                            boxes, hwidInput.getText().toString(),
-                            noteInput.getText().toString(), expiry[0],
-                            passwordInput.getText().toString(),
-                            ispInput.getText().toString());
-                    if (r == null) {
-                        return;
-                    }
-                    if (toFile) {
-                        exportToFile(tunnels, r, filenameInput.getText().toString());
-                    } else {
-                        exportToClipboard(tunnels, r);
-                    }
-                })
-                .setNegativeButton("Annuler", null)
-                .show();
+        final androidx.appcompat.app.AlertDialog dlgRef =
+                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setView(root)
+                        .create();
+        exportDialog = dlgRef;
+        action.setOnClickListener(v -> {
+            ProfileTransfer.Restrictions r = readBackupOptions(
+                    boxes, hwidInput.getText().toString(),
+                    noteInput.getText().toString(), expiry[0],
+                    passwordInput.getText().toString(),
+                    ispInput.getText().toString());
+            if (r == null) {
+                return;
+            }
+            dlgRef.dismiss();
+            if (toFile) {
+                exportToFile(tunnels, r, filenameInput.getText().toString());
+            } else {
+                exportToClipboard(tunnels, r);
+            }
+        });
+        dlgRef.show();
     }
 
+    /** Conteneur "carte" sombre, aligne sur le style de l'application. */
+    private android.widget.LinearLayout card(float density) {
+        android.widget.LinearLayout c = new android.widget.LinearLayout(requireContext());
+        c.setOrientation(android.widget.LinearLayout.VERTICAL);
+        c.setBackgroundResource(com.ephang.vpn.R.drawable.card_bg);
+        int p = (int) (14 * density);
+        c.setPadding(p, (int) (10 * density), p, (int) (10 * density));
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, (int) (8 * density), 0, 0);
+        c.setLayoutParams(lp);
+        return c;
+    }
     /** Green date picker for the Expired option (AAAA-MM-JJ). Material style
      *  with explicit green buttons (the default can be unreadable). */
     private void showExpiryPicker(final String[] expiry, final android.widget.TextView label) {
@@ -817,6 +940,9 @@ public class ConfigsFragment extends Fragment {
         }
         return r;
     }
+
+    /** Dialogue d'export courant (ferme par la croix en haut a droite). */
+    private androidx.appcompat.app.AlertDialog exportDialog;
 
     /** Message d refus d'export, different selon la cause du blocage. */
     private String exportBlockedReason(JSONObject t) {

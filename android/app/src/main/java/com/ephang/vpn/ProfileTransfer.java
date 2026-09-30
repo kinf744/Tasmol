@@ -154,6 +154,113 @@ public final class ProfileTransfer {
         }
     }
 
+    /**
+     * Code opérateur canonique de la SIM active ("mtn", "orange",
+     * "camtel", ...) : detection automatique, sans saisie. Renvoie "" si
+     * aucune SIM n'est presente ou si l'operateur est inconnu.
+     * Le code produit est directement utilisable comme lock_isp, car
+     * isIspAllowed() teste cur.contains(want).
+     */
+    public static String detectIspCode(Context ctx) {
+        if (ctx == null) {
+            return "";
+        }
+        // 1) MCC/MNC : source la plus fiable (identifiant numerique du
+        //    reseau, independant du nom affiche par l'operateur).
+        try {
+            android.telephony.TelephonyManager tm =
+                    (android.telephony.TelephonyManager)
+                            ctx.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm != null) {
+                String mccmnc = "";
+                try {
+                    mccmnc = tm.getSimOperator();
+                } catch (Throwable ignored) {
+                }
+                String byCode = ispFromMccMnc(mccmnc);
+                if (!byCode.isEmpty()) {
+                    return byCode;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // 2) Repli sur le nom affiche par la SIM / le reseau.
+        String name = currentIsp(ctx);
+        if (name.isEmpty()) {
+            return "";
+        }
+        for (String key : new String[]{"mtn", "orange", "camtel", "nexttel", "vodacom",
+                "moov", "yellow", "starlink", "safaricom", "airtel"}) {
+            if (name.contains(key)) {
+                return key;
+            }
+        }
+        // 3) Dernier recours : le nom brut, nettoye et valide pour lock_isp.
+        String clean = name.replaceAll("[^a-z0-9 ._-]", "").trim();
+        if (clean.isEmpty()) {
+            return "";
+        }
+        return clean.length() > 30 ? clean.substring(0, 30) : clean;
+    }
+
+    /** Table MCC/MNC des operateurs connus (Cameroun 624 en tete). */
+    private static String ispFromMccMnc(String mccmnc) {
+        String v = mccmnc == null ? "" : mccmnc.trim();
+        if (v.isEmpty()) {
+            return "";
+        }
+        switch (v) {
+            case "62401":
+            case "624-01":
+                return "mtn";
+            case "62402":
+            case "624-02":
+                return "orange";
+            case "62403":
+            case "624-03":
+                return "camtel";
+            case "62404":
+            case "624-04":
+                return "nexttel";
+            case "62405":
+            case "624-05":
+                return "vodacom";
+            default:
+                // MNC seul (le MCC n'est pas toujours expose).
+                switch (v) {
+                    case "01":
+                        return "mtn";
+                    case "02":
+                        return "orange";
+                    case "03":
+                        return "camtel";
+                    case "04":
+                        return "nexttel";
+                    default:
+                        return "";
+                }
+        }
+    }
+
+    /** Nom lisible de l'operateur actif (pour l'affichage dans l'UI). */
+    public static String displayIspName(Context ctx) {
+        try {
+            android.telephony.TelephonyManager tm =
+                    (android.telephony.TelephonyManager)
+                            ctx.getSystemService(Context.TELEPHONY_SERVICE);
+            if (tm == null) {
+                return "";
+            }
+            String n = tm.getSimOperatorName();
+            if (n == null || n.trim().isEmpty()) {
+                n = tm.getNetworkOperatorName();
+            }
+            return n == null ? "" : n.trim();
+        } catch (Throwable t) {
+            return "";
+        }
+    }
+
     // Opérateur imposé par l'export ("lock_isp"), "" = toutes SIMs.
     public static String lockIsp(JSONObject tunnel) {
         if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
