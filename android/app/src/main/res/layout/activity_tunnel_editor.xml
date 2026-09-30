@@ -140,40 +140,249 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Password" />
+                android:text="Authentication" />
 
-            <EditText
-                android:id="@+id/ed_password"
+            <Spinner
+                android:id="@+id/sp_ssh_auth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <LinearLayout
+                android:id="@+id/sec_ssh_password"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="SSH Password" />
+
+                <EditText
+                    android:id="@+id/ed_password"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/sec_ssh_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Private key (PEM content or path)" />
+
+                <EditText
+                    android:id="@+id/ed_ssh_key"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="top|start"
+                    android:hint="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    android:inputType="textMultiLine"
+                    android:minLines="3"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Passphrase (optional)" />
+
+                <EditText
+                    android:id="@+id/ed_ssh_passphrase"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="text" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/lbl_ssh_proxy"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Proxy ip:port (optional HTTP CONNECT hop)" />
+                android:text="Udpgw Port" />
 
             <EditText
-                android:id="@+id/ed_ssh_proxy"
+                android:id="@+id/ed_ssh_udpgw_port"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="127.0.0.1:8080" />
+                android:hint="7300"
+                android:inputType="number" />
 
-            <TextView
-                android:id="@+id/lbl_ssh_payload"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Payload (optional)" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-            <EditText
-                android:id="@+id/ed_ssh_payload"
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Enable UDPGW transparent DNS" />
+
+                <CheckBox
+                    android:id="@+id/sw_ssh_udpgw_dns"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/sec_ssh_proxy"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]"
-                android:minLines="2" />
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="HTTP Proxy (ip:port or host:port)" />
+
+                <EditText
+                    android:id="@+id/ed_ssh_proxy"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="127.0.0.1:8080" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Authenticate Proxy" />
+
+                    <CheckBox
+                        android:id="@+id/sw_ssh_proxy_auth"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/sec_ssh_proxy_auth"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <EditText
+                        android:id="@+id/ed_ssh_proxy_user"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Proxy username"
+                        android:inputType="text" />
+
+                    <EditText
+                        android:id="@+id/ed_ssh_proxy_pass"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="Proxy password"
+                        android:inputType="text" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/sec_ssh_tls"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="TLS Version" />
+
+                <Spinner
+                    android:id="@+id/sp_ssh_tls_version"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="SNI" />
+
+                <EditText
+                    android:id="@+id/ed_ssh_tls_sni"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:hint="domain.com" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/sec_ssh_payload"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Payload" />
+
+                <Button
+                    android:id="@+id/btn_ssh_payload_gen"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Edit with payload generator" />
+
+                <EditText
+                    android:id="@+id/ed_ssh_payload"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="top|start"
+                    android:hint="GET / HTTP/1.1[crlf]Host: [host][crlf][crlf]"
+                    android:minLines="3"
+                    android:textSize="11sp"
+                    android:typeface="monospace" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- SSH Protocol (9 modes) : placé avant la section serveur. -->
+        <LinearLayout
+            android:id="@+id/sec_ssh_protocol"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Protocol"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+
+            <Spinner
+                android:id="@+id/sp_ssh_protocol"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
         </LinearLayout>
 
         <LinearLayout
@@ -1084,6 +1293,18 @@
                 android:text="SlowDNS (dnstt)"
                 android:textSize="16sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/lbl_ssh_dnstt_mode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="DNSTT Mode" />
+
+            <Spinner
+                android:id="@+id/sp_ssh_dnstt_mode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
 
             <TextView
                 android:layout_width="wrap_content"

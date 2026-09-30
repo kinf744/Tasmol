@@ -10,6 +10,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -34,8 +35,24 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
     // "Xray + SlowDNS" n'est plus un type séparé : c'est le type Xray avec
     // la case SlowDNS cochée (sw_xray_slowdns) -> type effectif xray_slowdns.
-    private static final String[] TYPES = {"ssh", "ssh_slowdns", "xray", "zivpn", "hysteria"};
-    private static final String[] TYPE_LABELS = {"SSH", "SSH + SlowDNS", "Xray", "Zivpn UDP", "Hysteria UDP"};
+    // "SSH + SlowDNS" est devenu le mode SSH-DNSTT du tunnel SSH.
+    private static final String[] TYPES = {"ssh", "xray", "zivpn", "hysteria"};
+    private static final String[] TYPE_LABELS = {"SSH", "Xray", "Zivpn UDP", "Hysteria UDP"};
+
+    // 9 modes SSH (alignes sur l'editeur de reference). Le mode DNSTT
+    // remplace l'ancien type ssh_slowdns (type effectif ssh_slowdns).
+    private static final String[] SSH_MODES = {
+            "SSH-Direct", "SSH-Proxy", "SSH-Payload", "SSH-Proxy-Payload",
+            "SSH-TLS", "SSH-TLS-Proxy", "SSH-TLS-Payload", "SSH-TLS-Proxy-Payload",
+            "SSH-DNSTT"};
+    private static final String[] SSH_MODES_KEYS = {
+            "direct", "proxy", "payload", "proxy_payload",
+            "tls", "tls_proxy", "tls_payload", "tls_proxy_payload",
+            "dnstt"};
+    private static final String[] SSH_TLS_VERSIONS = {"DEFAULT", "TLS 1.2", "TLS 1.3"};
+    private static final String[] SSH_TLS_VERSIONS_KEYS = {"default", "1.2", "1.3"};
+    private static final String[] SSH_AUTH_MODES = {"Password", "Private key"};
+    private static final String[] DNSTT_MODES = {"UDP", "TCP"};
     private static final String[] NETWORKS = {"tcp", "udp", "ws", "grpc", "xhttp", "httpupgrade"};
     private static final String[] SECURITIES = {"", "tls", "reality"};
     private static final String[] SECURITY_LABELS = {"None", "TLS", "Reality"};
@@ -59,9 +76,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secSsh;
     private EditText edUsername;
     private EditText edPassword;
-    private TextView lblSshProxy;
     private EditText edSshProxy;
-    private TextView lblSshPayload;
     private EditText edSshPayload;
     private LinearLayout secXray;
     private EditText edUuid;
@@ -131,6 +146,28 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private final List<View> xmHeaderRows = new ArrayList<>();
     // Link used by "IMPORT LINK INTO FORM" (stored back as advanced.link).
     private String lastImportedLink = "";
+
+    // SSH multi-mode (9 protocols, cf. section SSH de l'editeur de reference).
+    private LinearLayout secSshProtocol;
+    private Spinner spSshProtocol;
+    private Spinner spSshAuth;
+    private LinearLayout secSshPassword;
+    private LinearLayout secSshKey;
+    private EditText edSshKey;
+    private EditText edSshPassphrase;
+    private EditText edSshUdpgwPort;
+    private CheckBox swSshUdpgwDns;
+    private LinearLayout secSshProxy;
+    private CheckBox swSshProxyAuth;
+    private LinearLayout secSshProxyAuth;
+    private EditText edSshProxyUser;
+    private EditText edSshProxyPass;
+    private LinearLayout secSshTls;
+    private Spinner spSshTlsVersion;
+    private EditText edSshTlsSni;
+    private LinearLayout secSshPayload;
+    private TextView lblSshDnsttMode;
+    private Spinner spSshDnsttMode;
     private LinearLayout secZivpn;
     private EditText edZpass;
     private LinearLayout secHysteria;
@@ -199,10 +236,29 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSsh = findViewById(R.id.sec_ssh);
         edUsername = findViewById(R.id.ed_username);
         edPassword = findViewById(R.id.ed_password);
-        lblSshProxy = findViewById(R.id.lbl_ssh_proxy);
         edSshProxy = findViewById(R.id.ed_ssh_proxy);
-        lblSshPayload = findViewById(R.id.lbl_ssh_payload);
         edSshPayload = findViewById(R.id.ed_ssh_payload);
+        // SSH multi-mode (9 protocols).
+        secSshProtocol = findViewById(R.id.sec_ssh_protocol);
+        spSshProtocol = findViewById(R.id.sp_ssh_protocol);
+        spSshAuth = findViewById(R.id.sp_ssh_auth);
+        secSshPassword = findViewById(R.id.sec_ssh_password);
+        secSshKey = findViewById(R.id.sec_ssh_key);
+        edSshKey = findViewById(R.id.ed_ssh_key);
+        edSshPassphrase = findViewById(R.id.ed_ssh_passphrase);
+        edSshUdpgwPort = findViewById(R.id.ed_ssh_udpgw_port);
+        swSshUdpgwDns = findViewById(R.id.sw_ssh_udpgw_dns);
+        secSshProxy = findViewById(R.id.sec_ssh_proxy);
+        swSshProxyAuth = findViewById(R.id.sw_ssh_proxy_auth);
+        secSshProxyAuth = findViewById(R.id.sec_ssh_proxy_auth);
+        edSshProxyUser = findViewById(R.id.ed_ssh_proxy_user);
+        edSshProxyPass = findViewById(R.id.ed_ssh_proxy_pass);
+        secSshTls = findViewById(R.id.sec_ssh_tls);
+        spSshTlsVersion = findViewById(R.id.sp_ssh_tls_version);
+        edSshTlsSni = findViewById(R.id.ed_ssh_tls_sni);
+        secSshPayload = findViewById(R.id.sec_ssh_payload);
+        lblSshDnsttMode = findViewById(R.id.lbl_ssh_dnstt_mode);
+        spSshDnsttMode = findViewById(R.id.sp_ssh_dnstt_mode);
         secXray = findViewById(R.id.sec_xray);
         edUuid = findViewById(R.id.ed_uuid);
         edFlow = findViewById(R.id.ed_flow);
@@ -281,6 +337,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edNetwork.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, NETWORKS));
         edSecurity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SECURITY_LABELS));
         edObfs.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, OBFSS));
+        // SSH multi-mode spinners.
+        spSshProtocol.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_MODES));
+        spSshAuth.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_AUTH_MODES));
+        spSshTlsVersion.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_TLS_VERSIONS));
+        spSshDnsttMode.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, DNSTT_MODES));
         // Xray manual form spinners.
         spXmProtocol.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_PROTOCOL_LABELS));
         spXmNetwork.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_NETWORK_LABELS));
@@ -300,6 +361,22 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edType.setOnItemSelectedListener(refresh);
         edNetwork.setOnItemSelectedListener(refresh);
         edSecurity.setOnItemSelectedListener(refresh);
+
+        // SSH : protocol / auth / proxy-auth change la visibilite des blocs.
+        AdapterView.OnItemSelectedListener refreshSsh = new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                refreshSections();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> p) {
+            }
+        };
+        spSshProtocol.setOnItemSelectedListener(refreshSsh);
+        spSshAuth.setOnItemSelectedListener(refreshSsh);
+        swSshProxyAuth.setOnCheckedChangeListener((b, on) -> refreshSections());
+        findViewById(R.id.btn_ssh_payload_gen).setOnClickListener(v -> showPayloadGenerator());
 
         AdapterView.OnItemSelectedListener refreshManual = new AdapterView.OnItemSelectedListener() {
             @Override
@@ -336,12 +413,183 @@ public class TunnelEditorActivity extends AppCompatActivity {
         findViewById(R.id.btn_xm_add_header).setOnClickListener(v -> addHeaderRow("", ""));
     }
 
+    // ------------------------------------------------------------------
+    // Generateur de payload (modes SSH-Payload*)
+    // ------------------------------------------------------------------
+
+    /**
+     * Payload generator: assemble an injector-style HTTP request for the
+     * proxy hop. The token set is the one the Go engine understands:
+     * [host] [port] [host_port] [crlf] [lf] [split] [delay] [proxy_host]
+     * [proxy_port] [protocol] [split] [delay].
+     */
+    private void showPayloadGenerator() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (16 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, pad);
+
+        final Spinner method = new Spinner(this);
+        method.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
+                new String[]{"GET", "POST", "CONNECT", "PUT"}));
+        box.addView(method);
+
+        final EditText pathIn = new EditText(this);
+        pathIn.setHint("Path (ex: / or /index.html)");
+        pathIn.setSingleLine(true);
+        box.addView(pathIn);
+
+        final EditText hostIn = new EditText(this);
+        hostIn.setHint("Host header (ex: domain.com)");
+        hostIn.setSingleLine(true);
+        box.addView(hostIn);
+
+        final EditText bodyIn = new EditText(this);
+        bodyIn.setHint("Request body (POST only, optional)");
+        box.addView(bodyIn);
+
+        final CheckBox crlfBox = new CheckBox(this);
+        crlfBox.setText("Terminate headers with [crlf][lf]");
+        crlfBox.setChecked(true);
+        box.addView(crlfBox);
+
+        final EditText out = new EditText(this);
+        out.setHint("Payload preview");
+        out.setGravity(android.view.Gravity.TOP | android.view.Gravity.START);
+        out.setMinLines(3);
+        out.setTextSize(11);
+        out.setTypeface(android.graphics.Typeface.MONOSPACE);
+        out.setFocusable(false);
+        box.addView(out);
+
+        final Runnable build = new Runnable() {
+            @Override
+            public void run() {
+                String m = String.valueOf(method.getSelectedItem());
+                String path = pathIn.getText().toString().trim();
+                String host = hostIn.getText().toString().trim();
+                String body = bodyIn.getText().toString();
+                if (path.isEmpty()) {
+                    path = "/";
+                }
+                StringBuilder sb = new StringBuilder();
+                sb.append(m).append(' ').append(path).append(" HTTP/1.1[crlf]");
+                if (!host.isEmpty()) {
+                    sb.append("Host: ").append(host).append("[crlf]");
+                }
+                sb.append("User-Agent: Mozilla/5.0[crlf]");
+                if ("POST".equals(m) || "PUT".equals(m)) {
+                    sb.append("Content-Length: ").append(body.length()).append("[crlf]");
+                    sb.append("Content-Type: application/x-www-form-urlencoded[crlf]");
+                }
+                if (crlfBox.isChecked()) {
+                    sb.append("[crlf][lf]");
+                }
+                if (!body.isEmpty()) {
+                    sb.append(body);
+                }
+                out.setText(sb.toString());
+            }
+        };
+        method.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                build.run();
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> p) {
+            }
+        });
+        pathIn.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+                build.run();
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+        hostIn.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+                build.run();
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable s) {
+            }
+        });
+
+        final android.app.AlertDialog dlg = new android.app.AlertDialog.Builder(this)
+                .setTitle("Payload generator")
+                .setView(box)
+                .setPositiveButton("Apply", null)
+                .setNegativeButton("Cancel", null)
+                .create();
+        dlg.setOnShowListener(d -> dlg.getButton(android.app.AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    String payload = out.getText().toString();
+                    if (!payload.isEmpty()) {
+                        edSshPayload.setText(payload);
+                    }
+                    dlg.dismiss();
+                }));
+        dlg.show();
+        build.run();
+    }
+
     private String currentType() {
         int pos = edType.getSelectedItemPosition();
         if (pos < 0 || pos >= TYPES.length) {
             return "ssh";
         }
         return TYPES[pos];
+    }
+
+    // ------------------------------------------------------------------
+    // SSH : 9 protocoles (Direct, Proxy, Payload, TLS, DNSTT et leurs
+    // combinaisons). Le mode est persiste dans advanced["ssh_mode"].
+    // ------------------------------------------------------------------
+
+    /** Cle du mode SSH courant (direct, proxy, payload, tls, dnstt, ...). */
+    private String sshModeKey() {
+        int pos = spSshProtocol != null ? spSshProtocol.getSelectedItemPosition() : -1;
+        if (pos < 0 || pos >= SSH_MODES_KEYS.length) {
+            return "direct";
+        }
+        return SSH_MODES_KEYS[pos];
+    }
+
+    /** Le mode contient-il la capacite demandee ("proxy" / "tls" / "payload") ? */
+    private boolean sshModeUses(String modeKey, String capability) {
+        return modeKey.contains(capability);
+    }
+
+    private boolean sshAuthIsPassword() {
+        return spSshAuth != null && spSshAuth.getSelectedItemPosition() == 0;
+    }
+
+    private void selectSshMode(String modeKey) {
+        int idx = -1;
+        for (int i = 0; i < SSH_MODES_KEYS.length; i++) {
+            if (SSH_MODES_KEYS[i].equals(modeKey)) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx >= 0) {
+            spSshProtocol.setSelection(idx);
+        }
     }
 
     private void refreshSections() {
@@ -353,29 +601,35 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // SlowDNS n'est plus un type du spinner : case a cocher sur Xray.
         boolean xrayUi = type.equals("xray");
         boolean slowXray = xrayUi && swXraySlowdns != null && swXraySlowdns.isChecked();
-        boolean isSSH = type.equals("ssh") || type.equals("ssh_slowdns");
+        // SSH : le type "ssh_slowdns" est devenu le mode SSH-DNSTT.
+        String sshModeKey = sshModeKey();
+        boolean sshDnstt = type.equals("ssh") && sshModeKey.equals("dnstt");
+        boolean isSSH = type.equals("ssh");
         boolean isXray = xrayUi;
-        boolean isSlowDNS = type.equals("ssh_slowdns") || slowXray;
+        boolean isSlowDNS = sshDnstt || slowXray;
         boolean isZivpn = type.equals("zivpn");
         boolean isHysteria = type.equals("hysteria");
-        boolean showServer = !type.equals("ssh_slowdns") && !type.equals("xray");
+        boolean showServer = !type.equals("xray");
 
-        // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
-        // xray_slowdns is link-only too (auto-parsed on save): no manual
-        // host/port, no Xray auth section, no outbound JSON, no Parse button.
+        // xray uses link/JSON exclusively; the manual form builds the
+        // outbound. No visible transport section for xray.
         boolean showXrayAuth = false;
         // No visible transport section: Xray works from link/JSON only.
         boolean showTransport = false;
         boolean isXraySlowDns = slowXray;
 
+        secSshProtocol.setVisibility(isSSH ? View.VISIBLE : View.GONE);
         secSsh.setVisibility(isSSH ? View.VISIBLE : View.GONE);
-        // Proxy/payload are plain-SSH only: ssh_slowdns dials through the
-        // dnstt forward and needs username/password/pubkey/NS/DNS instead.
-        int proxyVis = type.equals("ssh") ? View.VISIBLE : View.GONE;
-        lblSshProxy.setVisibility(proxyVis);
-        edSshProxy.setVisibility(proxyVis);
-        lblSshPayload.setVisibility(proxyVis);
-        edSshPayload.setVisibility(proxyVis);
+        secSshPassword.setVisibility(sshAuthIsPassword() ? View.VISIBLE : View.GONE);
+        secSshKey.setVisibility(sshAuthIsPassword() ? View.GONE : View.VISIBLE);
+        secSshProxy.setVisibility(isSSH && sshModeUses(sshModeKey, "proxy") ? View.VISIBLE : View.GONE);
+        secSshProxyAuth.setVisibility(swSshProxyAuth.isChecked() ? View.VISIBLE : View.GONE);
+        secSshTls.setVisibility(isSSH && sshModeUses(sshModeKey, "tls") ? View.VISIBLE : View.GONE);
+        secSshPayload.setVisibility(isSSH && sshModeUses(sshModeKey, "payload") ? View.VISIBLE : View.GONE);
+        // Le mode DNSTT du SSH remplace l'ancien "NS / resolver / cle publique"
+        // de la section SlowDNS, avec en plus le choix UDP/TCP.
+        lblSshDnsttMode.setVisibility(sshDnstt ? View.VISIBLE : View.GONE);
+        spSshDnsttMode.setVisibility(sshDnstt ? View.VISIBLE : View.GONE);
         secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
@@ -442,13 +696,26 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
                 edName.setText(t.optString("name", ""));
                 String storedType = t.optString("type", "ssh");
-                // Profil xray_slowdns existant => spinner Xray + case SlowDNS.
+                JSONObject advEarly = t.optJSONObject("advanced");
+                // Retro-compatibilite : xray_slowdns => spinner Xray + case
+                // SlowDNS ; ssh_slowdns => spinner SSH + mode SSH-DNSTT.
                 if (storedType.equals("xray_slowdns")) {
                     selectSpinner(edType, TYPES, "xray");
                     swXraySlowdns.setChecked(true);
+                } else if (storedType.equals("ssh_slowdns")) {
+                    selectSpinner(edType, TYPES, "ssh");
+                    selectSshMode("dnstt");
                 } else {
                     swXraySlowdns.setChecked(false);
                     selectSpinner(edType, TYPES, storedType);
+                    // Un profil "ssh" enregistre avec un mode avance (TLS,
+                    // proxy, payload) doit le retrouver a l'ouverture.
+                    if (storedType.equals("ssh") && advEarly != null) {
+                        String mode = advEarly.optString("ssh_mode", "");
+                        if (!mode.isEmpty()) {
+                            selectSshMode(mode);
+                        }
+                    }
                 }
                 edEnabled.setChecked(t.optBoolean("enabled", true));
 
@@ -479,6 +746,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edMethod.setText(auth.optString("method", ""));
                     edZpass.setText(auth.optString("password", ""));
                     edHyAuth.setText(auth.optString("password", ""));
+                    // Cle privee : bascule l'onglet Authentication.
+                    String pk = auth.optString("private_key", "");
+                    if (!pk.isEmpty()) {
+                        spSshAuth.setSelection(1);
+                        edSshKey.setText(pk);
+                        edSshPassphrase.setText(auth.optString("passphrase", ""));
+                    } else {
+                        spSshAuth.setSelection(0);
+                    }
                 }
                 JSONObject adv0 = t.optJSONObject("advanced");
                 if (adv0 != null) {
@@ -491,6 +767,26 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     }
                     if (down > 0) {
                         edHyDown.setText(String.valueOf(down));
+                    }
+                    // Options SSH avancees (TLS, proxy, DNSTT, UDPGW).
+                    if (adv0.has("ssh_tls_version")) {
+                        selectSpinner(spSshTlsVersion, SSH_TLS_VERSIONS_KEYS,
+                                adv0.optString("ssh_tls_version", "default"));
+                    }
+                    edSshTlsSni.setText(server != null ? server.optString("sni", "") : "");
+                    if (!adv0.optString("proxy_user", "").isEmpty()) {
+                        swSshProxyAuth.setChecked(true);
+                        edSshProxyUser.setText(adv0.optString("proxy_user", ""));
+                        edSshProxyPass.setText(adv0.optString("proxy_pass", ""));
+                    }
+                    if (adv0.has("dnstt_tcp")) {
+                        spSshDnsttMode.setSelection(adv0.optBoolean("dnstt_tcp", false) ? 1 : 0);
+                    }
+                    if (adv0.has("udpgw_port")) {
+                        edSshUdpgwPort.setText(String.valueOf(adv0.optInt("udpgw_port", 7300)));
+                    }
+                    if (adv0.has("udpgw_dns")) {
+                        swSshUdpgwDns.setChecked(adv0.optBoolean("udpgw_dns", true));
                     }
                 }
                 JSONObject transport = t.optJSONObject("transport");
@@ -1208,7 +1504,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // instead of the pasted link/JSON (works with or without SlowDNS).
         boolean manualXray = xrayUi && swXrayManual.isChecked();
         // Case SlowDNS cochée sur Xray => type effectif xray_slowdns.
+        // Idem pour le SSH : le mode SSH-DNSTT => type effectif ssh_slowdns.
+        String sshKey = sshModeKey();
+        boolean sshDnstt = uiType.equals("ssh") && sshKey.equals("dnstt");
         String type = xrayUi && swXraySlowdns.isChecked() ? "xray_slowdns" : uiType;
+        if (sshDnstt) {
+            type = "ssh_slowdns";
+        }
 
         // Xray: validate/auto-parse the single input now (no Parse button).
         // Link mode parses through the Go core and uses the parsed profile
@@ -1329,6 +1631,14 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 } catch (NumberFormatException ignored) {
                 }
                 server.put("port", port);
+                // SNI du mode SSH-TLS* (le SNI est aussi le nom de domaine
+                // present dans le certificat du tunnel).
+                if ((type.equals("ssh") || type.equals("ssh_slowdns")) && sshModeUses(sshKey, "tls")) {
+                    String tlsSni = edSshTlsSni.getText().toString().trim();
+                    if (!tlsSni.isEmpty()) {
+                        server.put("sni", tlsSni);
+                    }
+                }
             }
             if (type.equals("zivpn")) {
                 // Plages fixes hardcodées (8 sous-plages, round-robin
@@ -1398,7 +1708,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
             // xray never needs manual host/port: link (parsed) or JSON
             // config carries the endpoint (full configs accepted too).
-            if (!type.equals("ssh_slowdns") && !type.equals("xray_slowdns")
+            // SSH (y compris SSH-DNSTT) exige l'hote du serveur.
+            if (!type.equals("xray_slowdns")
                     && !type.equals("xray")
                     && edHost.getText().toString().trim().isEmpty()) {
                 toast("Host is required");
@@ -1452,11 +1763,26 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
                 auth.put("username", edUsername.getText().toString().trim());
-                auth.put("password", edPassword.getText().toString());
+                // Mode d'authentification : mot de passe ou cle privee.
+                if (sshAuthIsPassword()) {
+                    auth.put("password", edPassword.getText().toString());
+                } else {
+                    String key = edSshKey.getText().toString().trim();
+                    if (key.isEmpty()) {
+                        toast("Private key is required in this authentication mode");
+                        return;
+                    }
+                    auth.put("private_key", key);
+                    auth.put("passphrase", edSshPassphrase.getText().toString());
+                }
             }
             if (type.equals("ssh")) {
-                ssh.put("proxy", edSshProxy.getText().toString().trim());
-                ssh.put("payload", edSshPayload.getText().toString());
+                // Proxy CONNECT et payload ne s'appliquent qu'aux modes qui
+                // les declarent (SSH-Proxy*, SSH-*Payload*).
+                ssh.put("proxy", sshModeUses(sshKey, "proxy")
+                        ? edSshProxy.getText().toString().trim() : "");
+                ssh.put("payload", sshModeUses(sshKey, "payload")
+                        ? edSshPayload.getText().toString() : "");
             }
             if (type.equals("xray") && manualXray) {
                 // Manual form: credentials typed directly by the user.
@@ -1550,6 +1876,55 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (!advanced.has("outbound_json")) {
                     toast("Xray needs a link or a JSON config");
                     return;
+                }
+            }
+
+            if (type.equals("ssh") || type.equals("ssh_slowdns")) {
+                // Les 9 protocoles SSH sont decrits par advanced["ssh_mode"].
+                advanced.put("ssh_mode", sshKey);
+                // Couche TLS autour du handshake SSH (modes SSH-TLS*).
+                boolean useTls = sshModeUses(sshKey, "tls");
+                advanced.put("ssh_tls", useTls);
+                if (useTls) {
+                    int tv = spSshTlsVersion.getSelectedItemPosition();
+                    advanced.put("ssh_tls_version",
+                            (tv >= 0 && tv < SSH_TLS_VERSIONS_KEYS.length)
+                                    ? SSH_TLS_VERSIONS_KEYS[tv] : "default");
+                }
+                // Authentification du proxy HTTP CONNECT.
+                if (sshModeUses(sshKey, "proxy") && swSshProxyAuth.isChecked()) {
+                    String pu = edSshProxyUser.getText().toString().trim();
+                    if (pu.isEmpty()) {
+                        toast("Proxy username is required when Authenticate Proxy is on");
+                        return;
+                    }
+                    advanced.put("proxy_user", pu);
+                    advanced.put("proxy_pass", edSshProxyPass.getText().toString());
+                }
+                // Mode DNSTT (UDP par defaut, TCP boost) : remplace l'ancien
+                // type ssh_slowdns, desormais le mode SSH-DNSTT.
+                if (type.equals("ssh_slowdns")) {
+                    advanced.put("dnstt_tcp", spSshDnsttMode.getSelectedItemPosition() == 1);
+                }
+                // UDPGW par profil (port + DNS transparent).
+                String uport = edSshUdpgwPort.getText().toString().trim();
+                if (!uport.isEmpty()) {
+                    try {
+                        int pv = Integer.parseInt(uport);
+                        if (pv < 1 || pv > 65535) {
+                            throw new NumberFormatException();
+                        }
+                        advanced.put("udpgw_port", pv);
+                    } catch (NumberFormatException e) {
+                        toast("Udpgw port must be a number (1-65535)");
+                        return;
+                    }
+                }
+                advanced.put("udpgw_dns", swSshUdpgwDns.isChecked());
+                // Ces modes exigent le moteur SSH natif (le binaire openssh
+                // ne sait ni faire le TLS, ni le payload, ni le proxy).
+                if (useTls || sshModeUses(sshKey, "proxy") || sshModeUses(sshKey, "payload")) {
+                    advanced.put("native_ssh", true);
                 }
             }
 

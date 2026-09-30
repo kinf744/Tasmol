@@ -200,7 +200,40 @@ public class BinaryManager {
         p.put("dns_secondary", VPNApplication.getInstance().getCustomDnsSecondary());
         p.put("tcp_nodelay", VPNApplication.getInstance().isTcpNoDelayEnabled());
         p.put("dnstt_tcp", VPNApplication.getInstance().isSlowDnsBoostEnabled());
+        // Per-profile UDPGW ("Udpgw Port" + "Enable UDPGW transparent DNS"
+        // in the SSH editor). Absent => the config.yaml value applies.
+        String tid = tunnelId != null ? tunnelId
+                : VPNApplication.getInstance().getActiveTunnelId();
+        JSONObject adv = activeProfileAdvanced(ctx, tid);
+        if (adv != null) {
+            Object port = adv.opt("udpgw_port");
+            if (port != null && !String.valueOf(port).trim().isEmpty()) {
+                p.put("udpgw_listen", String.valueOf(port).trim());
+            }
+            if (adv.has("udpgw_dns")) {
+                p.put("udpgw_enabled", adv.optBoolean("udpgw_dns", true));
+            }
+        }
         return p.toString();
+    }
+
+    /** advanced{} map of the given profile, or null when unreadable. */
+    private static JSONObject activeProfileAdvanced(Context ctx, String id) {
+        if (id == null || id.isEmpty()) {
+            return null;
+        }
+        try {
+            JSONArray arr = new JSONArray(
+                    VpnlibHelper.listTunnels(configPath(ctx).getAbsolutePath()).trim());
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.optJSONObject(i);
+                if (t != null && id.equals(t.optString("id", ""))) {
+                    return t.optJSONObject("advanced");
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
     }
 
     /** Public Download directory (where kighmu.txt is written). */
