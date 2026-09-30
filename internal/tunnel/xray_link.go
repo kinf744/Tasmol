@@ -31,13 +31,49 @@ const (
 
 // Supported transports for Xray/Xray-SlowDNS tunnels (manual fields,
 // links and raw JSON outbounds).
-var supportedTransports = []string{"tcp", "ws", "grpc", "xhttp", "httpupgrade"}
+var supportedTransports = []string{"tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp", "http", "quic"}
 
 // SupportedTransports returns the transport list for UI dropdowns.
 func SupportedTransports() []string {
 	out := make([]string, len(supportedTransports))
 	copy(out, supportedTransports)
 	return out
+}
+
+// firstNonEmpty returns the first non-empty (trimmed) argument.
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if t := strings.TrimSpace(v); t != "" {
+			return t
+		}
+	}
+	return ""
+}
+
+// allowInsecureTLS reports whether the profile accepts a certificate that
+// does not validate against a public CA (self-signed VPS certs, raw IP
+// endpoints). Xray 26.x removed the historical "allowInsecure" key and
+// aborts when it is present, so the editor's "Allow Insecure" switch is
+// implemented the only way that survives: true keeps the live cert-chain
+// pinning (the chain is probed and pinned, so a swapped certificate is
+// still rejected), false disables pinning entirely and lets Xray perform
+// its default strict verification.
+func allowInsecureTLS(cfg *config.TunnelConfig) bool {
+	if cfg == nil || cfg.Advanced == nil {
+		return true
+	}
+	raw, ok := cfg.Advanced["allow_insecure"]
+	if !ok {
+		return true
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v
+	case string:
+		s := strings.TrimSpace(strings.ToLower(v))
+		return !(s == "false" || s == "0" || s == "no")
+	}
+	return true
 }
 
 // buildStreamSettings builds Xray streamSettings for every supported
@@ -87,6 +123,56 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 		ss["tcpSettings"] = map[string]interface{}{
 			"header": map[string]interface{}{"type": "none"},
 		}
+	case "kcp", "mkcp":
+		// mKCP: obfuscated packet transport. Parameters live in Advanced so
+		// the generic Transport struct (shared with the other transports)
+		// stays untouched; the seed uses Transport.Seed when provided.
+		kcp := map[string]interface{}{
+			"mtu":              advInt(cfg.Advanced, "kcp_mtu", 1350),
+			"tti":              advInt(cfg.Advanced, "kcp_tti", 50),
+			"uplinkCapacity":   advInt(cfg.Advanced, "kcp_up", 5),
+			"downlinkCapacity": advInt(cfg.Advanced, "kcp_down", 20),
+			"congestion":       advBool(cfg.Advanced, "kcp_congestion", false),
+			"readBufferSize":   advInt(cfg.Advanced, "kcp_read_buf", 2),
+			"writeBufferSize":  advInt(cfg.Advanced, "kcp_write_buf", 2),
+		}
+		headerType := strings.TrimSpace(advStr(cfg.Advanced, "kcp_header", "none"))
+		if headerType == "" {
+			headerType = "none"
+		}
+		kcp["header"] = map[string]interface{}{"type": headerType}
+		if seed := strings.TrimSpace(firstNonEmpty(cfg.Transport.Seed,
+			advStr(cfg.Advanced, "kcp_seed", ""))); seed != "" {
+			kcp["seed"] = seed
+		}
+		ss["kcpSettings"] = kcp
+	case "http":
+		// HTTP/2 transport: host is a comma-separated list, path the URI.
+		h2 := map[string]interface{}{
+			"path": cfg.Transport.Path,
+		}
+		if host := strings.TrimSpace(cfg.Transport.Host); host != "" {
+			var hosts []string
+			for _, h := range strings.Split(host, ",") {
+				if h = strings.TrimSpace(h); h != "" {
+					hosts = append(hosts, h)
+				}
+			}
+			if len(hosts) > 0 {
+				h2["host"] = hosts
+			}
+		}
+		ss["httpSettings"] = h2
+	case "quic":
+		quic := map[string]interface{}{
+			"security": firstNonEmpty(strings.TrimSpace(cfg.Transport.Host),
+				strings.TrimSpace(cfg.Transport.Path), "none"),
+			"key": advStr(cfg.Advanced, "quic_key", ""),
+			"header": map[string]interface{}{
+				"type": firstNonEmpty(advStr(cfg.Advanced, "quic_header", "none"), "none"),
+			},
+		}
+		ss["quicSettings"] = quic
 	}
 
 	if cfg.Transport.Security == "tls" {
@@ -106,18 +192,24 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 		// Si la sonde échoue (réseau freezero très filtré), on retombe sur
 		// verifyPeerCertByName (string CSV): le cert du VPS porte le nom
 		// cfg.Server.Host, ce qui autorise le fronting sans root CA.
-		if sni := strings.TrimSpace(cfg.Server.SNI); sni != "" &&
-			!strings.EqualFold(sni, cfg.Server.Host) &&
-			cfg.Server.Host != "" && cfg.Server.Port > 0 {
-			if pins, err := probeCertPins(resolveEndpoint(cfg, cfg.Server.Host),
-				cfg.Server.Port, sni); err == nil {
-				tlsm["pinnedPeerCertSha256"] = pinChainValue(pins)
-				Tracef("[xray] SNI fronting %s!=%s: cert chain pinned", sni, cfg.Server.Host)
-			} else {
-				tlsm["verifyPeerCertByName"] = cfg.Server.Host
-				Warnf("xray", "fronting cert probe %s via %s failed: %v (fallback: cert pinned by name %s)",
-					sni, cfg.Server.Host, err, cfg.Server.Host)
+		//
+		// "Allow Insecure = false" : aucune epingle, verification stricte.
+		if allowInsecureTLS(cfg) {
+			if sni := strings.TrimSpace(cfg.Server.SNI); sni != "" &&
+				!strings.EqualFold(sni, cfg.Server.Host) &&
+				cfg.Server.Host != "" && cfg.Server.Port > 0 {
+				if pins, err := probeCertPins(resolveEndpoint(cfg, cfg.Server.Host),
+					cfg.Server.Port, sni); err == nil {
+					tlsm["pinnedPeerCertSha256"] = pinChainValue(pins)
+					Tracef("[xray] SNI fronting %s!=%s: cert chain pinned", sni, cfg.Server.Host)
+				} else {
+					tlsm["verifyPeerCertByName"] = cfg.Server.Host
+					Warnf("xray", "fronting cert probe %s via %s failed: %v (fallback: cert pinned by name %s)",
+						sni, cfg.Server.Host, err, cfg.Server.Host)
+				}
 			}
+		} else {
+			Tracef("[xray] Allow Insecure=false: strict TLS verification, no pinning")
 		}
 		ss["tlsSettings"] = tlsm
 	}
@@ -364,6 +456,12 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 		delete(tlsm, "allowInsecure")
 		Tracef("[xray] dropped removed allowInsecure (Xray 26.x)")
 	}
+	if !allowInsecureTLS(cfg) {
+		// Allow Insecure = false : aucune epingle, la chaine doit etre
+		// valide par Xray (verification stricte).
+		Tracef("[xray] stored outbound: Allow Insecure=false, cert pinning skipped")
+		return
+	}
 	if isIPLiteral(addr) && !isLoopback(addr) {
 		sni := ""
 		if cfg != nil {
@@ -441,6 +539,42 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 				},
 			},
 		},
+		"streamSettings": buildStreamSettings(cfg, addr),
+	}
+}
+
+// BuildHttpOutbound builds an HTTP proxy outbound object (protocol "http"),
+// used by the editor's Xray form when Protocol = Http.
+func BuildHttpOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	addr = resolveDialAddr(cfg, addr)
+	server := map[string]interface{}{"address": addr, "port": port}
+	if u := strings.TrimSpace(cfg.Auth.Username); u != "" {
+		server["users"] = []map[string]interface{}{
+			{"user": u, "pass": cfg.Auth.Password},
+		}
+	}
+	return map[string]interface{}{
+		"protocol":       "http",
+		"tag":            "proxy",
+		"settings":       map[string]interface{}{"servers": []map[string]interface{}{server}},
+		"streamSettings": buildStreamSettings(cfg, addr),
+	}
+}
+
+// BuildSocksOutbound builds a SOCKS5 proxy outbound object (protocol
+// "socks"), used by the editor's Xray form when Protocol = Socks.
+func BuildSocksOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	addr = resolveDialAddr(cfg, addr)
+	server := map[string]interface{}{"address": addr, "port": port}
+	if u := strings.TrimSpace(cfg.Auth.Username); u != "" {
+		server["users"] = []map[string]interface{}{
+			{"user": u, "pass": cfg.Auth.Password},
+		}
+	}
+	return map[string]interface{}{
+		"protocol":       "socks",
+		"tag":            "proxy",
+		"settings":       map[string]interface{}{"servers": []map[string]interface{}{server}},
 		"streamSettings": buildStreamSettings(cfg, addr),
 	}
 }
