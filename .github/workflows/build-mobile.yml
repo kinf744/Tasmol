@@ -133,7 +133,11 @@ jobs:
           echo '--- aucun symbole statique ne doit subsister ---'
           readelf -h /tmp/libgojni.so | grep -i stripped || { nm /tmp/libgojni.so 2>&1 | head -3; }
           echo '--- litteraux sensibles absents du .so ---'
-          if strings /tmp/libgojni.so | grep -iE 'ggff\.net|pho\.vault|hu``hqb' ; then
+          # -i pour les domaines, sensible a la casse pour les noms de
+          # fichiers: sinon le garde-fou match les symboles exportes
+          # legitimes (vpn-app/internal/pho.VaultPut...) de la pclntab Go.
+          if strings /tmp/libgojni.so | grep -iE 'ggff\.net|kingom' || \
+             strings /tmp/libgojni.so | grep -E 'pho\.vault|pho\.pin|hu``hqb' ; then
             echo '::error::littéraux sensibles visibles dans libgojni.so'
             exit 1
           fi

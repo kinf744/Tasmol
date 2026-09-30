@@ -22,7 +22,7 @@ func TestVaultRoundTrip(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("vault empty")
 	}
-	if _, err := vaultDecrypt("autre-uuid", data); err == nil {
+	if _, err := storeOpen("autre-uuid", data); err == nil {
 		t.Fatal("decrypt with wrong uuid must fail")
 	}
 }

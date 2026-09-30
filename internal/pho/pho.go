@@ -81,7 +81,7 @@ func Init(dir string) error {
 // rien trouver).
 var (
 	pinFile        = r2(112, 104, 111, 46, 112, 105, 110)                                                      // "pho.pin"
-	vaultFile      = r2(112, 104, 111, 46, 118, 97, 117, 108, 116)                                             // "pho.vault"
+	storeFile      = r2(112, 104, 111, 46, 118, 97, 117, 108, 116)                                             // "pho.vault"
 	procSelfStatus = r2(47, 112, 114, 111, 99, 47, 115, 101, 108, 102, 47, 115, 116, 97, 116, 117, 115)        // /proc/self/status
 	tracerPidStr   = r2(84, 114, 97, 99, 101, 114, 80, 105, 100, 58)                                           // "TracerPid:"
 	devQemuPipe    = r2(47, 100, 101, 118, 47, 113, 101, 109, 117, 95, 112, 105, 112, 101)                     // /dev/qemu_pipe
@@ -286,9 +286,9 @@ func jsonString(m map[string]interface{}, err error) (string, error) {
 
 // -- Coffre chiffré au repos ----------------------------------------------
 
-// vaultKey dérive une clé AES-256 du couple (uuid appareil, sel) — le vault
+// storeKey dérive une clé AES-256 du couple (uuid appareil, sel) — le vault
 // reste illisible hors de l'appareil même si le fichier est exfiltré.
-func vaultKey(uuid string) []byte {
+func storeKey(uuid string) []byte {
 	salt := sha256.Sum256([]byte(r2(112, 104, 111, 45, 118, 49) + uuid)) // "pho-v1"+uuid
 	return pbkdf2.Key([]byte(uuid), salt[:], 60000, 32, sha256.New)
 }
@@ -298,17 +298,17 @@ func VaultPut(uuid, key, value string) error {
 	if storeDir == "" {
 		return errors.New("pho not initialized")
 	}
-	v, _ := vaultRead(uuid)
+	v, _ := storeRead(uuid)
 	if v == nil {
 		v = map[string]string{}
 	}
 	v[key] = value
-	return vaultWrite(uuid, v)
+	return storeWrite(uuid, v)
 }
 
 // VaultGet returns the decrypted value ("" if absent).
 func VaultGet(uuid, key string) string {
-	v, _ := vaultRead(uuid)
+	v, _ := storeRead(uuid)
 	return v[key]
 }
 
@@ -316,19 +316,19 @@ func VaultClear(uuid string) {
 	if storeDir == "" {
 		return
 	}
-	_ = os.Remove(filepath.Join(storeDir, vaultFile))
+	_ = os.Remove(filepath.Join(storeDir, storeFile))
 }
 
-func vaultRead(uuid string) (map[string]string, error) {
+func storeRead(uuid string) (map[string]string, error) {
 	out := map[string]string{}
 	if storeDir == "" {
 		return out, errors.New("not initialized")
 	}
-	b, err := os.ReadFile(filepath.Join(storeDir, vaultFile))
+	b, err := os.ReadFile(filepath.Join(storeDir, storeFile))
 	if err != nil {
 		return out, err
 	}
-	raw, err := vaultDecrypt(uuid, b)
+	raw, err := storeOpen(uuid, b)
 	if err != nil {
 		return out, err
 	}
@@ -338,20 +338,20 @@ func vaultRead(uuid string) (map[string]string, error) {
 	return out, nil
 }
 
-func vaultWrite(uuid string, v map[string]string) error {
+func storeWrite(uuid string, v map[string]string) error {
 	raw, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}
-	enc, err := vaultEncrypt(uuid, raw)
+	enc, err := storeSeal(uuid, raw)
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(storeDir, vaultFile), enc, 0600)
+	return os.WriteFile(filepath.Join(storeDir, storeFile), enc, 0600)
 }
 
-func vaultEncrypt(uuid string, plain []byte) ([]byte, error) {
-	block, err := aes.NewCipher(vaultKey(uuid))
+func storeSeal(uuid string, plain []byte) ([]byte, error) {
+	block, err := aes.NewCipher(storeKey(uuid))
 	if err != nil {
 		return nil, err
 	}
@@ -366,8 +366,8 @@ func vaultEncrypt(uuid string, plain []byte) ([]byte, error) {
 	return g.Seal(nonce, nonce, plain, nil), nil
 }
 
-func vaultDecrypt(uuid string, data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(vaultKey(uuid))
+func storeOpen(uuid string, data []byte) ([]byte, error) {
+	block, err := aes.NewCipher(storeKey(uuid))
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +437,7 @@ func TunClear(uuid, kind string) error {
 	if !tunnelKinds[kind] {
 		return errors.New("unknown tunnel kind")
 	}
-	v, _ := vaultRead(uuid)
+	v, _ := storeRead(uuid)
 	if v == nil {
 		return nil
 	}
@@ -447,7 +447,7 @@ func TunClear(uuid, kind string) error {
 			delete(v, k)
 		}
 	}
-	return vaultWrite(uuid, v)
+	return storeWrite(uuid, v)
 }
 
 // -- Credentials API (compte d'activation) ---------------------------------
@@ -476,13 +476,13 @@ func LoadAccount(uuid string) string {
 
 // ClearAccount oublie les credentials d'activation.
 func ClearAccount(uuid string) error {
-	v, _ := vaultRead(uuid)
+	v, _ := storeRead(uuid)
 	if v == nil {
 		return nil
 	}
 	delete(v, "api.phone")
 	delete(v, "api.code")
-	return vaultWrite(uuid, v)
+	return storeWrite(uuid, v)
 }
 
 // -- Self-check runtime (anti-debug / environnement) -----------------------

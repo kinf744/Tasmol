@@ -96,7 +96,10 @@ jobs:
           ls -lh build/armv7/vpn-app
           ./build/armv7/vpn-app -version 2>&1 || true
           echo '--- litteraux sensibles absents du binaire ---'
-          if strings build/armv7/vpn-app | grep -iE 'ggff\.net|pho\.vault|hu``hqb|kingom'; then
+          # -i pour les domaines; casse stricte pour pho.vault/pin afin de
+          # ne pas matcher les symboles exportes legitimes de la pclntab.
+          if strings build/armv7/vpn-app | grep -iE 'ggff\.net|kingom' || \
+             strings build/armv7/vpn-app | grep -E 'pho\.vault|pho\.pin|hu``hqb'; then
             echo '::error::littéraux sensibles visibles dans le binaire'
             exit 1
           fi
