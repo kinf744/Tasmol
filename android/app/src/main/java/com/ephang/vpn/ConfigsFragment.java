@@ -559,6 +559,16 @@ public class ConfigsFragment extends Fragment {
             toast("Les configs de l'API sont sécurisées : export impossible");
             return;
         }
+        // Garde-fou unique applique au fichier ET au presse-papiers : un
+        // profil importe (ou verrouille non exportable) ne peut jamais
+        // repartir de cet appareil. Bloque avant meme d'afficher le
+        // formulaire pour ne pas laisser croire que l'export est possible.
+        for (JSONObject t : tunnels) {
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
+                return;
+            }
+        }
 
         final float density = getResources().getDisplayMetrics().density;
         int pad = (int) (16 * density);
@@ -808,11 +818,22 @@ public class ConfigsFragment extends Fragment {
         return r;
     }
 
+    /** Message d refus d'export, different selon la cause du blocage. */
+    private String exportBlockedReason(JSONObject t) {
+        String name = t.optString("name", "Server");
+        if (ProfileTransfer.isImported(t)) {
+            return "Export interdit : « " + name + " » vient d'un import"
+                    + " (il ne peut jamais etre re-partage)";
+        }
+        return "Export interdit : « " + name + " » est verrouille (config recue)"
+                + " et ne peut pas etre re-partage";
+    }
+
     private void exportToFile(List<JSONObject> tunnels, ProfileTransfer.Restrictions r,
                               String filename) {
         for (JSONObject t : tunnels) {
-            if (ProfileTransfer.isLocked(t) && !ProfileTransfer.isExternalAllowed(t)) {
-                toast("Partage externe interdit pour : " + t.optString("name", "Server"));
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
                 return;
             }
         }
@@ -840,8 +861,8 @@ public class ConfigsFragment extends Fragment {
 
     private void exportToClipboard(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
         for (JSONObject t : tunnels) {
-            if (ProfileTransfer.isLocked(t) && !ProfileTransfer.isExternalAllowed(t)) {
-                toast("Partage externe interdit pour : " + t.optString("name", "Server"));
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
                 return;
             }
         }

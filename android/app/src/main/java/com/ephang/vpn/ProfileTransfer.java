@@ -182,9 +182,39 @@ public final class ProfileTransfer {
     }
 
     public static boolean isExternalAllowed(JSONObject tunnel) {
+        // Un profil importe n'est jamais re-exportable : le verrou est
+        // pose a l'import, independamment du drapeau "external" du fichier.
+        if (isImported(tunnel)) {
+            return false;
+        }
         // Absent = allowed (legacy exports). Explicit false blocks re-share.
         return tunnel == null || tunnel.optJSONObject("advanced") == null
                 || tunnel.optJSONObject("advanced").optBoolean("external", true);
+    }
+
+    /**
+     * Profil issu d'un import (fichier .epha ou lien presse-papiers).
+     * Ces profils ne peuvent plus jamais etre exportes ni re-partages :
+     * le marquage est pose a l'import et survit aux modifications de
+     * l'application.
+     */
+    public static boolean isImported(JSONObject tunnel) {
+        if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
+            return false;
+        }
+        JSONObject adv = tunnel.optJSONObject("advanced");
+        return adv.optBoolean("imported", false) || adv.optString("imported", "").equals("1");
+    }
+
+    /**
+     * Regle unique d'export appliquee par le fichier ET le presse-papiers.
+     * Un profil verrouille est nécessairement issu d'un import (l'editeur
+     * ne sait pas verrouiller un profil local) : il est donc lui aussi
+     * non exportable, ce qui couvre les profils deja installes avant que
+     * le marqueur "imported" n'existe.
+     */
+    public static boolean canExport(JSONObject tunnel) {
+        return !isImported(tunnel) && !isLocked(tunnel);
     }
 
     public static boolean isRemoveBanner(JSONObject tunnel) {
@@ -454,7 +484,8 @@ public final class ProfileTransfer {
         boolean lockCfg = rr != null && rr.optBoolean("lockConfiguration", false);
         String exp = "";
         List<String> hwids = new ArrayList<>();
-        boolean external = rr == null || rr.optBoolean("external", true);
+        // "external" du fichier est volontairement ignore : a l'import le
+        // profil devient non re-exportable (voir adv2.put plus bas).
         boolean hideServer = rr != null && rr.optBoolean("hideServer", false);
         boolean hideUpass = rr != null && rr.optBoolean("hideUpass", false);
         boolean blockRoot = rr != null && rr.optBoolean("blockRoot", false);
@@ -535,7 +566,11 @@ public final class ProfileTransfer {
                 adv2 = new JSONObject();
                 copy.put("advanced", adv2);
             }
-            adv2.put("external", external);
+            // Marqueur definitive : un profil importe (fichier OU lien
+            // presse-papiers) ne peut jamais etre re-exporte, meme si le
+            // fichier d'origine autorisait "external" ou n'etait pas verrouille.
+            adv2.put("imported", true);
+            adv2.put("external", false);
             if (hideServer) {
                 adv2.put("hide_server", true);
             }
