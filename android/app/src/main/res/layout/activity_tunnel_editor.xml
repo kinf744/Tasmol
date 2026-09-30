@@ -608,6 +608,7 @@
                         android:orientation="vertical">
 
                         <TextView
+                            android:id="@+id/lbl_xm_uuid"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="8dp"
@@ -797,6 +798,149 @@
                             android:inputType="textUri" />
                     </LinearLayout>
 
+                    <!-- mKCP : champs propres au transport en paquets -->
+                    <LinearLayout
+                        android:id="@+id/sec_xm_kcp"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="mKCP Header type"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <Spinner
+                            android:id="@+id/sp_xm_kcp_header"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="mKCP Seed (obfuscation)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_kcp_seed"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="optional seed text"
+                            android:inputType="text" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="MTU"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <EditText
+                                    android:id="@+id/ed_xm_kcp_mtu"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="1350"
+                                    android:inputType="number" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="TTI (ms)"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <EditText
+                                    android:id="@+id/ed_xm_kcp_tti"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="50"
+                                    android:inputType="number" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Uplink (MB/s)"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <EditText
+                                    android:id="@+id/ed_xm_kcp_up"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="5"
+                                    android:inputType="number" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="10dp"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Downlink (MB/s)"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <EditText
+                                    android:id="@+id/ed_xm_kcp_down"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:hint="20"
+                                    android:inputType="number" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </LinearLayout>
+
                     <LinearLayout
                         android:id="@+id/sec_xm_headers"
                         android:layout_width="match_parent"
@@ -889,6 +1033,20 @@
 
                     <Spinner
                         android:id="@+id/sp_xm_security"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Allow Insecure (allowInsecure)"
+                        android:textColor="?android:attr/textColorSecondary"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <Spinner
+                        android:id="@+id/sp_xm_insecure"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content" />
 

@@ -97,10 +97,24 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
     // Xray manual form ("Configure manually"): structured builder that
     // generates the same outbound_json the Go core consumes verbatim.
-    private static final String[] XM_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks"};
-    private static final String[] XM_PROTOCOL_LABELS = {"VMess", "VLESS", "Trojan", "Shadowsocks"};
-    private static final String[] XM_NETWORKS = {"tcp", "ws", "grpc", "xhttp", "httpupgrade"};
-    private static final String[] XM_NETWORK_LABELS = {"TCP", "WebSocket (ws)", "gRPC", "XHTTP", "HTTPUpgrade"};
+    // Protocoles du formulaire Xray. Http et Socks produisent de vrais
+    // outbounds Xray ; Hysteria n'existe pas dans Xray (c'est un client
+    // separe) : l'option reste visible comme dans l'editeur de reference
+    // mais la sauvegarde redirige vers le type "Hysteria UDP".
+    private static final String[] XM_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks",
+            "http", "socks", "hysteria"};
+    private static final String[] XM_PROTOCOL_LABELS = {"VMess", "VLESS", "Trojan", "Shadowsocks",
+            "Http", "Socks", "Hysteria"};
+    private static final String[] XM_INSECURE = {"false", "true"};
+    // Transports Xray du formulaire manuel. mKCP (kcp), HTTP/2 (http) et
+    // QUIC sont pris en charge par le coeur Go (kcpSettings/httpSettings/
+    // quicSettings) ; mKCP a des champs propres (header type, seed, mtu...).
+    private static final String[] XM_NETWORKS = {"tcp", "ws", "grpc", "xhttp", "httpupgrade",
+            "kcp", "http", "quic"};
+    private static final String[] XM_NETWORK_LABELS = {"TCP", "WebSocket (ws)", "gRPC", "XHTTP",
+            "HTTPUpgrade", "mKCP", "HTTP/2", "QUIC"};
+    private static final String[] XM_KCP_HEADERS = {"none", "srtp", "utp", "wechat-video",
+            "dtls", "wireguard"};
     private static final String[] XM_ENC_VMESS = {"auto", "aes-128-gcm", "chacha20-poly1305", "none", "zero"};
     private static final String[] XM_ENC_SS = {"aes-256-gcm", "aes-128-gcm",
             "chacha20-ietf-poly1305", "xchacha20-ietf-poly1305",
@@ -120,6 +134,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edXmHost;
     private EditText edXmPort;
     private LinearLayout secXmUuid;
+    private TextView lblXmUuid;
     private EditText edXmUuid;
     private LinearLayout secXmPass;
     private EditText edXmPass;
@@ -130,11 +145,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private Spinner spXmEnc;
     private Spinner spXmNetwork;
     private LinearLayout secXmPath;
+    private LinearLayout secXmKcp;
+    private Spinner spXmKcpHeader;
+    private EditText edXmKcpSeed;
+    private EditText edXmKcpMtu;
+    private EditText edXmKcpTti;
+    private EditText edXmKcpUp;
+    private EditText edXmKcpDown;
     private EditText edXmPath;
     private EditText edXmHostHeader;
     private LinearLayout secXmHeaders;
     private LinearLayout llXmHeaders;
     private Spinner spXmSecurity;
+    private Spinner spXmInsecure;
     private LinearLayout secXmTls;
     private EditText edXmSni;
     private EditText edXmFp;
@@ -308,6 +331,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edXmHost = findViewById(R.id.ed_xm_host);
         edXmPort = findViewById(R.id.ed_xm_port);
         secXmUuid = findViewById(R.id.sec_xm_uuid);
+        lblXmUuid = findViewById(R.id.lbl_xm_uuid);
         edXmUuid = findViewById(R.id.ed_xm_uuid);
         secXmPass = findViewById(R.id.sec_xm_pass);
         edXmPass = findViewById(R.id.ed_xm_pass);
@@ -318,6 +342,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
         spXmEnc = findViewById(R.id.sp_xm_enc);
         spXmNetwork = findViewById(R.id.sp_xm_network);
         secXmPath = findViewById(R.id.sec_xm_path);
+        secXmKcp = findViewById(R.id.sec_xm_kcp);
+        spXmKcpHeader = findViewById(R.id.sp_xm_kcp_header);
+        edXmKcpSeed = findViewById(R.id.ed_xm_kcp_seed);
+        edXmKcpMtu = findViewById(R.id.ed_xm_kcp_mtu);
+        edXmKcpTti = findViewById(R.id.ed_xm_kcp_tti);
+        edXmKcpUp = findViewById(R.id.ed_xm_kcp_up);
+        edXmKcpDown = findViewById(R.id.ed_xm_kcp_down);
         edXmPath = findViewById(R.id.ed_xm_path);
         edXmHostHeader = findViewById(R.id.ed_xm_host_header);
         secXmHeaders = findViewById(R.id.sec_xm_headers);
@@ -345,7 +376,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // Xray manual form spinners.
         spXmProtocol.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_PROTOCOL_LABELS));
         spXmNetwork.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_NETWORK_LABELS));
+        spXmKcpHeader.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_KCP_HEADERS));
         spXmSecurity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SECURITY_LABELS));
+        spXmInsecure.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_INSECURE));
+        // "Allow Insecure = true" par defaut : les certificats VPS sont
+        // auto-signes, la verification stricte ferait echouer le tunnel.
+        spXmInsecure.setSelection(1);
         spXmEnc.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_ENC_VMESS));
 
         AdapterView.OnItemSelectedListener refresh = new AdapterView.OnItemSelectedListener() {
@@ -825,6 +861,16 @@ public class TunnelEditorActivity extends AppCompatActivity {
                             swXrayManual.setChecked(true);
                         } catch (Exception ignored) {
                         }
+                        // Réglages qui ne vivent pas dans l'outbound mais
+                        // dans advanced : Allow Insecure et paramètres mKCP.
+                        spXmInsecure.setSelection(adv.optBoolean("allow_insecure", true) ? 1 : 0);
+                        selectSpinner(spXmKcpHeader, XM_KCP_HEADERS,
+                                adv.optString("kcp_header", "none"));
+                        edXmKcpSeed.setText(adv.optString("kcp_seed", ""));
+                        edXmKcpMtu.setText(String.valueOf(adv.optInt("kcp_mtu", 1350)));
+                        edXmKcpTti.setText(String.valueOf(adv.optInt("kcp_tti", 50)));
+                        edXmKcpUp.setText(String.valueOf(adv.optInt("kcp_up", 5)));
+                        edXmKcpDown.setText(String.valueOf(adv.optInt("kcp_down", 20)));
                     }
                     // xray_slowdns keeps its SlowDNS key in advanced (the
                     // server key belongs to Reality): prefer it on load.
@@ -925,8 +971,14 @@ public class TunnelEditorActivity extends AppCompatActivity {
     /** Protocol switch: credentials fields + encryption choices follow it. */
     private void onXmProtocolChanged() {
         String proto = xmProtocol();
-        secXmUuid.setVisibility((proto.equals("vmess") || proto.equals("vless")) ? View.VISIBLE : View.GONE);
-        secXmPass.setVisibility((proto.equals("trojan") || proto.equals("shadowsocks")) ? View.VISIBLE : View.GONE);
+        boolean idProto = proto.equals("vmess") || proto.equals("vless");
+        // Http / Socks : le champ "User ID" devient un nom d'utilisateur
+        // d'authentification du proxy (users[].user de Xray).
+        boolean userProto = proto.equals("http") || proto.equals("socks");
+        boolean passProto = proto.equals("trojan") || proto.equals("shadowsocks") || userProto;
+        secXmUuid.setVisibility(idProto || userProto ? View.VISIBLE : View.GONE);
+        lblXmUuid.setText(userProto ? "Username" : "User ID / UUID");
+        secXmPass.setVisibility(passProto ? View.VISIBLE : View.GONE);
         secXmFlow.setVisibility(proto.equals("vless") ? View.VISIBLE : View.GONE);
         if (proto.equals("vmess")) {
             lblXmEnc.setText("Security (security)");
@@ -940,6 +992,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
             // VLESS encryption is always "none", Trojan uses none.
             secXmEnc.setVisibility(View.GONE);
         }
+        if (proto.equals("hysteria")) {
+            toast("Hysteria n'est pas un protocole Xray : utilisez le type « Hysteria UDP »");
+        }
         refreshXrayManualFields();
     }
 
@@ -947,10 +1002,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private void refreshXrayManualFields() {
         String net = xmNetwork();
         boolean hasPath = net.equals("ws") || net.equals("grpc") || net.equals("xhttp")
-                || net.equals("httpupgrade");
+                || net.equals("httpupgrade") || net.equals("http");
         secXmPath.setVisibility(hasPath ? View.VISIBLE : View.GONE);
         // Custom headers are a WebSocket feature (wsSettings.headers).
         secXmHeaders.setVisibility(net.equals("ws") ? View.VISIBLE : View.GONE);
+        // mKCP a son propre bloc (type d'en-tete, seed, MTU, Tti, capacites).
+        secXmKcp.setVisibility(net.equals("kcp") || net.equals("mkcp") ? View.VISIBLE : View.GONE);
         String sec = xmSecurity();
         secXmTls.setVisibility((sec.equals("tls") || sec.equals("reality")) ? View.VISIBLE : View.GONE);
         secXmReality.setVisibility(sec.equals("reality") ? View.VISIBLE : View.GONE);
@@ -1132,6 +1189,41 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return XM_ENC_VMESS;
     }
 
+    /** Integer field helper with a fallback when empty/invalid. */
+    private int xmInt(EditText field, int def) {
+        try {
+            int v = Integer.parseInt(field.getText().toString().trim());
+            return v > 0 ? v : def;
+        } catch (Exception ignored) {
+            return def;
+        }
+    }
+
+    /** "Allow Insecure" : true = epingle de certificat (defaut), false = strict. */
+    private boolean xmAllowInsecure() {
+        return spXmInsecure != null && spXmInsecure.getSelectedItemPosition() == 1;
+    }
+
+    /**
+     * Persiste les parametres specifiques au transport manuel (mKCP), lus
+     * par le coeur Go pour produire kcpSettings.
+     */
+    private void putXmTransport(JSONObject adv) throws Exception {
+        String net = xmNetwork();
+        adv.put("xm_network", net);
+        if (net.equals("kcp") || net.equals("mkcp")) {
+            adv.put("kcp_header", spXmKcpHeader.getSelectedItem().toString());
+            adv.put("kcp_mtu", xmInt(edXmKcpMtu, 1350));
+            adv.put("kcp_tti", xmInt(edXmKcpTti, 50));
+            adv.put("kcp_up", xmInt(edXmKcpUp, 5));
+            adv.put("kcp_down", xmInt(edXmKcpDown, 20));
+            String seed = edXmKcpSeed.getText().toString().trim();
+            if (!seed.isEmpty()) {
+                adv.put("kcp_seed", seed);
+            }
+        }
+    }
+
     /** Fill every manual field from a stored/imported outbound JSON object. */
     private void fillManualFromOutbound(JSONObject ob) {
         String proto = ob.optString("protocol", "vless");
@@ -1158,9 +1250,16 @@ public class TunnelEditorActivity extends AppCompatActivity {
             if (users != null && users.length() > 0) {
                 JSONObject u = users.optJSONObject(0);
                 if (u != null) {
-                    edXmUuid.setText(u.optString("id", ""));
-                    edXmFlow.setText(u.optString("flow", ""));
-                    selectSpinner(spXmEnc, currentEncValues(), u.optString("security", "auto"));
+                    // Http/Socks : "user" alimente le champ Username ;
+                    // vmess/vless : "id" alimente le UUID.
+                    if (u.has("user")) {
+                        edXmUuid.setText(u.optString("user", ""));
+                        edXmPass.setText(u.optString("pass", ""));
+                    } else {
+                        edXmUuid.setText(u.optString("id", ""));
+                        edXmFlow.setText(u.optString("flow", ""));
+                        selectSpinner(spXmEnc, currentEncValues(), u.optString("security", "auto"));
+                    }
                 }
             }
             if (endpoint.has("password")) {
@@ -1208,6 +1307,40 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmPath.setText(hu.optString("path", ""));
                 edXmHostHeader.setText(hu.optString("host", ""));
             }
+            // mKCP : en-tete et parametres de paquets.
+            JSONObject kcp = ss.optJSONObject("kcpSettings");
+            if (kcp != null) {
+                selectSpinner(spXmKcpHeader, XM_KCP_HEADERS,
+                        kcp.optJSONObject("header") != null
+                                ? kcp.optJSONObject("header").optString("type", "none") : "none");
+                edXmKcpSeed.setText(kcp.optString("seed", ""));
+                edXmKcpMtu.setText(String.valueOf(kcp.optInt("mtu", 1350)));
+                edXmKcpTti.setText(String.valueOf(kcp.optInt("tti", 50)));
+                edXmKcpUp.setText(String.valueOf(kcp.optInt("uplinkCapacity", 5)));
+                edXmKcpDown.setText(String.valueOf(kcp.optInt("downlinkCapacity", 20)));
+            }
+            // HTTP/2 : path + liste de hotes.
+            JSONObject h2 = ss.optJSONObject("httpSettings");
+            if (h2 != null) {
+                edXmPath.setText(h2.optString("path", ""));
+                JSONArray hosts = h2.optJSONArray("host");
+                if (hosts != null && hosts.length() > 0) {
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < hosts.length(); i++) {
+                        if (i > 0) {
+                            sb.append(',');
+                        }
+                        sb.append(hosts.optString(i, ""));
+                    }
+                    edXmHostHeader.setText(sb.toString());
+                }
+            }
+            // QUIC : "security" joue le role du host dans notre formulaire.
+            JSONObject quic = ss.optJSONObject("quicSettings");
+            if (quic != null) {
+                edXmHostHeader.setText(quic.optString("security", ""));
+                edXmKcpSeed.setText(quic.optString("key", ""));
+            }
             JSONObject tls = ss.optJSONObject("tlsSettings");
             if (tls == null) {
                 tls = ss.optJSONObject("realitySettings");
@@ -1240,6 +1373,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
      */
     private JSONObject buildManualOutbound() {
         String proto = xmProtocol();
+        if (proto.equals("hysteria")) {
+            // Hysteria n'est pas un outbound Xray : le faire produire
+            // ici rendrait xray inutilisable au demarrage. On renvoie
+            // l'utilisateur vers le type dedie.
+            toast("Hysteria n'est pas un protocole Xray : choisissez le type « Hysteria UDP »");
+            return null;
+        }
         String host = edXmHost.getText().toString().trim();
         int port = 0;
         try {
@@ -1295,12 +1435,25 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("address", host)
                         .put("port", port)
                         .put("password", pass)));
-            } else { // shadowsocks
+            } else if (proto.equals("shadowsocks")) {
                 settings.put("servers", new JSONArray().put(new JSONObject()
                         .put("address", host)
                         .put("port", port)
                         .put("method", spXmEnc.getSelectedItem().toString())
                         .put("password", pass)));
+            } else {
+                // Http / Socks : meme forme (settings.servers) avec un
+                // tableau users optionnel pour l'authentification du proxy.
+                JSONObject server = new JSONObject()
+                        .put("address", host)
+                        .put("port", port);
+                String puser = uuid; // le champ "Username" de ces protocoles
+                if (!puser.isEmpty()) {
+                    server.put("users", new JSONArray().put(new JSONObject()
+                            .put("user", puser)
+                            .put("pass", pass)));
+                }
+                settings.put("servers", new JSONArray().put(server));
             }
 
             String network = xmNetwork();
@@ -1343,6 +1496,44 @@ public class TunnelEditorActivity extends AppCompatActivity {
             } else {
                 stream.put("tcpSettings", new JSONObject()
                         .put("header", new JSONObject().put("type", "none")));
+            }
+            if (network.equals("kcp") || network.equals("mkcp")) {
+                // mKCP : paquets obfusques, seed + en-tete au choix.
+                JSONObject kcp = new JSONObject()
+                        .put("mtu", xmInt(edXmKcpMtu, 1350))
+                        .put("tti", xmInt(edXmKcpTti, 50))
+                        .put("uplinkCapacity", xmInt(edXmKcpUp, 5))
+                        .put("downlinkCapacity", xmInt(edXmKcpDown, 20))
+                        .put("congestion", false)
+                        .put("readBufferSize", 2)
+                        .put("writeBufferSize", 2)
+                        .put("header", new JSONObject().put("type",
+                                spXmKcpHeader.getSelectedItem().toString()));
+                String seed = edXmKcpSeed.getText().toString().trim();
+                if (!seed.isEmpty()) {
+                    kcp.put("seed", seed);
+                }
+                stream.put("kcpSettings", kcp);
+            } else if (network.equals("http")) {
+                // HTTP/2 : host accepte une liste separee par des virgules.
+                JSONObject h2 = new JSONObject().put("path", path);
+                if (!hostHeader.isEmpty()) {
+                    JSONArray hosts = new JSONArray();
+                    for (String h : hostHeader.split(",")) {
+                        if (!h.trim().isEmpty()) {
+                            hosts.put(h.trim());
+                        }
+                    }
+                    if (hosts.length() > 0) {
+                        h2.put("host", hosts);
+                    }
+                }
+                stream.put("httpSettings", h2);
+            } else if (network.equals("quic")) {
+                JSONObject quic = new JSONObject()
+                        .put("security", hostHeader.isEmpty() ? "none" : hostHeader)
+                        .put("header", new JSONObject().put("type", "none"));
+                stream.put("quicSettings", quic);
             }
 
             String sni = edXmSni.getText().toString().trim();
@@ -1447,6 +1638,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 adv.put("outbound_json", manualOb.toString());
             }
             adv.put("manual_form", "1");
+            adv.put("allow_insecure", xmAllowInsecure());
+            putXmTransport(adv);
             if (!lastImportedLink.isEmpty()) {
                 adv.put("link", lastImportedLink);
             }
@@ -1787,7 +1980,13 @@ public class TunnelEditorActivity extends AppCompatActivity {
             if (type.equals("xray") && manualXray) {
                 // Manual form: credentials typed directly by the user.
                 String proto = xmProtocol();
-                auth.put("uuid", edXmUuid.getText().toString().trim());
+                // Http / Socks : le champ affiche "Username" alimente
+                // users[].user de l'outbound Xray.
+                if (proto.equals("http") || proto.equals("socks")) {
+                    auth.put("username", edXmUuid.getText().toString().trim());
+                } else {
+                    auth.put("uuid", edXmUuid.getText().toString().trim());
+                }
                 auth.put("flow", edXmFlow.getText().toString().trim());
                 auth.put("password", edXmPass.getText().toString());
                 String method = "";
@@ -1856,6 +2055,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 // Structured form: the generated outbound is authoritative.
                 advanced.put("outbound_json", manualOb.toString());
                 advanced.put("manual_form", "1");
+                advanced.put("allow_insecure", xmAllowInsecure());
+                putXmTransport(advanced);
                 if (!lastImportedLink.isEmpty()) {
                     advanced.put("link", lastImportedLink);
                 }
