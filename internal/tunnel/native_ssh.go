@@ -75,7 +75,8 @@ func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn
 		return nil, fmt.Errorf("ssh TLS handshake: %w", err)
 	}
 	st := tlsConn.ConnectionState()
-	Journalf("ssh", "TLS established SNI=%s version=0x%x", sni, st.Version)
+	Infof("ssh", "TLS established sni=%s version=0x%x cipher=0x%x alpn=%q",
+		sni, st.Version, st.CipherSuite, st.NegotiatedProtocol)
 	Tracef("[ssh] TLS wrap OK sni=%s", sni)
 	return tlsConn, nil
 }
@@ -94,6 +95,14 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	Tracef("[ssh] dial begin addr=%s user=%q passwordSet=%v keySet=%v passphraseSet=%v proxy=%q payloadLen=%d",
 		addr, user, hasPass, hasKey, hasPhrase,
 		cfg.SSH.Proxy, len(cfg.SSH.Payload))
+	// kighmu.txt : un resume lisible du protocole et de la chaine d'appels,
+	// suivi de chaque etape (DNS -> TCP -> proxy -> TLS -> handshake).
+	sshStep("dial start protocol=%s target=%s user=%s", sshModeName(cfg), addr, user)
+	sshResolveEndpoint(cfg.Server.Host)
+	if sshTLSRequested(cfg) {
+		sshStep("tls requested sni=%q version=%s",
+			strings.TrimSpace(cfg.Server.SNI), advStr(cfg.Advanced, "ssh_tls_version", "default"))
+	}
 	auth := make([]ssh.AuthMethod, 0, 2)
 	if hasPass {
 		auth = append(auth, ssh.Password(cfg.Auth.Password))
@@ -109,14 +118,18 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		if err == nil {
 			auth = append(auth, ssh.PublicKeys(signer))
 			Tracef("[ssh] private key parsed OK")
+			sshStep("private key parsed (passphrase=%v)", hasPhrase)
 		} else {
 			Errorf("ssh", "private key unparsable: %v", err)
+			Infof("ssh", "  hint: cle PEM complete requise (BEGIN/END OPENSSH PRIVATE KEY)")
 		}
 	}
 	if len(auth) == 0 {
-		Errorf("ssh", "no usable auth method")
+		sshDiagError("auth", fmt.Errorf("no auth method (need auth.password or auth.private_key)"),
+			"renseignez le mot de passe ou collez une cle privee dans Authentication")
 		return nil, fmt.Errorf("ssh: no auth method (need auth.password or auth.private_key)")
 	}
+	sshStep("auth methods: password=%v private_key=%v", hasPass, hasKey)
 
 	sshCfg := &ssh.ClientConfig{
 		User:            cfg.Auth.Username,
@@ -140,40 +153,52 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	var client *ssh.Client
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
 		Journalf("ssh", "hop via HTTP proxy %s", cfg.SSH.Proxy)
+		sshStep("step 1/3 proxy CONNECT via %s", cfg.SSH.Proxy)
 		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload, proxyAuthHeader(cfg))
 		if err != nil {
-			Errorf("ssh", "proxy hop: %v", err)
+			sshDiagError("proxy CONNECT", err,
+				"le proxy doit repondre 200/101 ; verifiez ip:port, identifiants et payload")
 			return nil, fmt.Errorf("ssh proxy hop: %w", err)
 		}
+		sshStep("proxy CONNECT established, wrapping transport")
 		if conn, err = wrapSSHConn(cfg, conn, addr); err != nil {
+			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
 			return nil, err
 		}
+		sshStep("step 2/3 ssh handshake over proxy")
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
-			Errorf("ssh", "handshake via proxy: %v", err)
+			sshDiagError("ssh handshake via proxy", err, sshDialHints(cfg, err))
 			conn.Close()
 			return nil, err
 		}
 		Tracef("[ssh] handshake OK via proxy")
+		sshStep("step 3/3 ssh session established (via proxy)")
 		client = ssh.NewClient(c, chans, reqs)
 	} else {
 		Tracef("[ssh] direct dial %s ...", addr)
+		sshStep("step 1/3 tcp connect %s", addr)
 		rawConn, err := net.DialTimeout("tcp", addr, 15*time.Second)
 		if err != nil {
-			Errorf("ssh", "dial %s: %v", addr, err)
+			sshDiagError("tcp connect", err,
+				"port incorrect, serveur arrete, ou port bloque par l'operateur")
 			return nil, fmt.Errorf("ssh dial: %w", err)
 		}
+		sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
 		conn, err := wrapSSHConn(cfg, rawConn, addr)
 		if err != nil {
+			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
 			return nil, err
 		}
+		sshStep("step 2/3 ssh handshake")
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
-			Errorf("ssh", "direct dial/handshake: %v", err)
+			sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
 			conn.Close()
 			return nil, err
 		}
 		Tracef("[ssh] handshake OK")
+		sshStep("step 3/3 ssh session established")
 		client = ssh.NewClient(c, chans, reqs)
 	}
 	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
@@ -672,9 +697,15 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	}
 	port := int(portBytes[0])<<8 | int(portBytes[1])
 
-	remote, err := sshClient.Dial("tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	target := net.JoinHostPort(host, strconv.Itoa(port))
+	start := time.Now()
+	remote, err := sshClient.Dial("tcp", target)
 	if err != nil {
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
+		// Destination injoignable depuis le VPS : tres frequent sur un
+		// serveur qui ne filtre que DNS ou un port precis.
+		Connf("ssh", "SOCKS5 -> %s refuse (%v) apres %s",
+			target, err, time.Since(start).Round(time.Millisecond))
 		return
 	}
 	defer remote.Close()
@@ -683,6 +714,7 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 		return
 	}
+	Tracef("[ssh] SOCKS5 relay %s open", target)
 
 	relayTCP(conn, remote)
 }
@@ -738,6 +770,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		Tracef("[ssh] already running, skip")
 		return nil
 	}
+	logSSHProfile(t.config, "native (in-process SSH)", 0)
 	Tracef("[ssh] ssh %q@%s:%d via proxy %q",
 		hideUser(t.config, t.config.Auth.Username), t.config.Server.Host, t.config.Server.Port, t.config.SSH.Proxy)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
@@ -782,6 +815,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("socks listen failed: %w", err)
 	}
 	Tracef("[ssh] SOCKS listening on %s", socksAddr)
+	Connf("ssh", "SOCKS5 ready on %s (protocol %s)", socksAddr, sshModeName(t.config))
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
@@ -793,6 +827,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	t.startTime = time.Now()
 	t.status = StatusRunning
 	Tracef("[ssh] RUNNING name=%q", t.config.Name)
+	Connf("ssh", "tunnel %q RUNNING", t.config.Name)
 	go t.monitor()
 	return nil
 }
@@ -805,6 +840,7 @@ func (t *NativeSSHTunnel) Stop(ctx context.Context) error {
 		return nil
 	}
 	Tracef("[ssh] Stop() name=%q", t.config.Name)
+	logSSHStop(t.config, nil)
 	t.status = StatusStopping
 	if t.cancel != nil {
 		t.cancel()
@@ -836,6 +872,13 @@ func (t *NativeSSHTunnel) monitor() {
 	if t.status == StatusRunning {
 		t.status = StatusError
 		t.setError("ssh connection closed")
+		// Cause lisible dans kighmu.txt : le tunnel ne s'est pas arrete
+		// sur demande, la session SSH a coupe d'elle-meme.
+		Warnf("ssh", "session SSH perdue (connexion fermee par le serveur ou le reseau) pour %q ;"+
+			" les kept-alives ne sont pas configures, l'app tente un reconnexion via auto-follow",
+			t.config.Name)
+	} else {
+		logSSHStop(t.config, nil)
 	}
 }
 
@@ -914,16 +957,19 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	Journalf("ssh-slowdns", "slowdns ns=%q user=%q key=%d chars",
 		t.nsDomain(), t.config.Auth.Username, len(strings.TrimSpace(t.config.Server.PublicKey)))
+	logSSHProfile(t.config, "native SSH + dnstt (DNS tunnel)", 0)
 	if t.nsDomain() == "" {
-		Errorf("ssh-slowdns", "nameserver domain empty")
+		sshDiagError("dnstt nameserver", fmt.Errorf("nameserver domain empty"),
+			"renseignez le NS du serveur dnstt (ex. ns4.exemple.com)")
 		return fmt.Errorf("slowdns nameserver domain is required (server.nameserver)")
 	}
 	if DnsttPubKey(t.config) == "" {
-		Errorf("ssh-slowdns", "slowdns public key empty")
+		sshDiagError("dnstt public key", fmt.Errorf("public key empty"),
+			"cle publique du serveur dnstt requise (server.public_key)")
 		return fmt.Errorf("slowdns server public key is required (server.public_key or advanced.slowdns_pubkey)")
 	}
 	if t.config.Auth.Username == "" {
-		Errorf("ssh-slowdns", "ssh username empty")
+		sshDiagError("ssh username", fmt.Errorf("username empty"), "renseignez l'utilisateur SSH")
 		return fmt.Errorf("ssh username is required (auth.username)")
 	}
 
@@ -946,12 +992,15 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	// dnstt first (shared helper with output capture).
 	Tracef("[ssh-slowdns] phase 1/2: dnstt forward :%d", fwdPort)
+	Connf("ssh", "SlowDNS phase 1/2 : demarrage dnstt -> 127.0.0.1:%d (ns=%s resolver=%s)",
+		fwdPort, DnsttDomain(t.config), DnsttResolver(t.config))
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, fwdPort)
 	t.mu.Lock()
 
 	if err != nil {
-		Errorf("ssh-slowdns", "dnstt phase: %v", err)
+		sshDiagError("dnstt", err,
+			"verifiez NS, cle publique, resolver et que le serveur dnstt repond")
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
 		t.setError(err.Error())
@@ -959,9 +1008,10 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	t.slowdnscmd = dnsttCmd
 	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
+	Connf("ssh", "SlowDNS phase 2/2 : handshake SSH via le forward DNS")
 	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
-		Errorf("ssh-slowdns", "ssh dial: %v", dialErr)
+		sshDiagError("ssh over SlowDNS", dialErr, sshDialHints(t.config, dialErr))
 		t.slowdnscmd.Process.Kill()
 		ClearLiveForward(t.config.ID)
 		t.status = StatusError
@@ -1056,6 +1106,18 @@ func (t *NativeSSHSlowDNSTunnel) monitor() {
 	if t.status == StatusRunning {
 		t.status = StatusError
 		t.setError("ssh/slowdns connection closed")
+		// Un tunnel DNS qui meurt laisse souvent le profil bloque en
+		// CONNECTING : dire quel processus est mort evite de chercher
+		// a l'aveugle.
+		if t.slowdnscmd != nil && t.slowdnscmd.ProcessState != nil {
+			sshDiagError("dnstt", fmt.Errorf("process exited (%s)", t.slowdnscmd.ProcessState),
+				"le forward DNS a coupe")
+		} else {
+			Warnf("ssh", "session SSH/DNS fermee pour %q (coupe reseau ou serveur)",
+				t.config.Name)
+		}
+	} else {
+		logSSHStop(t.config, nil)
 	}
 }
 

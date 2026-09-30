@@ -162,6 +162,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	}
 	t.pickedSocks = socksPort
 	Tracef("[ssh-slowdns-proc] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
+	logSSHProfile(t.config, "openssh process + dnstt (DNS tunnel)", socksPort)
 
 	// dnstt first (shared helper with output capture), then SSH through it.
 	Tracef("[ssh-slowdns-proc] phase 1/2: starting dnstt forward :%d", t.fwdPort())
@@ -170,7 +171,7 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()
 
 	if err != nil {
-		Errorf("ssh-slowdns-proc", "dnstt phase: %v", err)
+		sshDiagError("dnstt", err, "verifiez NS, cle publique et resolver du serveur dnstt")
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -180,15 +181,19 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	sshArgs := t.buildSSHArgs()
 	Tracef("[ssh-slowdns-proc] phase 2/2: ssh binary=%q args=%q",
 		LookupBin(BinDir, BinSSH), redactSSHArgs(sshArgs))
+	Connf("ssh", "SlowDNS phase 2/2 : exec %s %s (via forward :%d)",
+		LookupBin(BinDir, BinSSH), redactSSHArgs(sshArgs), t.fwdPort())
 	t.sshCmd = exec.CommandContext(ctx, LookupBin(BinDir, BinSSH), sshArgs...)
 
 	if err := t.sshCmd.Start(); err != nil {
-		Errorf("ssh-slowdns-proc", "ssh start: %v", err)
+		sshDiagError("ssh start", err, "le binaire openssh est introuvable ou non executable")
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("SSH start failed: %v", err))
 		return fmt.Errorf("failed to start SSH through SlowDNS: %w", err)
 	}
+	Connf("ssh", "tunnel %q RUNNING (dnstt pid=%d, ssh pid=%d)",
+		t.config.Name, t.slowdnscmd.Process.Pid, t.sshCmd.Process.Pid)
 	Tracef("[ssh-slowdns-proc] ssh started pid=%d slowdns pid=%d, RUNNING name=%q",
 		t.sshCmd.Process.Pid, t.slowdnscmd.Process.Pid, t.config.Name)
 
@@ -256,9 +261,22 @@ func (t *SSHSlowDNSTunnel) monitorProcesses() {
 		t.status = StatusError
 		if sshErr != nil {
 			t.setError(fmt.Sprintf("SSH: %v", sshErr))
+			code := -1
+			if ee, ok := sshErr.(*exec.ExitError); ok {
+				code = ee.ExitCode()
+			}
+			if code >= 0 {
+				sshDiagError("openssh (SlowDNS)", fmt.Errorf("exit status %d: %s", code, sshExitHint(code)), "")
+			} else {
+				sshDiagError("openssh (SlowDNS)", sshErr, "")
+			}
 		} else if slowdnsErr != nil {
 			t.setError(fmt.Sprintf("SlowDNS: %v", slowdnsErr))
+			sshDiagError("dnstt (SlowDNS)", slowdnsErr,
+				"le tunnel DNS a coupe : verifiez NS, resolver et la cle publique")
 		}
+	} else {
+		logSSHStop(t.config, nil)
 	}
 }
 

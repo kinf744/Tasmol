@@ -108,8 +108,10 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 		t.config.Server.Host, t.config.Server.Port, t.config.Auth.Username,
 		t.config.Auth.PrivateKey != "", t.config.Auth.Password != "",
 		advInt(t.config.Advanced, "socks_port", 10801))
+	logSSHProfile(t.config, "openssh process", 0)
 	if t.config.Server.Host == "" || t.config.Auth.Username == "" {
-		Errorf("ssh-proc", "host or username empty")
+		sshDiagError("profile", fmt.Errorf("host or username empty"),
+			"renseignez l'hote du serveur et l'utilisateur SSH")
 		return fmt.Errorf("ssh: server.host and auth.username are required")
 	}
 	if t.config.Auth.PrivateKey == "" && t.config.Auth.Password != "" {
@@ -138,11 +140,15 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	Tracef("[ssh-proc] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinSSH)
 	Tracef("[ssh-proc] binary=%q args=%q", bin, redactSSHArgs(args))
+	// kighmu.txt : la commande exacte (sans secrets) et le binaire
+	// resolu, premiere cause possible d'un demarrage qui echoue.
+	Infof("ssh", "exec %s %s", bin, redactSSHArgs(args))
+	sshBinaryInfo(bin, nil)
 
 	t.cmd = exec.CommandContext(ctx, bin, args...)
 
 	if err := t.cmd.Start(); err != nil {
-		Errorf("ssh-proc", "process start: %v", err)
+		sshDiagError("process start", err, "le binaire openssh est introuvable ou non executable")
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("failed to start SSH: %w", err)
@@ -203,6 +209,19 @@ func (t *SSHTunnel) monitorProcess() {
 		if err != nil {
 			t.setError(err.Error())
 		}
+		// Explication du deconnexion : openssh utilise 255 pour tout
+		// echec de connexion ou d'authentification, d'ou la precision.
+		code := -1
+		if ee, ok := err.(*exec.ExitError); ok {
+			code = ee.ExitCode()
+		}
+		if code >= 0 {
+			sshDiagError("openssh", fmt.Errorf("exit status %d: %s", code, sshExitHint(code)), "")
+		} else {
+			sshDiagError("openssh", err, "le binaire ssh s'est arrete sans code de sortie")
+		}
+	} else {
+		logSSHStop(t.config, nil)
 	}
 }
 
