@@ -56,7 +56,7 @@ jobs:
       # Retire aux analystes (strings/Ghidra/radare2) les noms et chaînes
       # sensibles du binaire, comme pour l'AAR Android (build-mobile.yml).
       - name: Install garble (obfuscation anti-analyse statique)
-        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH && go install mvdan.cc/garble@latest
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH && go install mvdan.cc/garble@v0.13.0  # derniere version compatible Go 1.23
 
       - name: Verify bundled tunnel binaries
         run: |
