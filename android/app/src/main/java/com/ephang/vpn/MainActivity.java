@@ -57,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         bottomNav = findViewById(R.id.bottom_nav);
+        offerCrashReport();
         bottomNav.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
             if (id == R.id.nav_home) {
@@ -437,5 +438,45 @@ public class MainActivity extends AppCompatActivity {
 
     public void showToast(String message) {
         runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
+    }
+
+    /**
+     * Un crash du lancement precedent a ete enregistre : on propose de le
+     * copier dans Download. Sans ce rappel l'utilisateur ne voit jamais le
+     * rapport (l'app n'a pas le droit d'ecrire dans Download directement,
+     * et le fichier interne est invisible depuis le gestionnaire de fichiers).
+     */
+    private void offerCrashReport() {
+        if (app == null || !app.hasPendingCrash()) {
+            return;
+        }
+        String firstLine = "";
+        try {
+            String report = app.consumeLastCrashReport();
+            for (String line : report.split("\n")) {
+                if (line.startsWith("Exception")) {
+                    firstLine = line.trim();
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        handler.postDelayed(() -> {
+            if (isFinishing()) {
+                return;
+            }
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Crash détecté au dernier lancement")
+                    .setMessage(firstLine.isEmpty()
+                                    ? "Un rapport de crash a été enregistré."
+                                    : firstLine + "\n\nLe rapport complet sera enregistré dans Download.")
+                    .setPositiveButton("Enregistrer le rapport", (d, w) -> {
+                        boolean ok = app.shareLastCrashReport();
+                        showToast(ok ? "Rapport enregistré dans Download"
+                                : "Enregistrement impossible : voir LOGS");
+                    })
+                    .setNegativeButton("Ignorer", null)
+                    .show();
+        }, 800);
     }
 }
