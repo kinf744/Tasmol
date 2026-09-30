@@ -75,17 +75,6 @@ jobs:
           go install "golang.org/x/mobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}"
           echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
 
-      # Obfuscation du plan de contrôle (libpho) et de tout le code Go de
-      # l'AAR. garble renomme les identifiants/paquets internes et, avec
-      # -literals, encode les littéraux : strings/objdump/Ghidra ne
-      # retrouvent ni endpoints ni noms de fonctions. -tiny retire les infos
-      # de runtime inutiles. seed aléatoire à chaque build -> les maps
-      # d'obfuscation d'une version ne valent rien sur la suivante.
-      - name: Install garble (obfuscation anti-analyse statique)
-        run: go install mvdan.cc/garble@v0.14.2  # toolexec corrige, compatible Go 1.23
-
-      - name: gomobile init
-        run: gomobile init
 
       - name: Resolve Go modules (gomobile bind deps)
         run: |
@@ -100,18 +89,14 @@ jobs:
           # -trimpath: chemins sources absents; -s -w -buildid= : symboles
           # et id retirés. Les fonctions libpho (api/vault/self-check)
           # sont exposées via vpnlib.Pho*.
-          # GOFLAGS=-toolexec=garble : tout le code Go (y compris le main
-          # généré par gobind et ses dépendances) compile à travers garble.
-          # Les symboles JNI exportés (Java_vpnlib_*) sont des symboles C :
-          # ils restent requis et inchangés, seuls les internes disparaissent.
-          # NB: GOFLAGS est découpé sur les espaces sans quoting possible,
-          # et garble en mode toolexec refuse les flags enveloppés. On se
-          # contente donc de "garble" nu : renommage des identifiants et
-          # des chemins de paquets internes (anti Ghidra/IDA/radare2). Les
-          # littéraux sensibles sont déjà neutralisés en amont dans le code
-          # (chaînes reconstruites par code points, cf. internal/pho) et le
-          # step Verify AAR fait échouer le build si l'un survit.
-          export GOFLAGS="-toolexec=garble"
+          # gomobile est incompatible avec un toolexec externe (sa sonde
+          # buildID casse sous garble, toutes versions testées). La
+          # protection de l'AAR repose donc sur: -trimpath (chemins absents),
+          # -s -w -buildid= (symboles/id retirés), le strip LLVM du NDK
+          # (step suivant) et des litteraux sensibles reconstruits par code
+          # points dans internal/pho (jamais contigus dans le .so). Le step
+          # Verify AAR fait echouer le build si l'un survit. garble complet
+          # (-literals -tiny) reste actif sur le binaire linux armv7.
           gomobile bind \
             -target=android/arm \
             -androidapi 24 \
@@ -119,7 +104,6 @@ jobs:
             -ldflags='-s -w -buildid=' \
             -o android/app/libs/vpnlib.aar \
             ./golib/vpnlib
-          unset GOFLAGS
 
       - name: Strip native symbols (anti nm/readelf/objdump)
         run: |
