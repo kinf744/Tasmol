@@ -3,6 +3,8 @@ package tunnel
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
@@ -24,6 +26,59 @@ import (
 // golang.org/x/crypto/ssh plus a minimal embedded SOCKS5 CONNECT server.
 // Host-key checking mirrors the process implementation
 // (StrictHostKeyChecking=no).
+
+// sshTLSRequested reports whether this profile wraps the SSH handshake in
+// TLS ("SSH-TLS*" modes). The flag is set by the editor (Advanced["ssh_tls"])
+// and the SNI/version in Server.SNI / Advanced["ssh_tls_version"].
+func sshTLSRequested(cfg *config.TunnelConfig) bool {
+	if advBool(cfg.Advanced, "ssh_tls", false) {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(cfg.Transport.Security), "tls")
+}
+
+// tlsVersionRange maps the editor's TLS Version dropdown
+// (default / 1.2 / 1.3) to a crypto/tls version window.
+func tlsVersionRange(cfg *config.TunnelConfig) (minV, maxV uint16) {
+	switch strings.TrimSpace(advStr(cfg.Advanced, "ssh_tls_version", "default")) {
+	case "1.2", "tls1.2":
+		return tls.VersionTLS12, tls.VersionTLS12
+	case "1.3", "tls1.3":
+		return tls.VersionTLS13, tls.VersionTLS13
+	}
+	return 0, 0 // Go defaults
+}
+
+// wrapSSHConn applies the TLS layer requested by the profile on top of the
+// already-dialed raw TCP connection (direct or via the proxy hop). Returns
+// the connection unchanged when TLS is not requested. The returned conn is a
+// *bufferedConn when the handshake consumed bytes (see tls.Client over a
+// conn read through a bufio.Reader is handled by the tls package itself).
+func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn, error) {
+	if !sshTLSRequested(cfg) {
+		return conn, nil
+	}
+	sni := strings.TrimSpace(cfg.Server.SNI)
+	if sni == "" {
+		sni, _, _ = splitProxyAddr(addr) // fall back to the target host
+	}
+	minV, maxV := tlsVersionRange(cfg)
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName:         sni,
+		InsecureSkipVerify: true, // tunnel endpoints use self-signed certs
+		MinVersion:         minV,
+		MaxVersion:         maxV,
+	})
+	if err := tlsConn.Handshake(); err != nil {
+		conn.Close()
+		Errorf("ssh", "TLS handshake (SNI=%s): %v", sni, err)
+		return nil, fmt.Errorf("ssh TLS handshake: %w", err)
+	}
+	st := tlsConn.ConnectionState()
+	Journalf("ssh", "TLS established SNI=%s version=0x%x", sni, st.Version)
+	Tracef("[ssh] TLS wrap OK sni=%s", sni)
+	return tlsConn, nil
+}
 
 // sshDial opens an SSH client connection from a tunnel config. When
 // cfg.SSH.Proxy ("ip:port") is set, SSH is reached through an HTTP CONNECT
@@ -85,10 +140,13 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	var client *ssh.Client
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
 		Journalf("ssh", "hop via HTTP proxy %s", cfg.SSH.Proxy)
-		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload)
+		conn, err := dialViaProxy(cfg.SSH.Proxy, addr, cfg.SSH.Payload, proxyAuthHeader(cfg))
 		if err != nil {
 			Errorf("ssh", "proxy hop: %v", err)
 			return nil, fmt.Errorf("ssh proxy hop: %w", err)
+		}
+		if conn, err = wrapSSHConn(cfg, conn, addr); err != nil {
+			return nil, err
 		}
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
@@ -100,13 +158,23 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		client = ssh.NewClient(c, chans, reqs)
 	} else {
 		Tracef("[ssh] direct dial %s ...", addr)
-		var err error
-		client, err = ssh.Dial("tcp", addr, sshCfg)
+		rawConn, err := net.DialTimeout("tcp", addr, 15*time.Second)
+		if err != nil {
+			Errorf("ssh", "dial %s: %v", addr, err)
+			return nil, fmt.Errorf("ssh dial: %w", err)
+		}
+		conn, err := wrapSSHConn(cfg, rawConn, addr)
+		if err != nil {
+			return nil, err
+		}
+		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
 			Errorf("ssh", "direct dial/handshake: %v", err)
+			conn.Close()
 			return nil, err
 		}
 		Tracef("[ssh] handshake OK")
+		client = ssh.NewClient(c, chans, reqs)
 	}
 	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
 		if !advBool(cfg.Advanced, "remove_banner", false) {
@@ -337,9 +405,21 @@ func proxyStatusCode(status string) int {
 	return code
 }
 
+// proxyAuthHeader builds the Proxy-Authorization value when the editor set
+// proxy credentials ("Authenticate Proxy"), empty otherwise.
+func proxyAuthHeader(cfg *config.TunnelConfig) string {
+	user := strings.TrimSpace(advStr(cfg.Advanced, "proxy_user", ""))
+	pass := advStr(cfg.Advanced, "proxy_pass", "")
+	if user == "" {
+		return ""
+	}
+	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
+}
+
 // dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
-// request (with the optional custom payload) towards addr.
-func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
+// request (with the optional custom payload) towards addr. authHeader is an
+// optional Proxy-Authorization value.
+func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, error) {
 	Tracef("[ssh] proxy hop: proxy=%s target=%s payloadLen=%d", proxyAddr, addr, len(payloadTpl))
 	proxyHost, proxyPort, err := splitProxyAddr(proxyAddr)
 	if err != nil {
@@ -400,6 +480,9 @@ func dialViaProxy(proxyAddr, addr, payloadTpl string) (net.Conn, error) {
 		req.WriteString("CONNECT " + addr + " HTTP/1.1\r\n")
 		req.WriteString("Host: " + addr + "\r\n")
 		req.WriteString("Proxy-Connection: Keep-Alive\r\n")
+	}
+	if authHeader != "" && !strings.Contains(strings.ToLower(req.String()), "proxy-authorization") {
+		req.WriteString("Proxy-Authorization: " + authHeader + "\r\n")
 	}
 	req.WriteString("\r\n")
 

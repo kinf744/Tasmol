@@ -167,8 +167,8 @@ func CreateTunnel(cfg *config.TunnelConfig) (Tunnel, error) {
 			Tracef("[tunnel] %q (id=%s type=ssh) engine=%s", cfg.Name, cfg.ID, engine)
 			return NewNativeSSHTunnel(cfg), nil
 		}
-		if strings.TrimSpace(cfg.SSH.Proxy) != "" || strings.TrimSpace(cfg.SSH.Payload) != "" {
-			return nil, fmt.Errorf("ssh proxy/payload need the native SSH engine (advanced.native_ssh=true)")
+		if strings.TrimSpace(cfg.SSH.Proxy) != "" || strings.TrimSpace(cfg.SSH.Payload) != "" || sshTLSRequested(cfg) {
+			return nil, fmt.Errorf("ssh proxy/payload/TLS need the native SSH engine (advanced.native_ssh=true)")
 		}
 		engine = "openssh-process"
 		Tracef("[tunnel] %q (id=%s type=ssh) engine=%s", cfg.Name, cfg.ID, engine)

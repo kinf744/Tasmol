@@ -84,6 +84,14 @@ type startParams struct {
 	TCPNoDelay *bool `json:"tcp_nodelay"`
 	// DnsttTCP switches SlowDNS to -tcp (Settings, "Boost SlowDNS").
 	DnsttTCP *bool `json:"dnstt_tcp"`
+	// UDPGWListen overrides the UDPGW listen address (ip:port) for this
+	// session, coming from the active profile's "Udpgw Port" field.
+	// Empty keeps the config.yaml value.
+	UDPGWListen string `json:"udpgw_listen"`
+	// UDPGWEnabled toggles the UDPGW gateway for this session, coming from
+	// the profile's "Enable UDPGW transparent DNS" switch. Nil (absent)
+	// keeps the config.yaml value.
+	UDPGWEnabled *bool `json:"udpgw_enabled"`
 	// RoundRobin is the comma-separated id list of the profiles sharing
 	// the session through Xray's built-in roundrobin balancer. Empty (or a
 	// single id) means single-profile mode: no balancer is initialized.
@@ -240,6 +248,22 @@ func (c *Controller) Start(paramsJSON string) string {
 	cfgMgr, err := config.NewManager(p.ConfigPath)
 	if err != nil {
 		return errJSON(fmt.Errorf("config: %w", err))
+	}
+
+	// Per-profile UDPGW: the editor's "Udpgw Port" and "Enable UDPGW
+	// transparent DNS" switch win over config.yaml for this session only
+	// (the file itself keeps the global default).
+	if cfg := cfgMgr.Get(); cfg != nil {
+		if listen := strings.TrimSpace(p.UDPGWListen); listen != "" {
+			if !strings.Contains(listen, ":") {
+				listen = "127.0.0.1:" + listen
+			}
+			cfg.UDPGW.ListenAddr = listen
+			tunnel.Connf("session", "UDPGW listen %s (profile)", cfg.UDPGW.ListenAddr)
+		}
+		if p.UDPGWEnabled != nil {
+			cfg.UDPGW.Enabled = *p.UDPGWEnabled
+		}
 	}
 
 	vpn, err := core.NewVPNCoreWithOptions(cfgMgr, core.Options{EnableFeatures: false})

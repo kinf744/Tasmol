@@ -111,10 +111,27 @@ func checkResolver(resolver string) error {
 
 // DnsttArgs builds the official dnstt-client command line. Boost SlowDNS
 // switches the resolver transport from -udp to -tcp (reliable/fast where
-// carriers throttle UDP DNS).
+// carriers throttle UDP DNS). A per-profile override lives in
+// Advanced["dnstt_tcp"] (the editor's "DNSTT Mode" dropdown: UDP / TCP)
+// and wins over the global switch.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
+	useTCP := DnsttUseTCP
+	if cfg != nil && cfg.Advanced != nil {
+		if v, ok := cfg.Advanced["dnstt_tcp"]; ok {
+			switch b := v.(type) {
+			case bool:
+				useTCP = b
+			case string:
+				if strings.EqualFold(strings.TrimSpace(b), "tcp") {
+					useTCP = true
+				} else if strings.EqualFold(strings.TrimSpace(b), "udp") {
+					useTCP = false
+				}
+			}
+		}
+	}
 	flag := "-udp"
-	if DnsttUseTCP {
+	if useTCP {
 		flag = "-tcp"
 	}
 	return []string{
