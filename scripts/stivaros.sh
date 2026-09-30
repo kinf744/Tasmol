@@ -1108,7 +1108,8 @@ def init_db():
             expires_at TEXT,
             active INTEGER DEFAULT 1,
             quota_mb INTEGER DEFAULT 0,
-            bytes_used INTEGER DEFAULT 0
+            bytes_used INTEGER DEFAULT 0,
+            multi_device INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS vpn_configs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1150,18 +1151,52 @@ def init_db():
         ("34000-37999,38000-41999,42000-45999,46000-49999",
          "34000-37999,38000-41999,42000-45999,46000-49999"))
 
+    # Verrou d'appareil : multi_device (0 = mono, activable/joignable
+    # uniquement depuis l'UUID qui a activé le compte ; 1 = tout appareil).
+    # Les comptes créés AVANT l'introduction du verrou passent en mode
+    # multi-appareils : personne ne se retrouve verrouillé hors de son
+    # appareil du jour au lendemain ; bascule possible depuis le menu
+    # Appareils (menu principal, rubrique "Appareils & verrou UUID").
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+    if "multi_device" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN multi_device INTEGER NOT NULL DEFAULT 0")
+        conn.execute("UPDATE users SET multi_device = 1")
+
     conn.commit()
     conn.close()
 
-def find_user(identifier):
+def find_users(identifier):
+    """TOUTes les lignes correspondant à un identifiant (uuid du compte,
+    uuid d'appareil lié, ou téléphone). Un appareil lié à plusieurs comptes
+    (réactivations successives) faisait gagner une ligne arbitraire : le
+    serveur concatène les trois recherches et laisse le contrôle de code
+    choisir la bonne (cf. _authorized_user).
+
+    Pour un compte multi-appareils, device_install_id est une LISTE
+    d'UUID séparés par des virgules : le LIKE avec délimiteurs de part
+    et d'autre retrouve toute ligne dont l'appareil présenté en fait
+    partie, qu'il soit le dernier activé ou non."""
+    ident = (identifier or "").strip()
     conn = get_db()
-    row = conn.execute("SELECT * FROM users WHERE uuid = ?", (identifier,)).fetchone()
-    if not row:
-        row = conn.execute("SELECT * FROM users WHERE device_install_id = ?", (identifier,)).fetchone()
-    if not row:
-        row = conn.execute("SELECT * FROM users WHERE phone = ?", (identifier,)).fetchone()
+    rows = list(conn.execute(
+        "SELECT * FROM users WHERE uuid = ? OR device_install_id = ? OR phone = ?",
+        (ident, ident, ident)).fetchall())
+    if ident and len(ident) <= 64 and "%" not in ident and "_" not in ident:
+        rows += conn.execute(
+            "SELECT * FROM users WHERE (',' || device_install_id || ',') LIKE ?",
+            ("%,%" + ident + ",%",)).fetchall()
+    rows = [dict(r) for r in rows]
+    seen, out = set(), []
+    for r in rows:
+        if r["id"] not in seen:
+            seen.add(r["id"])
+            out.append(r)
     conn.close()
-    return row
+    return out
+
+def find_user(identifier):
+    users = find_users(identifier)
+    return users[0] if users else None
 
 class APIHandler(BaseHTTPRequestHandler):
     def _send(self, data, status=200):
@@ -1188,11 +1223,40 @@ class APIHandler(BaseHTTPRequestHandler):
     def _authorized_user(self, uuid, code):
         if not uuid or not code:
             return None, ({"success": False, "message": "Missing uuid/code"}, 400)
-        user = find_user(uuid)
-        if not user or not user["active"]:
+        # Un identifiant peut correspondre à plusieurs comptes (un appareil
+        # réactivé sur un autre compte, numéro partagé…) : on retient la
+        # ligne dont le code correspond, pas "la première trouvée", tout en
+        # préservant les statuts d'erreur distincts (404 / 403 / code).
+        rows = find_users(uuid)
+        if not rows:
             return None, ({"success": False, "message": "User not found or inactive"}, 404)
-        if user["activation_code"] != code:
+        user = None
+        has_active = False
+        for cand in rows:
+            if not cand["active"]:
+                continue
+            has_active = True
+            if cand["activation_code"] == code:
+                user = cand
+                break
+        if user is None:
+            if not has_active:
+                return None, ({"success": False, "message": "User not found or inactive"}, 404)
             return None, ({"success": False, "message": "Invalid activation code"}, 403)
+        # Verrou d'appareil (mono) : l'identifiant présenté DOIT être un
+        # UUID de la liste des appareils autorisés. Un accès par téléphone —
+        # même avec le bon code d'activation — est refusé, exactement comme à
+        # l'activation.
+        if not user["multi_device"]:
+            bound_list = [d.strip().lower()
+                          for d in (user["device_install_id"] or "").split(",") if d.strip()]
+            if not bound_list:
+                return None, ({"success": False,
+                               "message": "Compte mono-appareil sans appareil lié : "
+                                          "activez-le d'abord depuis votre téléphone"}, 403)
+            if uuid.strip().lower() not in bound_list:
+                return None, ({"success": False,
+                               "message": "Compte verrouillé sur un autre appareil"}, 403)
         exp = user["expires_at"]
         if exp and datetime.fromisoformat(exp) < datetime.now():
             return None, ({"success": False, "message": "Subscription expired"}, 403)
@@ -1305,8 +1369,8 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if path == "/api/v1/devices/register":
             body = self._read_body()
-            uuid = body.get("device_install_id") or body.get("uuid", "")
-            phone = str(body.get("phone_number", ""))[:20]
+            uuid = str(body.get("device_install_id") or body.get("uuid", "")).strip()[:64]
+            phone = str(body.get("phone_number", ""))[:20].strip()
             code = str(body.get("activation_code", ""))[:10]
             if not uuid or not phone or not code:
                 return self._send({"success": False, "message": "Missing required fields"}, 400)
@@ -1328,12 +1392,44 @@ class APIHandler(BaseHTTPRequestHandler):
             if exp and datetime.fromisoformat(exp) < datetime.now():
                 conn.close()
                 return self._send({"success": False, "message": "Subscription expired"}, 403)
+            # Verrou d'appareil — strict, même si numéro + code sont corrects.
+            # multi_device = 1 : tout appareil accepté, et AJOUTÉ à la liste
+            #   des appareils connus du compte (en écraser l'existant rendrait
+            #   invisible à find_user tout appareil activé précédemment :
+            #   "Invalid activation code" au fetch pour les autres appareils
+            #   du même compte).
+            # multi_device = 0 : seul l'UUID lié au compte peut activer ;
+            #   - aucun appareil lié : PREMIÈRE activation = verrouillage sur
+            #     cet appareil (elle "gomme" le défaut "aucune restriction");
+            #   - appareil lié différent de celui présenté : refus ferme.
+            new_iid = uuid
+            if not user["multi_device"]:
+                bound_list = [d.strip().lower()
+                              for d in (user["device_install_id"] or "").split(",") if d.strip()]
+                if bound_list and uuid.lower() not in bound_list:
+                    conn.close()
+                    return self._send({"success": False,
+                                       "message": "Ce compte est verrouillé sur un autre appareil "
+                                                  "(UUID différent). Demandez à l'administrateur de "
+                                                  "réinitialiser l'appareil lié ou de passer ce "
+                                                  "compte en multi-appareils."},
+                                      403)
+            else:
+                known = [d.strip() for d in (user["device_install_id"] or "").split(",") if d.strip()]
+                if uuid.lower() not in [d.lower() for d in known]:
+                    known.append(uuid)
+                new_iid = ",".join(known)
+                if len(new_iid) > 2000:
+                    conn.close()
+                    return self._send({"success": False,
+                                       "message": "Trop d'appareils liés à ce compte"}, 403)
             conn.execute("UPDATE users SET device_install_id=?, app_version=? WHERE id=?",
-                         (uuid, str(body.get("app_version", ""))[:20], user["id"]))
+                         (new_iid, str(body.get("app_version", ""))[:20], user["id"]))
             conn.commit()
             conn.close()
             return self._send({"success": True, "message": "Device activated successfully",
-                               "phone": phone, "expires_at": exp})
+                               "phone": phone, "expires_at": exp,
+                               "device_mode": "multi" if user["multi_device"] else "mono"})
 
         return self._send({"error": "Not found"}, 404)
 
@@ -1510,10 +1606,37 @@ create_user() {
     local name uuid phone expires
     read -r -p "Nom (a-z0-9._-)      : " name
     valid_name "$name"  || { error "Nom invalide"; pause; return 1; }
-    read -r -p "UUID appareil        : " uuid
-    valid_uuid "$uuid"  || { error "UUID invalide (format 8-4-4-4-12 hex)"; pause; return 1; }
     read -r -p "Téléphone            : " phone
     valid_phone "$phone" || { error "Téléphone invalide (8-15 chiffres)"; pause; return 1; }
+
+    # ── Verrou d'appareil ────────────────────────────────────────────────
+    # Le compte est verrouillé sur l'UUID de l'appareil (affichable et
+    # copiable depuis l'écran d'activation de l'app). Mono : activation et
+    # récupération des configs REFUSÉES depuis tout autre appareil, même
+    # avec le bon téléphone et le bon code. Multi : aucun contrôle d'UUID.
+    echo
+    echo -e "  ${BOLD}Appareils autorisés pour ce compte :${NC}"
+    echo -e "   ${CYAN}1${NC}) Mono-appareil — verrouillé sur un seul UUID"
+    echo -e "   ${CYAN}2${NC}) Multi-appareils — tout UUID accepté (compte partageable)"
+    local dev_mode multi_device=0 dev_uuid=""
+    read -r -p "Choix [1]: " dev_mode
+    case "${dev_mode:-1}" in
+        1) multi_device=0 ;;
+        2) multi_device=1 ;;
+        *) error "Choix invalide"; pause; return 1 ;;
+    esac
+    if [[ "$multi_device" == "0" ]]; then
+        read -r -p "UUID appareil        : " dev_uuid
+        if [[ -n "$dev_uuid" ]]; then
+            valid_uuid "$dev_uuid" || { error "UUID invalide (format 8-4-4-4-12 hex)"; pause; return 1; }
+            dev_uuid=$(printf '%s' "$dev_uuid" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+        else
+            info "Vide : le compte se verrouillera sur le premier appareil qui l'activera"
+        fi
+    fi
+    # users.uuid = identifiant interne du compte, toujours généré ; le
+    # verrou d'appareil vit dans device_install_id (voir init_db).
+    uuid=$(gen_uuid)
     read -r -p "Expiration (YYYY-MM-DD): " expires
     valid_date "$expires" || { error "Date invalide"; pause; return 1; }
     [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
@@ -1587,8 +1710,8 @@ create_user() {
 
     {
     cat << SQL
-INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb)
-VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb);
+INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id)
+VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb, $multi_device, '$(sqlq "$dev_uuid")');
 SQL
     if (( want_xray )); then
     cat << SQL
@@ -1655,9 +1778,14 @@ SQL
     echo -e "${GREEN}  Compte créé${NC}"
     echo -e "  Nom        : $name"
     echo -e "  Téléphone  : $phone"
-    echo -e "  UUID       : $uuid"
     echo -e "  Code 6 ch. : ${BOLD}$code${NC}"
     echo -e "  Expire     : $expires"
+    if [[ "$multi_device" == "1" ]]; then
+        echo -e "  Appareils  : ${CYAN}multi-appareils (tout UUID accepté)${NC}"
+    else
+        echo -e "  Appareils  : ${YELLOW}mono-appareil — verrou UUID strict${NC}"
+        echo -e "  UUID lié   : ${dev_uuid:-<verrou à la première activation>}"
+    fi
     echo -e "${GREEN}  ── Configs générées ──${NC}"
     if (( want_xray )); then
         echo -e "${CYAN}  XRAY       : $server_addr:443 vless+xhttp+tls uuid=$xray_uuid${NC}"
@@ -1681,21 +1809,25 @@ SQL
 list_users() {
     banner; echo -e "${BOLD}Comptes${NC}\n"
     [[ -f "$DB_PATH" ]] || { error "API non installée (option 1)"; pause; return 1; }
-    printf "${CYAN}%-3s | %-12s | %-14s | %-10s | %s${NC}\n" "#" "Nom" "Téléphone" "Expire" "Statut"
-    printf -- "----|--------------|----------------|------------|---------\n"
+    printf "${CYAN}%-3s | %-12s | %-14s | %-10s | %-13s | %s${NC}\n" "#" "Nom" "Téléphone" "Expire" "Appareils" "Statut"
+    printf -- "----|--------------|----------------|------------|---------------|---------\n"
     local i=0 today
     today=$(date +%F)
-    while IFS='|' read -r id name phone expires active; do
+    while IFS='|' read -r id name phone expires active md did; do
         i=$((i + 1))
+        local mode
+        if [[ "$md" == "1" ]]; then mode="${CYAN}multi${NC}"
+        elif [[ -n "$did" ]]; then mode="${YELLOW}mono 🔒${NC}"
+        else mode="mono (libre)"; fi
         local status
         if [[ "$active" -eq 0 ]]; then status="${RED}désactivé${NC}"
         elif [[ -n "$expires" && "$expires" < "$today" ]]; then status="${YELLOW}expiré${NC}"
         else status="${GREEN}actif${NC}"; fi
-        printf "%-3s | %-12s | %-14s | %-10s | %b\n" "$id" "$name" "$phone" "$expires" "$status"
+        printf "%-3s | %-12s | %-14s | %-10s | %-13b | %b\n" "$id" "$name" "$phone" "$expires" "$mode" "$status"
     done < <(sqlite3 -batch "$DB_PATH" \
-        "SELECT id, COALESCE(name,''), phone, COALESCE(expires_at,''), active FROM users ORDER BY id;")
+        "SELECT id, COALESCE(name,''), phone, COALESCE(expires_at,''), active, COALESCE(multi_device,0), COALESCE(device_install_id,'') FROM users ORDER BY id;")
     [[ $i -eq 0 ]] && warn "Aucun compte"
-    echo -e "\n${CYAN}Total: $i${NC}"
+    echo -e "\n${CYAN}Total: $i${NC}  —  ${YELLOW}mono 🔒 = verrouillé sur un appareil${NC}"
     pause
 }
 
@@ -2152,6 +2284,94 @@ zivpn_uninstall_silent()   { systemctl disable --now "$ZIVPN_SERVICE" 2>/dev/nul
 v2ray_uninstall_silent()   { systemctl disable --now v2ray 2>/dev/null; rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"; rm -rf "$V2RAY_DIR"; }
 slowdns_uninstall_silent() { systemctl disable --now slowdns-ns4 slowdns-nv4 dnsdist 2>/dev/null; rm -f /etc/systemd/system/slowdns-ns4.service /etc/systemd/system/slowdns-nv4.service "$DNSTT_BIN" /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh; rm -rf "$SLOWDNS_DIR" /etc/nftables/slowdns.nft; nft delete table inet slowdns 2>/dev/null; }
 
+# ── Appareils & verrouillage UUID ────────────────────────────────────
+# Gestion fine du verrou par compte :
+#   1) bascule mono -> multi (tout UUID accepté)
+#   2) bascule multi -> mono (verrou sur l'appareil lié ou sur un UUID fourni)
+#   3) réinitialisation de l'appareil lié (ex : client a réinstallé l'app,
+#      son UUID a changé) — la prochaine activation devient le nouveau verrou.
+manage_devices() {
+    banner; echo -e "${BOLD}Appareils & verrouillage UUID${NC}\n"
+    [[ -f "$DB_PATH" ]] || { error "API non installée (option 1)"; pause; return 1; }
+    printf "${CYAN}%-3s | %-12s | %-14s | %-7s | %s${NC}\n" "#" "Nom" "Téléphone" "Mode" "Appareil lié"
+    printf -- "----|--------------|----------------|---------|--------------------------------------\n"
+    local i=0 ids=() names=() mds=() dids=()
+    while IFS='|' read -r id name phone md did; do
+        i=$((i + 1))
+        local m="mono" l="${did:-<aucun>}"
+        [[ "$md" == "1" ]] && m="multi"
+        printf "%-3s | %-12s | %-14s | %-7s | %.36s\n" "$id" "$name" "$phone" "$m" "$l"
+        ids+=("$id"); names+=("$name"); mds+=("$md"); dids+=("$did")
+    done < <(sqlite3 -batch "$DB_PATH" \
+        "SELECT id, COALESCE(name,''), phone, COALESCE(multi_device,0), COALESCE(device_install_id,'') FROM users ORDER BY id;")
+    [[ $i -eq 0 ]] && { warn "Aucun compte"; pause; return 1; }
+    echo
+    echo "  1) Passer un compte en multi-appareils"
+    echo "  2) Verrouiller un compte en mono-appareil"
+    echo "  3) Réinitialiser l'appareil lié (autorise une nouvelle activation)"
+    echo "  4) Définir l'UUID de l'appareil lié"
+    echo "  0) Retour"
+    echo
+    local action
+    read -r -p "Choix: " action
+    [[ "$action" == "0" ]] && return 0
+    [[ "$action" =~ ^[1-4]$ ]] || { warn "Choix invalide"; pause; return 1; }
+    local pick
+    read -r -p "N° du compte : " pick
+    [[ "$pick" =~ ^[0-9]+$ ]] || { error "N° invalide"; pause; return 1; }
+    local id="" md="" did=""
+    local j
+    for ((j = 0; j < ${#ids[@]}; j++)); do
+        if [[ "${ids[$j]}" == "$pick" ]]; then id="${ids[$j]}"; md="${mds[$j]}"; did="${dids[$j]}"; break; fi
+    done
+    [[ -n "$id" ]] || { error "Compte introuvable"; pause; return 1; }
+    case "$action" in
+        1)
+            sql "UPDATE users SET multi_device = 1 WHERE id = $pick;"
+            msg "Compte #$pick passé en multi-appareils (tout UUID accepté)"
+            log "appareil: compte #$pick -> multi"
+            ;;
+        2)
+            if [[ -z "$did" ]]; then
+                local nu=""
+                read -r -p "UUID de l'appareil (vide = verrouillage à la prochaine activation): " nu
+                if [[ -n "$nu" ]]; then
+                    valid_uuid "$nu" || { error "UUID invalide"; pause; return 1; }
+                    nu=$(printf '%s' "$nu" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+                    sql "UPDATE users SET multi_device = 0, device_install_id = '$(sqlq "$nu")' WHERE id = $pick;"
+                    msg "Compte #$pick verrouillé sur $nu"
+                else
+                    sql "UPDATE users SET multi_device = 0 WHERE id = $pick;"
+                    msg "Compte #$pick en mono — se verrouillera à la prochaine activation"
+                fi
+            else
+                # En multi, l'appareil lié est une LISTE séparée par des
+                # virgules : en repassant en mono on ne conserve que le
+                # dernier appareil activé (le plus récent = le plus probable).
+                local last="${did##*,}"
+                sql "UPDATE users SET multi_device = 0, device_install_id = '$(sqlq "$last")' WHERE id = $pick;"
+                msg "Compte #$pick verrouillé en mono sur le dernier appareil connu : $last"
+            fi
+            log "appareil: compte #$pick -> mono"
+            ;;
+        3)
+            sql "UPDATE users SET device_install_id = '' WHERE id = $pick;"
+            msg "Appareil lié au compte #$pick réinitialisé (prochaine activation = nouveau verrou)"
+            log "appareil: compte #$pick reset device_install_id"
+            ;;
+        4)
+            local nu=""
+            read -r -p "UUID de l'appareil : " nu
+            valid_uuid "$nu" || { error "UUID invalide (format 8-4-4-4-12 hex)"; pause; return 1; }
+            nu=$(printf '%s' "$nu" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+            sql "UPDATE users SET device_install_id = '$(sqlq "$nu")' WHERE id = $pick;"
+            msg "Appareil lié au compte #$pick -> $nu"
+            log "appareil: compte #$pick device_install_id=$nu"
+            ;;
+    esac
+    pause
+}
+
 menu() {
     while true; do
         banner
@@ -2166,9 +2386,10 @@ menu() {
         echo "  4) Supprimer des comptes"
         echo "  5) Gestion des tunnels"
         echo "  6) État des tunnels"
-        echo "  7) Désinstaller tout"
+        echo "  7) Appareils & verrou UUID"
         echo "  8) Config Orange (host)"
         echo "  9) Quotas & consommation"
+        echo " 10) Désinstaller tout"
         echo "  0) Quitter"
         echo
         local c=""
@@ -2181,9 +2402,10 @@ menu() {
             4) delete_users || true ;;
             5) tunnel_menu || true ;;
             6) tunnels_status || true ;;
-            7) uninstall_all || true ;;
+            7) manage_devices || true ;;
             8) orange_menu || true ;;
             9) quotas_menu || true ;;
+            10) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
