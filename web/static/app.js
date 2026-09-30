@@ -287,8 +287,15 @@ function openTunnelModal(tunnel = null) {
         document.getElementById('tunnel-link').value = advanced.link || '';
         document.getElementById('tunnel-outbound-json').value = advanced.outbound_json || '';
         document.getElementById('tunnel-xray-json').value = advanced.outbound_json || '';
+
+        // Fill the new three-section panel/hidden links for xray only.
+        xraySetMode('manual');
+        if (tunnel.type === 'xray') {
+            xrayLoadIntoPanel(tunnel);
+        }
     } else {
         title.textContent = 'Add Tunnel';
+        xrayResetPanel();
     }
 
     updateTunnelFields();
@@ -316,9 +323,17 @@ function updateTunnelFields() {
     const showTransport = false;
 
     document.getElementById('ssh-auth-fields').classList.toggle('hidden', !isSSH);
-    // xray uses link/JSON exclusively; xray_slowdns keeps manual fields.
+    // xray uses the new three-section panel (manual link import or pasted
+    // JSON); xray_slowdns keeps the legacy manual + link/JSON blocks.
     document.getElementById('xray-auth-fields').classList.toggle('hidden', type !== 'xray_slowdns');
-    document.getElementById('xray-link-fields').classList.toggle('hidden', !isXray);
+    document.getElementById('xray-link-fields').classList.toggle('hidden', type !== 'xray_slowdns');
+    document.getElementById('xray-manual-fields').classList.toggle('hidden', type !== 'xray');
+    if (type === 'xray') {
+        xraySetMode(xrayMode);
+        xrayProtoChange();
+        xrayNetworkChange();
+        xraySecurityChange();
+    }
     document.getElementById('zivpn-auth-fields').classList.toggle('hidden', !isZivpn);
     document.getElementById('slowdns-fields').classList.toggle('hidden', !isSlowDNS);
     document.getElementById('server-fields').classList.toggle('hidden', !showServer);
@@ -387,7 +402,8 @@ function saveTunnel(event) {
         };
     }
 
-    if (['xray', 'xray_slowdns'].includes(type)) {
+    if (type === 'xray_slowdns') {
+        // Legacy manual + link/JSON blocks (unchanged).
         tunnel.auth.uuid = document.getElementById('tunnel-uuid').value;
         tunnel.auth.flow = document.getElementById('tunnel-flow').value;
         tunnel.auth.password = document.getElementById('tunnel-xray-password').value;
@@ -405,10 +421,11 @@ function saveTunnel(event) {
         }
         tunnel.advanced.outbound_json = document.getElementById('tunnel-outbound-json').value;
         tunnel.advanced.link = document.getElementById('tunnel-link').value;
-        if (type === 'xray' && !tunnel.advanced.outbound_json) {
-            showNotification('Xray needs a link (Parse) or a JSON config', 'error');
-            return;
-        }
+    }
+
+    if (type === 'xray') {
+        // New three-section panel: manual build or pasted full config.
+        if (!xrayCollectAndBuild(tunnel)) return;
     }
 
     if (type === 'zivpn') {
@@ -441,9 +458,17 @@ function editTunnel(id) {
 }
 
 function parseXrayLink() {
-    const link = document.getElementById('tunnel-xray-link').value.trim();
+    const type = document.getElementById('tunnel-type').value;
+    // Xray reads the new paste tab; xray_slowdns keeps its legacy textarea.
+    const link = (type === 'xray'
+        ? document.getElementById('tunnel-xray-paste').value
+        : document.getElementById('tunnel-xray-link').value).trim();
     if (!link) {
         showNotification('Paste a vmess/vless/trojan/ss link first', 'error');
+        return;
+    }
+    if (!/^(vmess|vless|trojan|ss|shadowsocks):\/\//i.test(link)) {
+        showNotification('No link detected. "Import link into form" expects a vmess/vless/trojan/ss link.', 'error');
         return;
     }
     fetch('/api/v1/tunnels/parse-link', {
@@ -459,31 +484,37 @@ function parseXrayLink() {
         return data.tunnel;
     })
     .then(t => {
-        if (t.name) document.getElementById('tunnel-name').value = t.name;
-        if (t.server) {
-            if (t.server.host) document.getElementById('tunnel-host').value = t.server.host;
-            if (t.server.port) document.getElementById('tunnel-port').value = t.server.port;
-            if (t.server.sni) document.getElementById('tunnel-reality-sni').value = t.server.sni;
-        }
-        if (t.auth) {
-            if (t.auth.uuid) document.getElementById('tunnel-uuid').value = t.auth.uuid;
-            if (t.auth.flow) document.getElementById('tunnel-flow').value = t.auth.flow;
-            if (t.auth.password) document.getElementById('tunnel-xray-password').value = t.auth.password;
-            if (t.auth.method) document.getElementById('tunnel-xray-method').value = t.auth.method;
-        }
-        if (t.transport) {
-            if (t.transport.network) document.getElementById('tunnel-network').value = t.transport.network;
-            if (t.transport.security) document.getElementById('tunnel-security').value = t.transport.security;
-            if (t.transport.path) document.getElementById('tunnel-ws-path').value = t.transport.path;
-            if (t.transport.host) document.getElementById('tunnel-ws-host').value = t.transport.host;
-        }
-        if (t.advanced) {
-            if (t.advanced.outbound_json) {
-                document.getElementById('tunnel-outbound-json').value = t.advanced.outbound_json;
-                document.getElementById('tunnel-xray-json').value = t.advanced.outbound_json;
+        if (type === 'xray') {
+            xrayFillManual(t);
+            xraySetMode('manual');
+        } else {
+            // Legacy fill for xray_slowdns.
+            if (t.name) document.getElementById('tunnel-name').value = t.name;
+            if (t.server) {
+                if (t.server.host) document.getElementById('tunnel-host').value = t.server.host;
+                if (t.server.port) document.getElementById('tunnel-port').value = t.server.port;
+                if (t.server.sni) document.getElementById('tunnel-reality-sni').value = t.server.sni;
             }
-            if (t.advanced.link) document.getElementById('tunnel-link').value = t.advanced.link;
+            if (t.auth) {
+                if (t.auth.uuid) document.getElementById('tunnel-uuid').value = t.auth.uuid;
+                if (t.auth.flow) document.getElementById('tunnel-flow').value = t.auth.flow;
+                if (t.auth.password) document.getElementById('tunnel-xray-password').value = t.auth.password;
+                if (t.auth.method) document.getElementById('tunnel-xray-method').value = t.auth.method;
+            }
+            if (t.transport) {
+                if (t.transport.network) document.getElementById('tunnel-network').value = t.transport.network;
+                if (t.transport.security) document.getElementById('tunnel-security').value = t.transport.security;
+                if (t.transport.path) document.getElementById('tunnel-ws-path').value = t.transport.path;
+                if (t.transport.host) document.getElementById('tunnel-ws-host').value = t.transport.host;
+            }
         }
+        if (t.advanced && t.advanced.outbound_json) {
+            document.getElementById('tunnel-outbound-json').value = t.advanced.outbound_json;
+            const legacyJson = document.getElementById('tunnel-xray-json');
+            if (type !== 'xray' && legacyJson) legacyJson.value = t.advanced.outbound_json;
+        }
+        if (t.advanced && t.advanced.link) document.getElementById('tunnel-link').value = t.advanced.link;
+        if (type === 'xray' && t.name && !document.getElementById('tunnel-name').value) document.getElementById('tunnel-name').value = t.name;
         updateTunnelFields();
         showNotification('Link parsed', 'success');
     })
@@ -649,6 +680,345 @@ function toggleDarkMode() {
 
 if (localStorage.getItem('darkMode') === 'true') {
     document.documentElement.classList.add('dark');
+}
+
+// ---------------------------------------------------------------------------
+// Xray "Add Server" panel (manual 3-section form + paste link/JSON tab).
+// Only type=xray uses this; xray_slowdns keeps the legacy blocks.
+// ---------------------------------------------------------------------------
+
+let xrayMode = 'manual';
+
+const xraySegActive = ['bg-white', 'dark:bg-gray-800', 'shadow-sm', 'text-gray-900', 'dark:text-white'];
+const xraySegInactive = ['text-gray-600', 'dark:text-gray-400'];
+
+function xraySetMode(mode) {
+    xrayMode = mode;
+    ['manual', 'paste'].forEach(m => {
+        const btn = document.getElementById('xray-mode-' + m);
+        if (!btn) return;
+        btn.classList.remove(...xraySegActive, ...xraySegInactive);
+        btn.classList.add(...(m === mode ? xraySegActive : xraySegInactive));
+    });
+    const paste = document.getElementById('xray-paste-mode');
+    if (paste) paste.classList.toggle('hidden', mode !== 'paste');
+    const manual = document.getElementById('xray-manual-mode');
+    if (manual) manual.classList.toggle('hidden', mode !== 'manual');
+}
+
+async function xrayClipboardPaste() {
+    const field = document.getElementById('tunnel-xray-paste');
+    try {
+        const text = await navigator.clipboard.readText();
+        field.value = (text || '').trim();
+    } catch (e) {
+        field.focus();
+        showNotification('Clipboard unavailable — paste into the field manually (Ctrl+V)', 'error');
+    }
+}
+
+function xrayClearPaste() {
+    document.getElementById('tunnel-xray-paste').value = '';
+}
+
+function xrayMethodOptions(proto) {
+    if (proto === 'vmess') return ['auto', 'aes-128-gcm', 'chacha20-poly1305', 'none'];
+    if (proto === 'shadowsocks') return ['aes-256-gcm', 'aes-128-gcm', 'chacha20-ietf-poly1305', 'xchacha20-ietf-poly1305', '2022-blake3-aes-128-gcm', '2022-blake3-aes-256-gcm', '2022-blake3-chacha20-poly1305'];
+    return ['none']; // vless
+}
+
+function xrayProtoChange() {
+    const proto = document.getElementById('xray-proto').value;
+    document.getElementById('xray-uuid-field').classList.toggle('hidden', !(proto === 'vless' || proto === 'vmess'));
+    document.getElementById('xray-flow-field').classList.toggle('hidden', proto !== 'vless');
+    document.getElementById('xray-password-field').classList.toggle('hidden', !(proto === 'trojan' || proto === 'shadowsocks'));
+    document.getElementById('xray-method-field').classList.toggle('hidden', proto === 'trojan');
+    const sel = document.getElementById('xray-method');
+    const cur = sel.value;
+    sel.innerHTML = '';
+    xrayMethodOptions(proto).forEach(v => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = v;
+        sel.appendChild(opt);
+    });
+    if (Array.from(sel.options).some(o => o.value === cur)) sel.value = cur;
+}
+
+function xrayNetworkChange() {
+    const net = document.getElementById('xray-network').value;
+    const showPath = ['ws', 'grpc', 'xhttp', 'httpupgrade'].includes(net);
+    document.getElementById('xray-path-field').classList.toggle('hidden', !showPath);
+    document.getElementById('xray-wshost-field').classList.toggle('hidden', !showPath);
+    document.getElementById('xray-wsheaders-field').classList.toggle('hidden', net !== 'ws');
+    document.getElementById('xray-path-label').textContent = net === 'grpc' ? 'Service Name' : 'Path (e.g. / or /ws)';
+}
+
+function xraySecurityChange() {
+    const sec = document.getElementById('xray-tlssec').value;
+    document.getElementById('xray-tls-group').classList.toggle('hidden', !(sec === 'tls' || sec === 'reality'));
+    document.getElementById('xray-reality-group').classList.toggle('hidden', sec !== 'reality');
+}
+
+function xrayAddWsHeader(k, v) {
+    const box = document.getElementById('xray-ws-headers');
+    const row = document.createElement('div');
+    row.className = 'flex items-center space-x-2';
+    const keyInput = document.createElement('input');
+    keyInput.type = 'text';
+    keyInput.placeholder = 'Header';
+    keyInput.value = k || '';
+    keyInput.className = 'input-field w-2/5';
+    const valInput = document.createElement('input');
+    valInput.type = 'text';
+    valInput.placeholder = 'Value';
+    valInput.value = v || '';
+    valInput.className = 'input-field flex-1';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'px-2 py-1 text-red-500 hover:text-red-700 dark:hover:text-red-400 shrink-0';
+    btn.innerHTML = '<i class="fas fa-trash"></i>';
+    btn.onclick = () => row.remove();
+    row.appendChild(keyInput);
+    row.appendChild(valInput);
+    row.appendChild(btn);
+    box.appendChild(row);
+}
+
+function xrayResetWsHeaders() {
+    const box = document.getElementById('xray-ws-headers');
+    if (box) box.innerHTML = '';
+}
+
+function xrayReadWsHeaders() {
+    const out = {};
+    document.querySelectorAll('#xray-ws-headers > div').forEach(row => {
+        const inputs = row.querySelectorAll('input');
+        const k = inputs[0].value.trim();
+        if (k) out[k] = inputs[1].value;
+    });
+    return out;
+}
+
+// Builds the outbound JSON from the manual form — same shape as the Go
+// builders (BuildVlessOutbound / BuildVmessOutbound / BuildTrojanOutbound /
+// BuildShadowsocksOutbound + buildStreamSettings).
+function xrayBuildOutboundJSON(t) {
+    const proto = document.getElementById('xray-proto').value;
+    const addr = t.server.host;
+    const port = t.server.port;
+    const stream = xrayBuildStreamSettings(t);
+    switch (proto) {
+        case 'vless': {
+            const user = { id: t.auth.uuid, encryption: 'none' };
+            if (t.auth.flow) user.flow = t.auth.flow;
+            return { protocol: 'vless', tag: 'proxy', settings: { vnext: [{ address: addr, port: port, users: [user] }] }, streamSettings: stream };
+        }
+        case 'vmess':
+            return { protocol: 'vmess', tag: 'proxy', settings: { vnext: [{ address: addr, port: port, users: [{ id: t.auth.uuid, alterId: 0, security: t.auth.method || 'auto' }] }] }, streamSettings: stream };
+        case 'trojan':
+            return { protocol: 'trojan', tag: 'proxy', settings: { servers: [{ address: addr, port: port, password: t.auth.password }] }, streamSettings: stream };
+        case 'shadowsocks':
+            return { protocol: 'shadowsocks', tag: 'proxy', settings: { servers: [{ address: addr, port: port, method: t.auth.method || 'aes-256-gcm', password: t.auth.password }] }, streamSettings: stream };
+        default:
+            throw new Error('unsupported protocol');
+    }
+}
+
+function xrayBuildStreamSettings(t) {
+    const net = t.transport.network;
+    const sec = t.transport.security; // 'tls' | 'reality' | ''
+    const ss = { network: net, security: sec === '' ? 'none' : sec };
+    if (net === 'ws') {
+        const headers = xrayReadWsHeaders();
+        headers.Host = t.transport.host || ''; // mirror buildStreamSettings
+        ss.wsSettings = { path: t.transport.path || '/', headers: headers };
+    } else if (net === 'grpc') {
+        const g = { serviceName: t.transport.path || '', multiMode: false };
+        if (t.transport.host) g.authority = t.transport.host;
+        ss.grpcSettings = g;
+    } else if (net === 'xhttp') {
+        const x = { path: t.transport.path || '/' };
+        if (t.transport.host) x.host = t.transport.host;
+        ss.xhttpSettings = x;
+    } else if (net === 'httpupgrade') {
+        const h = { path: t.transport.path || '/' };
+        if (t.transport.host) h.host = t.transport.host;
+        ss.httpupgradeSettings = h;
+    } else if (net === 'tcp') {
+        ss.tcpSettings = { header: { type: 'none' } };
+    }
+    if (sec === 'tls') {
+        const tls = { serverName: t.server.sni || '', alpn: t.transport.alpn || [] };
+        if (t.transport.fingerprint) tls.fingerprint = t.transport.fingerprint;
+        ss.tlsSettings = tls;
+    } else if (sec === 'reality') {
+        const reality = { serverName: t.server.sni || '', publicKey: t.server.public_key || '', shortId: t.server.short_id || '' };
+        if (t.transport.fingerprint) reality.fingerprint = t.transport.fingerprint;
+        ss.realitySettings = reality;
+    }
+    return ss;
+}
+
+// Fills the manual form (3 sections) from a parsed link / stored config.
+function xrayFillManual(t) {
+    const server = t.server || {};
+    const auth = t.auth || {};
+    const transport = t.transport || {};
+    const advanced = t.advanced || {};
+    let proto = 'vless';
+    try {
+        const ob = JSON.parse(advanced.outbound_json || '{}');
+        if (ob.protocol) proto = ob.protocol;
+    } catch (e) { /* ignore */ }
+    if (!['vless', 'vmess', 'trojan', 'shadowsocks'].includes(proto)) proto = 'vless';
+    document.getElementById('xray-proto').value = proto;
+    xrayProtoChange();
+    document.getElementById('xray-host').value = server.host || '';
+    document.getElementById('xray-port').value = server.port || '';
+    document.getElementById('xray-uuid').value = auth.uuid || '';
+    document.getElementById('xray-password').value = auth.password || '';
+    document.getElementById('xray-flow').value = auth.flow || '';
+    const methodOpts = xrayMethodOptions(proto);
+    document.getElementById('xray-method').value = methodOpts.includes(auth.method) ? auth.method : methodOpts[0];
+    if (!['vless', 'vmess'].includes(proto)) document.getElementById('xray-method').value = auth.method || methodOpts[0];
+    document.getElementById('xray-network').value = transport.network || 'ws';
+    xrayNetworkChange();
+    document.getElementById('xray-path').value = transport.path || '';
+    document.getElementById('xray-wshost').value = transport.host || '';
+    document.getElementById('xray-tlssec').value = transport.security || 'none';
+    xraySecurityChange();
+    document.getElementById('xray-sni').value = server.sni || '';
+    document.getElementById('xray-pbk').value = server.public_key || '';
+    document.getElementById('xray-shortid').value = server.short_id || '';
+    const fp = transport.fingerprint || '';
+    const fpSel = document.getElementById('xray-fp');
+    fpSel.value = Array.from(fpSel.options).some(o => o.value === fp) ? fp : '';
+    document.getElementById('xray-alpn').value = (transport.alpn || []).join(',');
+    xrayResetWsHeaders();
+    if (advanced.xray_ws_headers) {
+        try {
+            Object.entries(JSON.parse(advanced.xray_ws_headers)).forEach(([k, v]) => xrayAddWsHeader(k, v));
+        } catch (e) { /* ignore */ }
+    }
+}
+
+// Validates the Xray form and fills the outgoing tunnel object. Returns
+// false when validation fails (notification already shown).
+function xrayCollectAndBuild(tunnel) {
+    if (xrayMode === 'paste') {
+        const text = document.getElementById('tunnel-xray-paste').value.trim();
+        if (text === '') {
+            showNotification('Xray: configure manually or paste a link / JSON config', 'error');
+            return false;
+        }
+        if (/^(vmess|vless|trojan|ss|shadowsocks):\/\//i.test(text)) {
+            showNotification('Link detected: click "Import link into form" first', 'error');
+            return false;
+        }
+        try {
+            JSON.parse(text);
+        } catch (e) {
+            showNotification('Invalid JSON config: ' + e.message, 'error');
+            return false;
+        }
+        tunnel.advanced.outbound_json = text;
+        tunnel.advanced.link = '';
+        delete tunnel.advanced.xray_ws_headers;
+        // Keep the current manual server fields for display/round-trip; the
+        // pasted JSON wins at runtime.
+        tunnel.server.host = document.getElementById('xray-host').value.trim();
+        tunnel.server.port = parseInt(document.getElementById('xray-port').value) || 0;
+        return true;
+    }
+
+    const host = document.getElementById('xray-host').value.trim();
+    const port = parseInt(document.getElementById('xray-port').value) || 0;
+    const proto = document.getElementById('xray-proto').value;
+    if (!host) {
+        showNotification('Xray: server address is required', 'error');
+        return false;
+    }
+    if (!port) {
+        showNotification('Xray: port is required', 'error');
+        return false;
+    }
+    const uuid = document.getElementById('xray-uuid').value.trim();
+    const password = document.getElementById('xray-password').value.trim();
+    if ((proto === 'vless' || proto === 'vmess') && !uuid) {
+        showNotification('Xray: UUID is required for ' + proto.toUpperCase(), 'error');
+        return false;
+    }
+    if ((proto === 'trojan' || proto === 'shadowsocks') && !password) {
+        showNotification('Xray: password is required for ' + proto, 'error');
+        return false;
+    }
+
+    // Structured fields (round-trip + local builds).
+    tunnel.server.host = host;
+    tunnel.server.port = port;
+    tunnel.server.sni = document.getElementById('xray-sni').value.trim();
+    tunnel.server.public_key = document.getElementById('xray-pbk').value.trim();
+    tunnel.server.short_id = document.getElementById('xray-shortid').value.trim();
+    tunnel.auth.uuid = uuid;
+    tunnel.auth.password = password;
+    tunnel.auth.flow = document.getElementById('xray-flow').value.trim();
+    tunnel.auth.method = document.getElementById('xray-method').value;
+    const sec = document.getElementById('xray-tlssec').value;
+    tunnel.transport.network = document.getElementById('xray-network').value;
+    tunnel.transport.security = sec === 'none' ? '' : sec;
+    tunnel.transport.path = document.getElementById('xray-path').value;
+    tunnel.transport.host = document.getElementById('xray-wshost').value.trim();
+    tunnel.transport.fingerprint = document.getElementById('xray-fp').value;
+    const alpn = document.getElementById('xray-alpn').value.trim();
+    tunnel.transport.alpn = alpn ? alpn.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+    // Custom WS headers (ws only).
+    if (tunnel.transport.network === 'ws') {
+        const headers = xrayReadWsHeaders();
+        if (Object.keys(headers).length) tunnel.advanced.xray_ws_headers = JSON.stringify(headers);
+        else delete tunnel.advanced.xray_ws_headers;
+    } else {
+        delete tunnel.advanced.xray_ws_headers;
+    }
+
+    try {
+        tunnel.advanced.outbound_json = JSON.stringify(xrayBuildOutboundJSON(tunnel));
+    } catch (e) {
+        showNotification('Xray: ' + e.message, 'error');
+        return false;
+    }
+    tunnel.advanced.link = '';
+    return true;
+}
+
+// Loads an existing xray tunnel into the new panel (edit mode).
+function xrayLoadIntoPanel(tunnel) {
+    const cfg = tunnel.config || {};
+    xrayFillManual({ server: cfg.server || {}, auth: cfg.auth || {}, transport: cfg.transport || {}, advanced: cfg.advanced || {} });
+    const adv = cfg.advanced || {};
+    const isFullConfig = typeof adv.outbound_json === 'string' && adv.outbound_json.indexOf('"outbounds"') !== -1;
+    const link = adv.link || '';
+    document.getElementById('tunnel-xray-paste').value = link || (isFullConfig ? adv.outbound_json : '');
+    document.getElementById('tunnel-outbound-json').value = adv.outbound_json || '';
+    document.getElementById('tunnel-link').value = link;
+    xraySetMode(isFullConfig ? 'paste' : 'manual');
+}
+
+function xrayResetPanel() {
+    document.getElementById('xray-proto').value = 'vless';
+    xrayProtoChange();
+    ['xray-host', 'xray-port', 'xray-uuid', 'xray-password', 'xray-flow', 'xray-path', 'xray-wshost', 'xray-sni', 'xray-pbk', 'xray-shortid', 'xray-alpn', 'tunnel-xray-paste'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    document.getElementById('xray-network').value = 'ws';
+    xrayNetworkChange();
+    document.getElementById('xray-tlssec').value = 'none';
+    xraySecurityChange();
+    document.getElementById('xray-fp').value = '';
+    xrayResetWsHeaders();
+    xraySetMode('manual');
 }
 
 document.addEventListener('DOMContentLoaded', init);
