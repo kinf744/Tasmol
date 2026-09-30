@@ -3,6 +3,9 @@ name: Build Mobile (Android APK, armv7)
 on:
   push:
     branches: [master, main]
+    # Without this the "Create Release" step below was dead code: a `branches`
+    # filter never matches a tag ref, so no release could ever be published.
+    tags: ['v*']
   pull_request:
     branches: [master, main]
   workflow_dispatch:
@@ -17,6 +20,8 @@ jobs:
     name: Build Android APK (armv7)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: Checkout repository
@@ -115,15 +120,40 @@ jobs:
           unzip -q "gradle-${{ env.GRADLE_VERSION }}-bin.zip"
           echo "/tmp/gradle-${{ env.GRADLE_VERSION }}/bin" >> $GITHUB_PATH
 
+      - name: Materialise release keystore
+        env:
+          TASMOL_KEYSTORE_B64: ${{ secrets.TASMOL_KEYSTORE_B64 }}
+        run: |
+          # Without this the release APK is signed with the runner's throwaway
+          # debug key, which changes on every run: each build then had a
+          # different signer and could not be installed over the previous one.
+          if [ -z "$TASMOL_KEYSTORE_B64" ]; then
+            echo "::error::TASMOL_KEYSTORE_B64 secret is missing - the APK would be signed with a per-run debug key and refuse to update"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keystore"
+          printf '%s' "$TASMOL_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/tasmol-release.jks"
+          echo "keystore: $(stat -c%s "$RUNNER_TEMP/keystore/tasmol-release.jks") bytes"
+
       - name: Build Release APK
+        env:
+          TASMOL_KEYSTORE_PATH: ${{ runner.temp }}/keystore/tasmol-release.jks
+          TASMOL_KEY_ALIAS: ${{ secrets.TASMOL_KEY_ALIAS }}
+          TASMOL_KEY_PASSWORD: ${{ secrets.TASMOL_KEY_PASSWORD }}
         run: |
           cd android
           gradle assembleRelease --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
-          ls -lh android/app/build/outputs/apk/release/app-release.apk
-          file android/app/build/outputs/apk/release/app-release.apk
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          ls -lh "$APK"
+          file "$APK"
+          echo '--- signer certificate (must stay identical across builds) ---'
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
+          echo '--- versionCode (must strictly increase) ---'
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" \
+            | grep -E "^package:|^native-code:" || true
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -131,9 +161,12 @@ jobs:
           name: tasvpn-android-apk
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
+          if-no-files-found: error
 
       - name: Create Release (APK)
         if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        permissions:
+          contents: write
         uses: softprops/action-gh-release@v1
         with:
           files: android/app/build/outputs/apk/release/app-release.apk

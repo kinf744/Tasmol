@@ -3,6 +3,7 @@ name: Build ARMv7 (armeabi-v7a)
 on:
   push:
     branches: [master, main]
+    tags: ['v*']
   pull_request:
     branches: [master, main]
   workflow_dispatch:

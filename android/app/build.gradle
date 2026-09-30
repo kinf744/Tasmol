@@ -3,6 +3,38 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+// ---- Release signing -------------------------------------------------------
+// The release APK used to be signed with signingConfigs.debug. On CI that
+// means a *freshly generated* ~/.android/debug.keystore on every runner, so
+// every build produced a different signer: installing a new build over the
+// previous one was refused with INSTALL_FAILED_UPDATE_INCOMPATIBLE, and the
+// signature changed from one build to the next.
+//
+// A real key is now supplied through the environment (GitHub Actions secrets
+// TASMOL_KEYSTORE_B64 / TASMOL_KEY_ALIAS / TASMOL_KEY_PASSWORD). When those
+// are absent — a local build with no secrets — we fall back to the debug key
+// so `gradle assembleDebug`/local experiments still work, but that APK must
+// never be the one you install over a device: uninstall first.
+def releaseStoreFile = System.getenv('TASMOL_KEYSTORE_PATH')
+def releaseAlias = System.getenv('TASMOL_KEY_ALIAS')
+def releasePassword = System.getenv('TASMOL_KEY_PASSWORD')
+def hasReleaseKey = releaseStoreFile && new File(releaseStoreFile).exists()
+                    && releaseAlias && releasePassword
+
+// versionCode must strictly increase for Android to accept an update, and it
+// was hardcoded to 1, so every build claimed the same code. Derive it from
+// the CI run number when available, else from the commit count, so each
+// build installs over the previous one.
+def ciRunNumber = System.getenv('GITHUB_RUN_NUMBER')
+def versionCodeValue
+if (ciRunNumber?.isInteger()) {
+    versionCodeValue = ciRunNumber.toInteger()
+} else {
+    def props = new Properties()
+    def f = rootProject.file('../.git-commit-count')
+    versionCodeValue = f.exists() ? (f.text.trim().isInteger() ? f.text.trim().toInteger() : 1) : 1
+}
+
 android {
     namespace 'com.ephang.vpn'
     compileSdk 34
@@ -11,11 +43,26 @@ android {
         applicationId "com.ephang.vpn"
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName "1.0.0"
+        versionCode versionCodeValue
+        versionName "1.0." + versionCodeValue
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                storeFile file(releaseStoreFile)
+                storePassword releasePassword
+                keyAlias releaseAlias
+                keyPassword releasePassword
+                // v1 is needed for minSdk 26 devices that predate v2-only
+                // enforcement; v2 is what modern devices use.
+                enableV1Signing true
+                enableV2Signing true
+            }
         }
     }
 
@@ -26,7 +73,7 @@ android {
             // resource stripping would drop them from the APK.
             minifyEnabled false
             shrinkResources false
-            signingConfig signingConfigs.debug
+            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
         debug {
             minifyEnabled false
