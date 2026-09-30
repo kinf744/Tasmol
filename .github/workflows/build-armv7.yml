@@ -93,14 +93,35 @@ jobs:
           arm-linux-gnueabihf-strip build/armv7/vpn-app 2>/dev/null || strip build/armv7/vpn-app
           ls -lh build/armv7/vpn-app
 
+      - name: Upload armv7 binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: tasvpn-linux-armv7
+          path: build/armv7/vpn-app
+          retention-days: 30
+          if-no-files-found: error
+
+  # `permissions` is only valid at workflow and job level, never on a step, so
+  # the release gets its own job: the build job stays at contents:read and
+  # never holds a write token.
+  release:
+    name: Publish GitHub Release
+    needs: build-armv7
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download armv7 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: tasvpn-linux-armv7
+          path: dist
+
       - name: Create Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
-        permissions:
-          contents: write
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            build/armv7/vpn-app
+          files: dist/vpn-app
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
