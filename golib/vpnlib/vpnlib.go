@@ -378,10 +378,11 @@ func (c *Controller) Stop() (out string) {
 		}
 	}()
 	c.mu.Lock()
-	if !c.running {
-		c.mu.Unlock()
-		return ""
-	}
+	// cleanupLocked() must run even when the session never reached the
+	// running state: a failed or superseded Start() still leaves a TUN fd, a
+	// tun2socks stack, a config watcher and a file logger behind. Returning
+	// early here leaked all of them, and left the VPN key on screen.
+	wasRunning := c.running
 	// Signal loops to bail out, then release the mutex BEFORE waiting:
 	// followLoop needs c.mu to finish its tick, and its tick may run
 	// blocking restarts — waiting while holding the mutex deadlocks.
@@ -391,7 +392,12 @@ func (c *Controller) Stop() (out string) {
 	}
 	c.mu.Unlock()
 
-	waitBounded(c.wg.Wait, 10*time.Second, "followLoop exit")
+	if wasRunning {
+		// 3s, not 10: followLoop only has to finish its current tick, and
+		// this runs under the Android teardown budget (the Java side gives
+		// up and finally kills the process at 5s on the nuclear path).
+		waitBounded(c.wg.Wait, 3*time.Second, "followLoop exit")
+	}
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -443,7 +449,7 @@ func (c *Controller) cleanupLocked() {
 		st := c.stack
 		c.stack = nil
 		safeCall("stack.Close", func() { st.Close() })
-		waitBounded(st.Wait, 5*time.Second, "tun2socks drain")
+		waitBounded(st.Wait, 3*time.Second, "tun2socks drain")
 	}
 	if c.dev != nil {
 		d := c.dev
@@ -456,7 +462,16 @@ func (c *Controller) cleanupLocked() {
 	if c.vpn != nil {
 		v := c.vpn
 		c.vpn = nil
-		waitBounded(func() { _ = v.Stop(context.Background()) }, 10*time.Second, "tunnels stop")
+		// A bounded context, not Background(): every helper is started with
+		// exec.CommandContext, so cancelling this context SIGKILLs xray,
+		// uz_core, hysteria, openssh and dnstt even when a tunnel's own Stop
+		// wedges. Without it, hitting the outer bound meant the children
+		// simply stayed alive as orphans of a process Android still thought
+		// was running — holding their SOCKS ports, so the next session's
+		// helper could never bind and burned all its retry attempts.
+		stopCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		waitBounded(func() { _ = v.Stop(stopCtx) }, 6*time.Second, "tunnels stop")
+		cancel()
 	}
 	if c.cfgMgr != nil {
 		m := c.cfgMgr

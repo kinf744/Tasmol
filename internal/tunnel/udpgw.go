@@ -190,14 +190,41 @@ func (u *udpgwProxy) handlePackets() {
 			u.stats.ActiveConnections++
 			u.mu.Unlock()
 
+			// Register the forwarder under the mutex and refuse once Stop has
+			// begun, so wg.Add can never race a concurrent wg.Wait().
+			u.mu.Lock()
+			if !u.status {
+				u.mu.Unlock()
+				return
+			}
+			// Hand the forwarder its OWN copy. buf is a single buffer reused
+			// by this loop, and the forwarder reads it again after the
+			// goroutine is scheduled (string(data) to resolve the target,
+			// then Write(data) to the remote socket) — by which time the
+			// next ReadFrom has already overwritten it. That corrupted
+			// payloads and could mix bytes belonging to a different client
+			// flow into this one. The copy must happen here, before we loop.
+			payload := make([]byte, n)
+			copy(payload, buf[:n])
 			u.wg.Add(1)
-			go u.forwardPacket(buf[:n], clientAddr)
+			u.mu.Unlock()
+			go u.forwardPacket(payload, clientAddr)
 		}
 	}
 }
 
 func (u *udpgwProxy) forwardPacket(data []byte, clientAddr net.Addr) {
 	defer u.wg.Done()
+	// handlePackets() increments ActiveConnections per datagram and only
+	// decremented it on the success path, so the counter grew forever and
+	// the UI showed a steadily rising number of "active" connections.
+	defer func() {
+		u.mu.Lock()
+		if u.stats.ActiveConnections > 0 {
+			u.stats.ActiveConnections--
+		}
+		u.mu.Unlock()
+	}()
 
 	targetAddr, err := net.ResolveUDPAddr("udp", string(data))
 	if err != nil {
@@ -240,28 +267,35 @@ func (u *udpgwProxy) forwardPacket(data []byte, clientAddr net.Addr) {
 	u.mu.Lock()
 	u.stats.BytesSent += int64(n)
 	u.stats.TotalConnections++
-	u.stats.ActiveConnections--
 	u.mu.Unlock()
 }
 
 func (u *udpgwProxy) Stop(ctx context.Context) error {
 	u.mu.Lock()
-	defer u.mu.Unlock()
-
 	if !u.status {
+		u.mu.Unlock()
 		return nil
 	}
-
+	// Flip the flag first: handlePackets re-checks it under this same mutex
+	// before every wg.Add, so past this point no goroutine can register
+	// itself and wg.Wait() can no longer race an Add — which panics with
+	// "sync: WaitGroup misuse" on Go >= 1.20 and kills the process.
+	u.status = false
 	if u.cancel != nil {
 		u.cancel()
 	}
+	conn := u.conn
+	u.mu.Unlock()
 
-	if u.conn != nil {
-		u.conn.Close()
+	if conn != nil {
+		conn.Close()
 	}
-
+	// wg.Wait() MUST run outside u.mu: the Close above unblocks handlePackets
+	// from ReadFrom, and it then needs u.mu to record the error and the byte
+	// counters. Holding the lock here made Stop wait forever on a goroutine
+	// that could never make progress — and left u.status true, so every
+	// later Stop (and Start) blocked too.
 	u.wg.Wait()
-	u.status = false
 	return nil
 }
 

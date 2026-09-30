@@ -288,7 +288,17 @@ func logServerMessage(client *ssh.Client) {
 		if sess := sessPtr.Load(); sess != nil {
 			_ = sess.Close()
 		}
-		<-done
+		// Closing the session is *supposed* to wake the pending stdout.Read,
+		// but it is not guaranteed: a server that never answers the channel
+		// close leaves the Read blocked forever. This helper only harvests
+		// the banner, so give it a bounded grace period and then give up.
+		// The old bare "<-done" pinned t.mu forever on that path, which made
+		// Start/Stop — and therefore every status read on the UI thread —
+		// block indefinitely. native SSH is the default engine on Android.
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
 	}
 }
 

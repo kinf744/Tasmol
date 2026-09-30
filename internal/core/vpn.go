@@ -118,28 +118,37 @@ func (v *VPNCore) Start(ctx context.Context) error {
 
 func (v *VPNCore) Stop(ctx context.Context) error {
 	v.mu.Lock()
-	if !v.running {
-		v.mu.Unlock()
-		return nil
-	}
+	// "wasRunning" only gates what Start() actually set up (features, stats
+	// collector). The tunnel teardown must NOT be gated on it: the Android
+	// Controller (golib/vpnlib) creates this core but never calls Start() —
+	// it starts the tunnels one by one itself — so v.running stayed false and
+	// the early return below turned the whole teardown into a no-op. No
+	// helper process (xray, hysteria, uz_core, openssh, dnstt/slowdns) was
+	// ever killed on mobile, and they piled up across reconnections.
+	wasRunning := v.running
 	v.running = false
-	if v.cancel != nil {
-		v.cancel()
-	}
+	cancel := v.cancel
+	coreCtx := v.ctx
 	v.mu.Unlock()
 
-	if err := v.tunnelManager.StopAll(v.ctx); err != nil {
-		return fmt.Errorf("failed to stop tunnels: %w", err)
+	if cancel != nil {
+		cancel()
 	}
 
-	if v.featureManager != nil {
-		if err := v.featureManager.Stop(v.ctx); err != nil {
-			return fmt.Errorf("failed to stop features: %w", err)
+	var firstErr error
+	if err := v.tunnelManager.StopAll(ctx); err != nil && firstErr == nil {
+		firstErr = fmt.Errorf("failed to stop tunnels: %w", err)
+	}
+
+	if wasRunning {
+		if v.featureManager != nil {
+			if err := v.featureManager.Stop(coreCtx); err != nil && firstErr == nil {
+				firstErr = fmt.Errorf("failed to stop features: %w", err)
+			}
 		}
+		v.wg.Wait()
 	}
-
-	v.wg.Wait()
-	return nil
+	return firstErr
 }
 
 func (v *VPNCore) IsRunning() bool {
