@@ -80,8 +80,14 @@ readonly QUOTA_TIMER="stivaros-quota.timer"
 if [[ -t 1 ]]; then
     RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[1;33m'
     CYAN=$'\033[0;36m'; WHITE=$'\033[1;37m'; NC=$'\033[0m'; BOLD=$'\033[1m'
+    # Palette étendue (refonte UI v2.1) — 256 couleurs.
+    PURPLE=$'\033[38;5;135m'; BLUE=$'\033[38;5;39m'; PINK=$'\033[38;5;198m'
+    ORANGE=$'\033[38;5;208m'; DIM=$'\033[2m'; BG=$'\033[48;5;236m'
+    LIME=$'\033[38;5;118m'; GOLD=$'\033[38;5;220m'; GRAY=$'\033[38;5;245m'
 else
     RED=""; GREEN=""; YELLOW=""; CYAN=""; WHITE=""; NC=""; BOLD=""
+    PURPLE=""; BLUE=""; PINK=""; ORANGE=""; DIM=""; BG=""
+    LIME=""; GOLD=""; GRAY=""
 fi
 
 log()  { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$LOG_FILE" 2>/dev/null || true; }
@@ -91,14 +97,117 @@ error() { echo -e "${RED}[✗]${NC} $1" >&2; log "ERR  $1"; }
 info()  { echo -e "${CYAN}[i]${NC} $1"; log "INFO $1"; }
 die()   { error "$1"; exit 1; }
 
+# ── Cadres d'interface (refonte UI v2.1) ───────────────────────────────
+# Toutes les fonctions d'affichage uniquement: aucune logique n'est touchée.
+box_top()    { echo -e "${BLUE}  ╔$(printf '═%.0s' $(seq 54))╗${NC}"; }
+box_mid()    { echo -e "${BLUE}  ╠$(printf '═%.0s' $(seq 54))╣${NC}"; }
+box_bot()    { echo -e "${BLUE}  ╚$(printf '═%.0s' $(seq 54))╝${NC}"; }
+box_sep()    { echo -e "${GRAY}  ├$(printf '─%.0s' $(seq 54))┤${NC}"; }
+# box_line "texte" — contenu à LARGEUR FIXEDE 52 (escape codes ignorés via %b trick)
+box_line() {
+    local txt="$1" vis len pad
+    # retire les séquences ANSI pour mesurer la longueur visible
+    vis=$(printf '%b' "$txt" | sed $'s/\033\\[[0-9;]*m//g')
+    len=${#vis}
+    pad=$((52 - len)); ((pad < 0)) && pad=0
+    echo -e "${BLUE}  ║${NC}${txt}$(printf ' %.0s' $(seq 1 $((pad + 1))))${BLUE} ║${NC}"
+}
+box_title() {
+    local txt="$1" vis len pad
+    vis=$(printf '%b' "$txt" | sed $'s/\033\\[[0-9;]*m//g')
+    len=${#vis}
+    pad=$(((52 - len) / 2)); ((pad < 1)) && pad=1
+    echo -e "${BLUE}  ║${NC}$(printf ' %.0s' $(seq 1 $pad))${BOLD}${GOLD}${txt}${NC}$(printf ' %.0s' $(seq 1 $((52 - len - pad + 2))))${BLUE} ║${NC}"
+}
+
 banner() {
     clear
-    echo -e "${CYAN}"
-    echo '  ╔════════════════════════════════════════════════╗'
-    echo '  ║          STIVAROS VPN PANEL  v2.0              ║'
-    echo '  ║     Activation API + Gestion des tunnels       ║'
-    echo '  ╚════════════════════════════════════════════════╝'
+    echo -e "${BLUE}"
+    echo '  ╔══════════════════════════════════════════════════════╗'
+    echo '  ║                                                      ║'
+    echo '  ║   ███████╗████████╗██╗██╗   ██╗ █████╗ ██████╗       ║'
+    echo '  ║   ██╔════╝╚══██╔══╝██║██║   ██║██╔══██╗██╔══██╗      ║'
+    echo '  ║   ███████╗   ██║   ██║██║   ██║███████║██████╔╝      ║'
+    echo '  ║   ╚════██║   ██║   ██║╚██╗ ██╔╝██╔══██║██╔═══╝       ║'
+    echo '  ║   ███████║   ██║   ██║ ╚████╔╝ ██║  ██║██║  ██║      ║'
+    echo '  ║   ╚══════╝   ╚═╝   ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═╝      ║'
+    echo '  ║                                                      ║'
+    echo -e "  ║        ${GOLD}${BOLD}S  T  I  V  A  R  O  S    P  A  N  E  L${NC}${BLUE}          ║"
+    echo -e '  ║            VPN Manager • Activation API • Tunnels    ║'
+    echo '  ║                  v2.1 — build UI moderne             ║'
+    echo '  ╚══════════════════════════════════════════════════════╝'
     echo -e "${NC}"
+}
+
+# ── Dashboard (v2.1): infos système + comptes + tunnels ────────────────
+# Uniquement de la lecture/affichage; aucune mutation.
+sys_ip_pub()  { curl -fsSL --max-time 4 https://api.ipify.org 2>/dev/null \
+                || curl -fsSL --max-time 4 ifconfig.me 2>/dev/null \
+                || hostname -I 2>/dev/null | awk '{print $1}' || echo "?"; }
+sys_cpu()     { local u; u=$(top -bn1 2>/dev/null | awk -F'[,% ]' '/^%Cpu/ {printf "%.0f", $2+$4}');
+                echo "${u:-0}"; }
+sys_ram() {
+    awk '/^MemTotal/{t=$2}/^MemAvailable/{a=$2}END{
+        u=t-a; if(t>0) printf "%d/%d Mo (%d%%)", u/1024, t/1024, u*100/t}' /proc/meminfo
+}
+sys_disk() {
+    df -m / 2>/dev/null | awk 'NR==2{printf "%d/%d Go (%d%%)", $3/1024, $2/1024, $5+0}'
+}
+acc_counts() {
+    # écrit "actifs|expirés" — 0|0 si la DB n'existe pas encore.
+    if [[ ! -f "$DB_PATH" ]]; then echo "0|0"; return; fi
+    sqlite3 -batch "$DB_PATH" "
+      SELECT
+        COALESCE(SUM(CASE WHEN active=1
+             AND (expires_at IS NULL OR expires_at >= DATE('now')) THEN 1 ELSE 0 END),0)
+        || '|' ||
+        COALESCE(SUM(CASE WHEN active=0
+             OR (expires_at IS NOT NULL AND expires_at < DATE('now')) THEN 1 ELSE 0 END),0)
+      FROM users;" 2>/dev/null || echo "0|0"
+}
+tun_dot() { # $1 nom court — pastille colorée ●◌
+    local s; s=$(tunnel_state "$1" 2>/dev/null || echo 2)
+    case "$s" in
+        0) echo -e "${GREEN}●${NC}";;
+        1) echo -e "${YELLOW}◐${NC}";;
+        *) echo -e "${RED}○${NC}";;
+    esac
+}
+
+dashboard() {
+    local ip cuv cpun ram disk counts valid expired uptime_v
+    ip=$(sys_ip_pub)
+    cuv=$(sys_cpu); cpun=$(nproc 2>/dev/null || echo 1)
+    ram=$(sys_ram); disk=$(sys_disk)
+    counts=$(acc_counts); valid=${counts%|*}; expired=${counts#*|}
+    # barre CPU: jauge 10 blocs (compacte — la ligne reste dans le cadre)
+    ((cuv > 100)) && cuv=100
+    local fill=$((cuv / 10)); local bar
+    bar="$(printf '█%.0s' $(seq 1 $fill 2>/dev/null))$(printf '░%.0s' $(seq 1 $((10-fill)) 2>/dev/null))"
+    local load; load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo "?")
+    uptime_v=$(uptime -p 2>/dev/null | sed 's/up //' || echo "?")
+    local apic="${RED}●${NC}"
+    systemctl is-active --quiet stivaros-api && apic="${GREEN}●${NC}"
+
+    echo -e "${GRAY}  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ TABLEAU DE BORD ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${NC}"
+    box_top
+    box_title "SUPERVISION VPS"
+    box_mid
+    box_line "  ${GOLD}IP publique${NC}  : ${BOLD}${CYAN}${ip}${NC}"
+    box_line "  ${GOLD}Hostname${NC}     : ${WHITE}$(hostname)${NC}"
+    box_line "  ${GOLD}Uptime${NC}       : ${WHITE}${uptime_v}${NC}"
+    box_sep
+    box_line "  ${GOLD}CPU${NC}     : ${cpun} (${PURPLE}${bar}${NC}) ${BOLD}${WHITE}${cuv}%${NC}  ${GRAY}load:${load}${NC}"
+    box_line "  ${GOLD}RAM${NC}     : ${PINK}${ram}${NC}"
+    box_line "  ${GOLD}Disque${NC}  : ${ORANGE}${disk}${NC}"
+    box_sep
+    box_line "  ${GOLD}Comptes${NC}  :  ${LIME}${BOLD}${valid} valide(s)${NC}  ${GRAY}│${NC}  ${RED}${BOLD}${expired} expiré(s)/bloqué(s)${NC}"
+    box_sep
+    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC}  $(tun_dot zivpn) ${WHITE}ZIVPN${NC}  $(tun_dot ssh) ${WHITE}SSH${NC}"
+    box_line "             $(tun_dot v2ray) ${WHITE}V2Ray-DNS${NC}  $(tun_dot slowdns) ${WHITE}SlowDNS${NC}"
+    box_line "  ${GOLD}API${NC}     : ${apic} ${WHITE}stivaros-api :${API_PORT}${NC}"
+    box_bot
+    echo
 }
 
 # ── Garde-fous ─────────────────────────────────────────────────────────
@@ -505,6 +614,8 @@ install_zivpn() {
 EOF
     chmod 600 "$ZIVPN_CONFIG"
 
+    # Le heredoc est déquoté (EOF, pas 'EOF') pour injecter le chemin nft;
+    # la ligne contient « $ZIVPN_RANGE » encodée comme chaîne littérale.
     cat > "/etc/systemd/system/$ZIVPN_SERVICE" << 'EOF'
 [Unit]
 Description=Stivaros ZIVPN UDP Server (dedicated instance)
@@ -514,9 +625,9 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-# Recharge la table DNAT (34000-49999 -> :5668) à chaque (re)démarrage:
-# les tables nft créées par ce script ne survivent jamais au reboot, et
-# ZIVPN sans DNAT = handshake silencieusement perdu (aucun log, aucun trace).
+# Recharge la table DNAT (34000-49999 -> 5668) à chaque (re)démarrage:
+# les tables nft créées par ce script ne survivent jamais au reboot.
+# ZIVPN sans DNAT = handshake silencieusement perdu (aucun log, aucun gRPC).
 ExecStartPre=/usr/sbin/nft -f /etc/nftables/stivaros-zivpn.nft
 # Restaure aussi la table slowdns (53 -> 5300) si elle y vit : elle non
 # plus ne survit pas au reboot et SlowDNS mourrait silencieusement.
@@ -532,13 +643,13 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-    # nftables: accepte :5668 + DNAT de la plage clients vers :5668.
-    # 'destroy' recrée la table à zéro: un rechargement 'nft -f' (ExecStartPre
-    # du service, ou réinstallation) ne duplique jamais les règles.
+    # nftables: accepte 5667 + DNAT de la plage clients vers 5667
     local iface tmp
     iface=$(main_iface)
     tmp=$(mktemp)
     cat > "$tmp" << EOF
+# 'destroy' recrée la table à zéro: un rechargement 'nft -f' (ExecStartPre
+# du service, ou réinstallation) ne duplique jamais les règles.
 destroy table inet stivaros_zivpn
 table inet stivaros_zivpn {
     chain input {
@@ -2163,26 +2274,34 @@ tunnels_status() {
 
 tunnel_menu() {
     while true; do
-        banner; echo -e "${BOLD}Gestion des tunnels${NC}\n"
-        tunnel_badge xray    "Xray"
-        tunnel_badge zivpn   "ZIVPN"
-        tunnel_badge ssh     "SSH"
-        tunnel_badge v2ray   "V2Ray-DNS"
-        tunnel_badge slowdns "SlowDNS"
+        banner; echo -e "${BOLD}${GOLD}Gestion des tunnels${NC}\n"
+        box_top
+        box_title "ÉTAT DES SERVICES"
+        box_mid
+        box_line "  $(tunnel_state xray    >/dev/null; tun_dot xray)    ${WHITE}Xray${NC}      ${GRAY}(VLESS+XHTTP+TLS :443)${NC}"
+        box_line "  $(tunnel_state zivpn   >/dev/null; tun_dot zivpn)    ${WHITE}ZIVPN${NC}     ${GRAY}(UDP :${ZIVPN_PORT}, DNAT ${ZIVPN_RANGE})${NC}"
+        box_line "  $(tunnel_state ssh     >/dev/null; tun_dot ssh)    ${WHITE}SSH${NC}       ${GRAY}(base SSH+SlowDNS, :22)${NC}"
+        box_line "  $(tunnel_state v2ray   >/dev/null; tun_dot v2ray)    ${WHITE}V2Ray-DNS${NC} ${GRAY}(base V2Ray+SlowDNS, :${V2RAY_PORT})${NC}"
+        box_line "  $(tunnel_state slowdns >/dev/null; tun_dot slowdns)    ${WHITE}SlowDNS${NC}   ${GRAY}(dnstt + dnsdist :${DNSDIST_PORT})${NC}"
+        box_bot
         echo
-        echo "  1) Installer / réparer Xray"
-        echo "  2) Installer / réparer ZIVPN"
-        echo "  3) Installer / réparer SSH"
-        echo "  4) Installer / réparer V2Ray-DNS"
-        echo "  5) Installer / réparer SlowDNS (SSH + V2Ray over DNS)"
-        echo "  6) Tout installer (dans l'ordre)"
-        echo "  7) État détaillé"
-        echo "  8) Désinstaller un tunnel"
-        echo "  0) Retour"
+        box_top
+        box_title "ACTIONS"
+        box_mid
+        box_line "  ${GOLD}${BOLD}1${NC}${WHITE})${NC} Installer / réparer ${CYAN}Xray${NC}"
+        box_line "  ${GOLD}${BOLD}2${NC}${WHITE})${NC} Installer / réparer ${CYAN}ZIVPN${NC}"
+        box_line "  ${GOLD}${BOLD}3${NC}${WHITE})${NC} Installer / réparer ${CYAN}SSH${NC}"
+        box_line "  ${GOLD}${BOLD}4${NC}${WHITE})${NC} Installer / réparer ${CYAN}V2Ray-DNS${NC}"
+        box_line "  ${GOLD}${BOLD}5${NC}${WHITE})${NC} Installer / réparer ${CYAN}SlowDNS${NC} ${GRAY}(SSH + V2Ray over DNS)${NC}"
+        box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
+        box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} État détaillé"
+        box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
+        box_line "  ${GOLD}${BOLD}0${NC}${WHITE})${NC} Retour"
+        box_bot
         echo
         local c=""
         # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
-        read -r -p "Choix: " c || { echo; exit 0; }
+        read -r -p "  ${GOLD}Choix${NC} ${WHITE}▸${NC} " c 2>/dev/null || { echo; exit 0; }
         case "$c" in
             1) install_xray || true ;;
             2) install_zivpn || true ;;
@@ -2385,26 +2504,28 @@ manage_devices() {
 menu() {
     while true; do
         banner
-        echo -e "${BOLD}Menu principal${NC}\n"
-        local api_state="${RED}hors ligne${NC}"
-        systemctl is-active --quiet stivaros-api && api_state="${GREEN}actif :$API_PORT${NC}"
-        echo -e "  API d'activation : $api_state"
-        echo
-        echo "  1) Installer / réparer le panel (API + tunnels)"
-        echo "  2) Créer un compte"
-        echo "  3) Lister les comptes"
-        echo "  4) Supprimer des comptes"
-        echo "  5) Gestion des tunnels"
-        echo "  6) État des tunnels"
-        echo "  7) Appareils & verrou UUID"
-        echo "  8) Config Orange (host)"
-        echo "  9) Quotas & consommation"
-        echo " 10) Désinstaller tout"
-        echo "  0) Quitter"
+        dashboard
+        echo -e "${BOLD}${GOLD}Menu principal${NC}\n"
+        box_top
+        box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Installer / réparer le panel ${GRAY}(API + tunnels)${NC}"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} ${LIME}Créer un compte${NC}"
+        box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} Lister les comptes"
+        box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Supprimer des comptes"
+        box_mid
+        box_line "  ${GOLD}${BOLD}5${NC} ${WHITE})${NC} Gestion des tunnels"
+        box_line "  ${GOLD}${BOLD}6${NC} ${WHITE})${NC} État des tunnels"
+        box_mid
+        box_line "  ${GOLD}${BOLD}7${NC} ${WHITE})${NC} Appareils & verrou UUID"
+        box_line "  ${GOLD}${BOLD}8${NC} ${WHITE})${NC} Config Orange ${GRAY}(host)${NC}"
+        box_line "  ${GOLD}${BOLD}9${NC} ${WHITE})${NC} Quotas & consommation"
+        box_mid
+        box_line " ${RED}${BOLD}10${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
+        box_bot
         echo
         local c=""
         # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
-        read -r -p "Choix: " c || { echo; exit 0; }
+        read -r -p "  ${GOLD}Choix${NC} ${WHITE}▸${NC} " c 2>/dev/null || { echo; exit 0; }
         case "$c" in
             1) install_all || true ;;
             2) create_user || true ;;
