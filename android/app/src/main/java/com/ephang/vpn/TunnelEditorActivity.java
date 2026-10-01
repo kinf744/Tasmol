@@ -1321,7 +1321,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmWgSecret.setText(settings.optString("secretKey", ""));
                 JSONArray addr = settings.optJSONArray("address");
                 if (addr != null) {
-                    edXmWgAddress.setText(addr.join(",").replace("\"", ""));
+                    edXmWgAddress.setText(csvJoin(addr));
                 }
                 int mtu = settings.optInt("mtu", 0);
                 edXmWgMtu.setText(mtu > 0 ? String.valueOf(mtu) : "");
@@ -1331,7 +1331,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
                 JSONArray dns = settings.optJSONArray("remoteDNS");
                 if (dns != null) {
-                    edXmWgDns.setText(dns.join(",").replace("\"", ""));
+                    edXmWgDns.setText(csvJoin(dns));
                 }
                 JSONArray peers = settings.optJSONArray("peers");
                 JSONObject peer = peers != null && peers.length() > 0 ? peers.optJSONObject(0) : null;
@@ -1342,7 +1342,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edXmWgKeepAlive.setText(ka > 0 ? String.valueOf(ka) : "");
                     JSONArray allowed = peer.optJSONArray("allowedIPs");
                     if (allowed != null) {
-                        edXmWgAllowed.setText(allowed.join(",").replace("\"", ""));
+                        edXmWgAllowed.setText(csvJoin(allowed));
                     }
                     // endpoint "host:port" separe en champs Host/Port.
                     String ep = peer.optString("endpoint", "");
@@ -1742,6 +1742,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
             toast("Invalid form: " + e.getMessage());
             return null;
         }
+    }
+
+    /** Joint un JSONArray de chaines en CSV sans exception levee. */
+    private static String csvJoin(JSONArray arr) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < arr.length(); i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(arr.optString(i, ""));
+        }
+        return sb.toString();
     }
 
     /** Split "a, b ,c" en JSONArray de chaines non vides. */
