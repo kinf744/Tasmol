@@ -154,6 +154,9 @@ public class HomeFragment extends Fragment {
                 uptimeText.setText("--:--:--");
                 downText.setText("0 B");
                 upText.setText("0 B");
+                if (VPNApplication.getInstance().getSelectedIds().size() == 1) {
+                    serverDetail.setText(activeServerDetail());
+                }
                 return;
             }
             // VPN never launched (or stopped): no status at all.
@@ -208,6 +211,12 @@ public class HomeFragment extends Fragment {
             }
             if (rrCount >= 2) {
                 serverDetail.setText("round-robin over " + rrCount + " profiles");
+            } else {
+                // L'hôte:port du profil actif reste affiche une fois
+                // connecte : showSelectedServer() n'est appele que hors
+                // session, donc la ligne revenait vide apres un recreation
+                // du fragment (onglet, reconnexion proposee au lancement).
+                serverDetail.setText(activeServerDetail());
             }
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);
@@ -218,6 +227,35 @@ public class HomeFragment extends Fragment {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    /** host:port du profil sélectionné ("" si masqué, API-managed ou absent). */
+    private String activeServerDetail() {
+        try {
+            String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
+            java.util.LinkedHashSet<String> selected =
+                    VPNApplication.getInstance().getSelectedIds();
+            if (selected.size() != 1) {
+                return "";
+            }
+            String active = selected.iterator().next();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if (!t.optString("id", "").equals(active)) {
+                    continue;
+                }
+                if (ProfileTransfer.isHideServer(t) || ProfileTransfer.isApiManaged(t)) {
+                    return "";
+                }
+                JSONObject server = t.optJSONObject("server");
+                String host = server != null ? server.optString("host", "") : "";
+                int port = server != null ? PingUtil.dialPort(server) : 0;
+                return host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "");
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
     }
 
     private void showSelectedServer() {

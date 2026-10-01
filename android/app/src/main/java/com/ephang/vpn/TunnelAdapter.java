@@ -94,8 +94,12 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         }
         h.type.setText(prettyType(type));
 
+        // Valeur seule en vert ("290ms") : plus de libellé "Ping" orange.
         Long ms = pingMs.get(id);
-        h.ping.setText(ms != null && ms >= 0 ? "Ping " + ms : "Ping –");
+        boolean hasPing = ms != null && ms >= 0;
+        h.ping.setText(hasPing ? ms + "ms" : "–");
+        h.ping.setTextColor(androidx.core.content.ContextCompat.getColor(
+                h.ping.getContext(), hasPing ? R.color.npv_green : R.color.npv_grey));
 
         boolean isSelected = selectedIds.contains(id);
         h.card.setBackgroundResource(isSelected ? R.drawable.card_bg_active : R.drawable.card_bg);
