@@ -173,9 +173,9 @@ dashboard() {
     systemctl is-active --quiet stivaros-api && apic="${GREEN}●${NC}"
     # OS court : NAME VERSION_ID (par ex. "Ubuntu 22.04")
     osname=$(. /etc/os-release 2>/dev/null && echo "${NAME:-Linux} ${VERSION_ID:-}" | sed 's/ *$//' || uname -s)
-    # centre "STIVAROS V2.5" sur 52 colonnes visibles : 52-13=39 -> 19/20
+    # largeur interne du cadre = 54; centre "STIVAROS V2.5" (13) : 20 + 21
     echo -e "${BLUE}  ╔$(printf '═%.0s' $(seq 54))╗${NC}"
-    echo -e "${BLUE}  ║$(printf ' %.0s' $(seq 1 19))${BOLD}${GOLD}STIVAROS V2.5${NC}$(printf ' %.0s' $(seq 1 20))${BLUE}║${NC}"
+    echo -e "${BLUE}  ║$(printf ' %.0s' $(seq 1 20))${BOLD}${GOLD}STIVAROS V2.5${NC}$(printf ' %.0s' $(seq 1 21))${BLUE}║${NC}"
     box_mid
     box_line "  ${GOLD}IP publique${NC} : ${BOLD}${CYAN}${ip}${NC}"
     box_line "  ${GOLD}OS${NC}          : ${WHITE}${osname} ${GRAY}($(uname -m))${NC}"
