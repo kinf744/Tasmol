@@ -190,20 +190,29 @@
                     android:layout_weight="1"
                     android:orientation="vertical">
 
+                    <!-- match_parent + maxLines=1 + ellipsize : un nom trop
+                         long se tronque en "…" sur UNE seule ligne au lieu de
+                         passer à la ligne et de chevaucher le libellé du type. -->
                     <TextView
                         android:id="@+id/home_server"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                    android:text="No server selected"
-                    android:textColor="@color/npv_text"
-                    android:textSize="15sp"
+                        android:layout_marginEnd="8dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="No server selected"
+                        android:textColor="@color/npv_text"
+                        android:textSize="15sp"
                         android:textStyle="bold"
                         android:typeface="monospace" />
 
                     <TextView
                         android:id="@+id/home_server_detail"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:ellipsize="end"
+                        android:maxLines="1"
                         android:text=""
                         android:textColor="@color/npv_grey"
                         android:textSize="12sp"
