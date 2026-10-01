@@ -514,6 +514,13 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+# Recharge la table DNAT (34000-49999 -> :5668) à chaque (re)démarrage:
+# les tables nft créées par ce script ne survivent jamais au reboot, et
+# ZIVPN sans DNAT = handshake silencieusement perdu (aucun log, aucun trace).
+ExecStartPre=/usr/sbin/nft -f /etc/nftables/stivaros-zivpn.nft
+# Restaure aussi la table slowdns (53 -> 5300) si elle y vit : elle non
+# plus ne survit pas au reboot et SlowDNS mourrait silencieusement.
+ExecStartPre=/bin/sh -c 'nft list table inet slowdns >/dev/null 2>&1 || [ ! -f /etc/nftables/slowdns.nft ] || nft -f /etc/nftables/slowdns.nft'
 ExecStart=/usr/local/bin/zivpn server -c /etc/stivaros-zivpn/config.json
 WorkingDirectory=/etc/stivaros-zivpn
 Restart=always
@@ -525,11 +532,14 @@ LimitNOFILE=1048576
 WantedBy=multi-user.target
 EOF
 
-    # nftables: accepte 5667 + DNAT de la plage clients vers 5667
+    # nftables: accepte :5668 + DNAT de la plage clients vers :5668.
+    # 'destroy' recrée la table à zéro: un rechargement 'nft -f' (ExecStartPre
+    # du service, ou réinstallation) ne duplique jamais les règles.
     local iface tmp
     iface=$(main_iface)
     tmp=$(mktemp)
     cat > "$tmp" << EOF
+destroy table inet stivaros_zivpn
 table inet stivaros_zivpn {
     chain input {
         type filter hook input priority 0; policy accept;
