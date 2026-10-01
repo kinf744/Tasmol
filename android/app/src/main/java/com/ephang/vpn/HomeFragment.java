@@ -154,9 +154,7 @@ public class HomeFragment extends Fragment {
                 uptimeText.setText("--:--:--");
                 downText.setText("0 B");
                 upText.setText("0 B");
-                if (VPNApplication.getInstance().getSelectedIds().size() == 1) {
-                    serverDetail.setText(activeServerDetail());
-                }
+                ensureServerCard();
                 return;
             }
             // VPN never launched (or stopped): no status at all.
@@ -167,15 +165,17 @@ public class HomeFragment extends Fragment {
             uptimeText.setText("--:--:--");
             downText.setText("0 B");
             upText.setText("0 B");
-            String selKey = VPNApplication.getInstance().getSelectedIds().toString()
-                    + "@" + BinaryManager.configPath(requireContext()).lastModified();
-            if (!selKey.equals(lastServerKey)) {
-                lastServerKey = selKey;
-                showSelectedServer();
-            }
+            ensureServerCard();
             return;
         }
-        lastServerKey = null; // re-render quand la session s'arrête
+        // Fragment recréé alors que le VPN tourne déjà (changement d'onglet,
+        // reconnexion proposée au lancement) : la carte serveur — nom,
+        // Host/IP:port et type — repartirait vide. On la remplit depuis la
+        // sélection avant d'appliquer le statut live ci-dessous.
+        // lastServerKey n'est PAS remis à null ici : la clé (sélection +
+        // mtime du config) suffit à re-rendre la carte quand la sélection
+        // change, et évite un listTunnels à chaque tick de 2 s.
+        ensureServerCard();
 
         try {
             JSONObject st = new JSONObject(TasVpnService.controllerStatus());
@@ -211,12 +211,6 @@ public class HomeFragment extends Fragment {
             }
             if (rrCount >= 2) {
                 serverDetail.setText("round-robin over " + rrCount + " profiles");
-            } else {
-                // L'hôte:port du profil actif reste affiche une fois
-                // connecte : showSelectedServer() n'est appele que hors
-                // session, donc la ligne revenait vide apres un recreation
-                // du fragment (onglet, reconnexion proposee au lancement).
-                serverDetail.setText(activeServerDetail());
             }
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);
@@ -229,33 +223,24 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    /** host:port du profil sélectionné ("" si masqué, API-managed ou absent). */
-    private String activeServerDetail() {
-        try {
-            String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
-            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
-            java.util.LinkedHashSet<String> selected =
-                    VPNApplication.getInstance().getSelectedIds();
-            if (selected.size() != 1) {
-                return "";
-            }
-            String active = selected.iterator().next();
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject t = arr.getJSONObject(i);
-                if (!t.optString("id", "").equals(active)) {
-                    continue;
-                }
-                if (ProfileTransfer.isHideServer(t) || ProfileTransfer.isApiManaged(t)) {
-                    return "";
-                }
-                JSONObject server = t.optJSONObject("server");
-                String host = server != null ? server.optString("host", "") : "";
-                int port = server != null ? PingUtil.dialPort(server) : 0;
-                return host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "");
-            }
-        } catch (Exception ignored) {
+    /**
+     * Remplit la carte serveur (nom, Host/IP:port, type) depuis la sélection
+     * courante si elle n'a pas encore été rendue. Les fragments sont recréés
+     * à chaque changement d'onglet : sans ce garde-fou, la carte revenait
+     * entièrement vide ("No server selected" / Host/IP:port effacé) dès que
+     * le VPN tournait déjà.
+     */
+    private void ensureServerCard() {
+        if (serverText == null || getContext() == null) {
+            return;
         }
-        return "";
+        String selKey = VPNApplication.getInstance().getSelectedIds().toString()
+                + "@" + BinaryManager.configPath(requireContext()).lastModified();
+        if (selKey.equals(lastServerKey)) {
+            return;
+        }
+        lastServerKey = selKey;
+        showSelectedServer();
     }
 
     private void showSelectedServer() {
