@@ -496,6 +496,101 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 	}
 }
 
+// -- WireGuard (outbound utilisateur Xray) ----------------------------------
+//
+// Champs du profil (cf. doc officielle Xray outbounds/wireguard) :
+//   server.host / server.port         : endpoint du peer (IP ou domaine)
+//   advanced.wg_secret_key            : clé privée client (requis, `xray wg`)
+//   advanced.wg_address               : IP locales CSV (défaut "10.0.0.1")
+//   advanced.wg_peer_public_key       : clé publique du serveur (requis)
+//   advanced.wg_pre_shared_key        : optionnel
+//   advanced.wg_keep_alive            : secondes (défaut 0/25 via UI)
+//   advanced.wg_allowed_ips           : CSV CIDR (défaut 0.0.0.0/0,::/0)
+//   advanced.wg_mtu                   : défaut 1420
+//   advanced.wg_reserved              : 3 octets CSV (défaut 0,0,0)
+//   advanced.wg_no_kernel_tun         : défaut true (pas de CAP_NET_ADMIN
+//     dans le processus app -> pile gVisor; évite toute détection fautive)
+//   advanced.wg_remote_dns            : CSV d'IP (résolution des cibles
+//     domaines à travers le tunnel WG)
+
+func csvList(s string) []string {
+	out := []string{}
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// IsWireGuard reports whether the profile is a WireGuard outbound
+// (protocol form value or a secret key present in advanced options).
+func IsWireGuard(cfg *config.TunnelConfig) bool {
+	return advStr(cfg.Advanced, "wg_secret_key", "") != "" || advStr(cfg.Advanced, "wg_peer_public_key", "") != ""
+}
+
+// BuildWireGuardOutbound builds a WireGuard outbound object.
+// Ne logue JAMAIS secretKey/reserved.
+func BuildWireGuardOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
+	addr = resolveEndpoint(cfg, addr)
+	addresses := csvList(advStr(cfg.Advanced, "wg_address", ""))
+	if len(addresses) == 0 {
+		// Défaut de la doc officielle (IPv4 + IPv6).
+		addresses = []string{"10.0.0.1", "fd59:7153:2388:b5fd:0000:0000:0000:0001"}
+	}
+	allowed := csvList(advStr(cfg.Advanced, "wg_allowed_ips", ""))
+	if len(allowed) == 0 {
+		allowed = []string{"0.0.0.0/0", "::/0"}
+	}
+	peer := map[string]interface{}{
+		"endpoint":   fmt.Sprintf("%s:%d", addr, port),
+		"publicKey":  advStr(cfg.Advanced, "wg_peer_public_key", ""),
+		"allowedIPs": allowed,
+	}
+	if psk := advStr(cfg.Advanced, "wg_pre_shared_key", ""); psk != "" {
+		peer["preSharedKey"] = psk
+	}
+	if ka := advInt(cfg.Advanced, "wg_keep_alive", 0); ka > 0 {
+		peer["keepAlive"] = ka
+	}
+	settings := map[string]interface{}{
+		"secretKey": advStr(cfg.Advanced, "wg_secret_key", ""),
+		"address":   addresses,
+		"peers":     []map[string]interface{}{peer},
+	}
+	if mtu := advInt(cfg.Advanced, "wg_mtu", 0); mtu > 0 {
+		settings["mtu"] = mtu
+	}
+	if res := csvList(advStr(cfg.Advanced, "wg_reserved", "")); len(res) == 3 {
+		b := make([]int, 3)
+		ok := true
+		for i, p := range res {
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 0 || n > 255 {
+				ok = false
+				break
+			}
+			b[i] = n
+		}
+		if ok {
+			settings["reserved"] = b
+		}
+	}
+	noKernel := true
+	if s := advStr(cfg.Advanced, "wg_no_kernel_tun", ""); s == "false" || s == "0" {
+		noKernel = false
+	}
+	settings["noKernelTun"] = noKernel
+	if dns := csvList(advStr(cfg.Advanced, "wg_remote_dns", "")); len(dns) > 0 {
+		settings["remoteDNS"] = dns
+	}
+	return map[string]interface{}{
+		"protocol": "wireguard",
+		"tag":      "proxy",
+		"settings": settings,
+	}
+}
+
 // BuildVmessOutbound builds a VMess outbound object.
 func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	security := cfg.Auth.Method
@@ -812,7 +907,11 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 		}
 	}
 	if ob == nil {
-		ob = BuildVlessOutbound(cfg, addr, port)
+		if IsWireGuard(cfg) {
+			ob = BuildWireGuardOutbound(cfg, addr, port)
+		} else {
+			ob = BuildVlessOutbound(cfg, addr, port)
+		}
 	}
 	applyOutboundChainOptions(ob, cfg)
 	return ob
@@ -838,6 +937,13 @@ func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
 	if !ok {
 		return
 	}
+	// WireGuard: l'endpoint vit dans peers[] (host:port en une chaîne).
+	if ob["protocol"] == "wireguard" {
+		for _, p := range asMapList(s["peers"]) {
+			p["endpoint"] = net.JoinHostPort(addr, strconv.Itoa(port))
+		}
+		return
+	}
 	if _, flat := s["address"]; flat {
 		s["address"] = addr
 		s["port"] = port
@@ -847,6 +953,24 @@ func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
 		return
 	}
 	rewriteAddrList(s["servers"], addr, port)
+}
+
+// asMapList normalize une liste d'objets produite par un builder
+// ([]map[string]interface{}) ou par un décodage JSON ([]interface{}).
+func asMapList(v interface{}) []map[string]interface{} {
+	switch arr := v.(type) {
+	case []map[string]interface{}:
+		return arr
+	case []interface{}:
+		out := make([]map[string]interface{}, 0, len(arr))
+		for _, it := range arr {
+			if m, ok := it.(map[string]interface{}); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 func rewriteAddrList(v interface{}, addr string, port int) bool {

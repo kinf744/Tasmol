@@ -1,7 +1,7 @@
 #!/bin/bash
 # Stage official tunnel binaries as Android native libraries (armeabi-v7a).
 # The APK executes them from applicationInfo.nativeLibraryDir.
-# Source: repository bundle bin/armv7/ (xray v26.5.9, zivpn 1.4.9, slowdns).
+# Source: repository bundle bin/armv7/ (xray v26.9.8, zivpn 1.4.9, slowdns).
 # Xray runs as a child process fed by the TUN fd (fd 3 + XRAY_TUN_FD).
 set -e
 

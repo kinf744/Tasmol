@@ -2,7 +2,7 @@
 # VPN App - official tunnel binaries for armv7 (armeabi-v7a)
 #
 # Sources (verified):
-#   xray    : XTLS/Xray-core v26.5.9  -> Xray-linux-arm32-v7a.zip
+#   xray    : XTLS/Xray-core v26.9.8  -> Xray-linux-arm32-v7a.zip
 #   zivpn   : uz_core client (jniLibs/armeabi-v7a/libuz_core.so of the
 #             reference app) -> installed as "zivpn", invoked as
 #             zivpn -s <obfs> --config '<inline-json>'
@@ -44,11 +44,11 @@ else
     echo "  pkg not found, skipping (ssh must be on PATH)"
 fi
 
-# 2. Xray v26.5.9
-echo "[2/4] Xray v26.5.9..."
+# 2. Xray v26.9.8
+echo "[2/4] Xray v26.9.8..."
 if ! install_from_repo xray; then
     cd "$TMP_DIR"
-    wget -q "https://github.com/XTLS/Xray-core/releases/download/v26.5.9/Xray-linux-arm32-v7a.zip" -O xray.zip
+    wget -q "https://github.com/XTLS/Xray-core/releases/download/v26.9.8/Xray-linux-arm32-v7a.zip" -O xray.zip
     unzip -o xray.zip xray
     chmod +x xray
     cp xray "$BIN_DIR/xray"

@@ -101,10 +101,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
     // outbounds Xray ; Hysteria n'existe pas dans Xray (c'est un client
     // separe) : l'option reste visible comme dans l'editeur de reference
     // mais la sauvegarde redirige vers le type "Hysteria UDP".
+    // Wireguard est un outbound Xray natif (userspace) : pas de transport
+    // ni de couche TLS/Reality, les cles WG remplacent uuid/password.
     private static final String[] XM_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks",
-            "http", "socks", "hysteria"};
+            "http", "socks", "hysteria", "wireguard"};
     private static final String[] XM_PROTOCOL_LABELS = {"VMess", "VLESS", "Trojan", "Shadowsocks",
-            "Http", "Socks", "Hysteria"};
+            "Http", "Socks", "Hysteria", "Wireguard"};
     private static final String[] XM_INSECURE = {"false", "true"};
     // Transports Xray du formulaire manuel. mKCP (mkcp) est pris en charge
     // par le coeur Go (kcpSettings) mais SANS header/seed : Xray 26.x les a
@@ -172,6 +174,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secXmReality;
     private EditText edXmPubkey;
     private EditText edXmSid;
+    // WireGuard (outbound Xray natif) : cles + parametres du tunnel.
+    private LinearLayout cardXmTransport;
+    private LinearLayout cardXmSecurity;
+    private LinearLayout secXmWireguard;
+    private EditText edXmWgSecret;
+    private EditText edXmWgPeerKey;
+    private EditText edXmWgPsk;
+    private EditText edXmWgAddress;
+    private EditText edXmWgAllowed;
+    private EditText edXmWgMtu;
+    private EditText edXmWgKeepAlive;
+    private EditText edXmWgReserved;
+    private EditText edXmWgDns;
     // Header rows of the manual form (each row = 2 EditTexts + remove view).
     private final List<View> xmHeaderRows = new ArrayList<>();
     // Link used by "IMPORT LINK INTO FORM" (stored back as advanced.link).
@@ -371,6 +386,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXmReality = findViewById(R.id.sec_xm_reality);
         edXmPubkey = findViewById(R.id.ed_xm_pubkey);
         edXmSid = findViewById(R.id.ed_xm_sid);
+        cardXmTransport = findViewById(R.id.card_xm_transport);
+        cardXmSecurity = findViewById(R.id.card_xm_security);
+        secXmWireguard = findViewById(R.id.sec_xm_wireguard);
+        edXmWgSecret = findViewById(R.id.ed_xm_wg_secret);
+        edXmWgPeerKey = findViewById(R.id.ed_xm_wg_peerkey);
+        edXmWgPsk = findViewById(R.id.ed_xm_wg_psk);
+        edXmWgAddress = findViewById(R.id.ed_xm_wg_address);
+        edXmWgAllowed = findViewById(R.id.ed_xm_wg_allowed);
+        edXmWgMtu = findViewById(R.id.ed_xm_wg_mtu);
+        edXmWgKeepAlive = findViewById(R.id.ed_xm_wg_keepalive);
+        edXmWgReserved = findViewById(R.id.ed_xm_wg_reserved);
+        edXmWgDns = findViewById(R.id.ed_xm_wg_dns);
     }
 
     private void setupSpinners() {
@@ -989,12 +1016,20 @@ public class TunnelEditorActivity extends AppCompatActivity {
         // de passe partage est porte par streamSettings.hysteriaSettings.auth,
         // donc il est saisi dans le meme champ que trojan/shadowsocks.
         boolean hyProto = proto.equals("hysteria");
+        // Wireguard : outbound Xray natif (userspace, cles Curve25519). Pas
+        // de uuid/password, aucun transport ni couche TLS/Reality ne
+        // s'applique : les cartes 2 et 3 sont masquees et le bloc de cles
+        // WireGuard prend le relais. L'endpoint = Host/Port du formulaire.
+        boolean wgProto = proto.equals("wireguard");
         boolean passProto = proto.equals("trojan") || proto.equals("shadowsocks")
                 || userProto || hyProto;
         secXmUuid.setVisibility(idProto || userProto ? View.VISIBLE : View.GONE);
         lblXmUuid.setText(userProto ? "Username" : "User ID / UUID");
         secXmPass.setVisibility(passProto ? View.VISIBLE : View.GONE);
         secXmFlow.setVisibility(proto.equals("vless") ? View.VISIBLE : View.GONE);
+        secXmWireguard.setVisibility(wgProto ? View.VISIBLE : View.GONE);
+        cardXmTransport.setVisibility(wgProto ? View.GONE : View.VISIBLE);
+        cardXmSecurity.setVisibility(wgProto ? View.GONE : View.VISIBLE);
         if (proto.equals("vmess")) {
             lblXmEnc.setText("Security (security)");
             spXmEnc.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_ENC_VMESS));
@@ -1279,6 +1314,48 @@ public class TunnelEditorActivity extends AppCompatActivity {
         onXmProtocolChanged();
 
         JSONObject settings = ob.optJSONObject("settings");
+        if (proto.equals("wireguard")) {
+            // Settings plats : endpoint dans peers[0], cles et parametres
+            // au niveau settings. Aucun streamSettings a lire.
+            if (settings != null) {
+                edXmWgSecret.setText(settings.optString("secretKey", ""));
+                JSONArray addr = settings.optJSONArray("address");
+                if (addr != null) {
+                    edXmWgAddress.setText(addr.join(",").replace("\"", ""));
+                }
+                int mtu = settings.optInt("mtu", 0);
+                edXmWgMtu.setText(mtu > 0 ? String.valueOf(mtu) : "");
+                JSONArray res = settings.optJSONArray("reserved");
+                if (res != null && res.length() == 3) {
+                    edXmWgReserved.setText(res.optInt(0) + "," + res.optInt(1) + "," + res.optInt(2));
+                }
+                JSONArray dns = settings.optJSONArray("remoteDNS");
+                if (dns != null) {
+                    edXmWgDns.setText(dns.join(",").replace("\"", ""));
+                }
+                JSONArray peers = settings.optJSONArray("peers");
+                JSONObject peer = peers != null && peers.length() > 0 ? peers.optJSONObject(0) : null;
+                if (peer != null) {
+                    edXmWgPeerKey.setText(peer.optString("publicKey", ""));
+                    edXmWgPsk.setText(peer.optString("preSharedKey", ""));
+                    int ka = peer.optInt("keepAlive", 0);
+                    edXmWgKeepAlive.setText(ka > 0 ? String.valueOf(ka) : "");
+                    JSONArray allowed = peer.optJSONArray("allowedIPs");
+                    if (allowed != null) {
+                        edXmWgAllowed.setText(allowed.join(",").replace("\"", ""));
+                    }
+                    // endpoint "host:port" separe en champs Host/Port.
+                    String ep = peer.optString("endpoint", "");
+                    int ci = ep.lastIndexOf(':');
+                    if (ci > 0) {
+                        edXmHost.setText(ep.substring(0, ci));
+                        edXmPort.setText(ep.substring(ci + 1));
+                    }
+                }
+            }
+            refreshXrayManualFields();
+            return;
+        }
         JSONObject endpoint = null;
         if (settings != null) {
             JSONArray vnext = settings.optJSONArray("vnext");
@@ -1473,6 +1550,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
             return null;
         }
 
+        if (proto.equals("wireguard")) {
+            return buildWireguardOutbound(host, port);
+        }
+
         try {
             JSONObject settings = new JSONObject();
             if (proto.equals("vmess")) {
@@ -1663,6 +1744,147 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
+    /** Split "a, b ,c" en JSONArray de chaines non vides. */
+    private static JSONArray csvJson(String raw) {
+        JSONArray arr = new JSONArray();
+        for (String p : raw.split(",")) {
+            p = p.trim();
+            if (!p.isEmpty()) {
+                arr.put(p);
+            }
+        }
+        return arr;
+    }
+
+    /**
+     * WireGuard outbound (doc officielle Xray outbounds/wireguard) :
+     * settings plats avec secretKey/address/peers[endpoint,publicKey,...],
+     * SANS streamSettings. noKernelTun est toujours true : le processus de
+     * l'app n'a pas CAP_NET_ADMIN, seule la pile gVisor est possible.
+     * Ne logue JAMAIS secretKey/reserved.
+     */
+    private JSONObject buildWireguardOutbound(String host, int port) {
+        String secret = edXmWgSecret.getText().toString().trim();
+        String peerKey = edXmWgPeerKey.getText().toString().trim();
+        if (secret.isEmpty() || secret.length() < 32) {
+            toast("WireGuard: secret key (cle privee) requise");
+            return null;
+        }
+        if (peerKey.isEmpty() || peerKey.length() < 32) {
+            toast("WireGuard: peer public key (serveur) requise");
+            return null;
+        }
+        try {
+            JSONObject peer = new JSONObject()
+                    .put("endpoint", host + ":" + port)
+                    .put("publicKey", peerKey);
+            String psk = edXmWgPsk.getText().toString().trim();
+            if (!psk.isEmpty()) {
+                peer.put("preSharedKey", psk);
+            }
+            String ka = edXmWgKeepAlive.getText().toString().trim();
+            if (!ka.isEmpty()) {
+                int kav = Integer.parseInt(ka);
+                if (kav < 0) {
+                    throw new NumberFormatException();
+                }
+                if (kav > 0) {
+                    peer.put("keepAlive", kav);
+                }
+            }
+            JSONArray allowed = csvJson(edXmWgAllowed.getText().toString());
+            if (allowed.length() == 0) {
+                allowed.put("0.0.0.0/0").put("::/0");
+            }
+            peer.put("allowedIPs", allowed);
+
+            JSONObject settings = new JSONObject()
+                    .put("secretKey", secret)
+                    .put("peers", new JSONArray().put(peer))
+                    .put("noKernelTun", true);
+            JSONArray addr = csvJson(edXmWgAddress.getText().toString());
+            // Defaut de la doc officielle (IPv4 + IPv6).
+            settings.put("address", addr.length() > 0 ? addr
+                    : new JSONArray().put("10.0.0.1").put("fd59:7153:2388:b5fd:0000:0000:0000:0001"));
+            String mtu = edXmWgMtu.getText().toString().trim();
+            if (!mtu.isEmpty()) {
+                int mv = Integer.parseInt(mtu);
+                if (mv < 1 || mv > 65535) {
+                    throw new NumberFormatException();
+                }
+                settings.put("mtu", mv);
+            }
+            String res = edXmWgReserved.getText().toString().trim();
+            if (!res.isEmpty()) {
+                JSONArray reserved = new JSONArray();
+                for (String p : res.split(",")) {
+                    int b = Integer.parseInt(p.trim());
+                    if (b < 0 || b > 255) {
+                        throw new NumberFormatException();
+                    }
+                    reserved.put(b);
+                }
+                if (reserved.length() != 3) {
+                    throw new NumberFormatException();
+                }
+                settings.put("reserved", reserved);
+            }
+            JSONArray dns = csvJson(edXmWgDns.getText().toString());
+            if (dns.length() > 0) {
+                settings.put("remoteDNS", dns);
+            }
+            return new JSONObject()
+                    .put("protocol", "wireguard")
+                    .put("tag", "proxy")
+                    .put("settings", settings);
+        } catch (NumberFormatException e) {
+            toast("WireGuard: MTU/keep-alive/reserved invalides (reserved = 3 octets 0-255)");
+            return null;
+        } catch (Exception e) {
+            toast("Invalid form: " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Recopie les cles advanced.wg_* (fallback du coeur Go : IsWireGuard /
+     * BuildWireGuardOutbound reconstruisent l'outbound meme si
+     * outbound_json venait a manquer).
+     */
+    private void putXmWireguard(JSONObject adv) throws Exception {
+        adv.put("wg_secret_key", edXmWgSecret.getText().toString().trim());
+        adv.put("wg_peer_public_key", edXmWgPeerKey.getText().toString().trim());
+        String psk = edXmWgPsk.getText().toString().trim();
+        if (!psk.isEmpty()) {
+            adv.put("wg_pre_shared_key", psk);
+        }
+        String ka = edXmWgKeepAlive.getText().toString().trim();
+        if (!ka.isEmpty()) {
+            adv.put("wg_keep_alive", ka);
+        }
+        String addr = edXmWgAddress.getText().toString().trim();
+        if (!addr.isEmpty()) {
+            adv.put("wg_address", addr);
+        }
+        String allowed = edXmWgAllowed.getText().toString().trim();
+        if (!allowed.isEmpty()) {
+            adv.put("wg_allowed_ips", allowed);
+        }
+        String mtu = edXmWgMtu.getText().toString().trim();
+        if (!mtu.isEmpty()) {
+            adv.put("wg_mtu", mtu);
+        }
+        String res = edXmWgReserved.getText().toString().trim();
+        if (!res.isEmpty()) {
+            adv.put("wg_reserved", res);
+        }
+        String dns = edXmWgDns.getText().toString().trim();
+        if (!dns.isEmpty()) {
+            adv.put("wg_remote_dns", dns);
+        }
+        adv.put("wg_no_kernel_tun", "true");
+    }
+
     /**
      * Base config for a manual-form save (plain xray or xray+slowdns):
      * server/auth/transport/advanced sections built from the form and the
@@ -1818,6 +2040,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
         }
         if (manualXray) {
+            // WireGuard transporte son propre UDP : le tunnel DNS (dnstt,
+            // TCP) ne peut pas le relayer de facon fiable.
+            if (xmProtocol().equals("wireguard") && swXraySlowdns.isChecked()) {
+                toast("WireGuard n'est pas compatible avec Use SlowDNS");
+                return;
+            }
             manualOb = buildManualOutbound();
             if (manualOb == null) {
                 return;
@@ -2140,7 +2368,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 advanced.put("outbound_json", manualOb.toString());
                 advanced.put("manual_form", "1");
                 advanced.put("allow_insecure", xmAllowInsecure());
-                putXmTransport(advanced);
+                if (xmProtocol().equals("wireguard")) {
+                    // Fallback pour le coeur Go (IsWireGuard sur cles wg_*).
+                    putXmWireguard(advanced);
+                } else {
+                    putXmTransport(advanced);
+                }
                 if (!lastImportedLink.isEmpty()) {
                     advanced.put("link", lastImportedLink);
                 }

@@ -693,10 +693,156 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content" />
                     </LinearLayout>
+
+                    <!-- WireGuard : cles et parametres du tunnel (doc Xray
+                         outbounds/wireguard). Endpoint = champs Host/Port. -->
+                    <LinearLayout
+                        android:id="@+id/sec_xm_wireguard"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Secret key (cle privee, xray wg) *"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_secret"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="cFr...= (base64, 44 chars)"
+                            android:inputType="text" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Peer public key (serveur) *"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_peerkey"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="bmX...= (base64, 44 chars)"
+                            android:inputType="text" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Pre-shared key (optionnel)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_psk"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Local address (IP CSV, /32)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_address"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="10.0.0.1,fd59:7153:2388:b5fd::1"
+                            android:inputType="textUri" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Allowed IPs (CIDR CSV)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_allowed"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="0.0.0.0/0,::/0"
+                            android:inputType="textUri" />
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <EditText
+                                android:id="@+id/ed_xm_wg_mtu"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="8dp"
+                                android:layout_weight="1"
+                                android:hint="MTU (1420)"
+                                android:inputType="number" />
+
+                            <EditText
+                                android:id="@+id/ed_xm_wg_keepalive"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:hint="Keep-alive s (0)"
+                                android:inputType="number" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Reserved (3 octets CSV, optionnel)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_reserved"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="0,0,0"
+                            android:inputType="text" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="Remote DNS (IP CSV, optionnel)"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="13sp"
+                            android:textStyle="bold" />
+
+                        <EditText
+                            android:id="@+id/ed_xm_wg_dns"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="1.1.1.1,1.0.0.1"
+                            android:inputType="textUri" />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <!-- 2. Transport Network (Stream) -->
                 <LinearLayout
+                    android:id="@+id/card_xm_transport"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
@@ -976,6 +1122,7 @@
 
                 <!-- 3. Security Layer -->
                 <LinearLayout
+                    android:id="@+id/card_xm_security"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -116,7 +117,16 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 }
 
 func (t *XrayTunnel) buildOutbound() map[string]interface{} {
+	if IsWireGuard(t.config) {
+		return BuildWireGuardOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
+	}
 	return BuildVlessOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
+}
+
+// isWGConfigComplete vérifie les deux clés obligatoires du profil WireGuard
+// (clé privée du client + clé publique du serveur).
+func isWGConfigComplete(cfg *config.TunnelConfig) bool {
+	return IsWireGuard(cfg) && strings.TrimSpace(cfg.Server.Host) != ""
 }
 
 // BuildVlessOutbound builds a VLESS outbound object from a tunnel config,
@@ -163,11 +173,16 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 
 	hasUUID := t.config.Auth.UUID != ""
 	hasJSON := HasOutboundJSON(t.config)
+	isWG := IsWireGuard(t.config)
 	Journalf("xray", "vless %s:%d uuid=%v",
 		t.config.Server.Host, t.config.Server.Port, hasUUID)
-	if t.config.Auth.UUID == "" && !hasJSON {
+	if t.config.Auth.UUID == "" && !hasJSON && !isWG {
 		Errorf("xray", "no uuid and no outbound_json")
-		return fmt.Errorf("xray needs a subscription link or JSON config (or manual uuid)")
+		return fmt.Errorf("xray needs a subscription link, JSON config, wireguard keys or manual uuid")
+	}
+	if isWG && !isWGConfigComplete(t.config) {
+		Errorf("xray", "wireguard: secret key or peer public key missing")
+		return fmt.Errorf("wireguard needs wg_secret_key and wg_peer_public_key (advanced)")
 	}
 	if t.config.Server.Host == "" && !hasJSON {
 		Errorf("xray", "server host empty")
