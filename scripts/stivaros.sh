@@ -120,24 +120,7 @@ box_title() {
     echo -e "${BLUE}  ║${NC}$(printf ' %.0s' $(seq 1 $pad))${BOLD}${GOLD}${txt}${NC}$(printf ' %.0s' $(seq 1 $((52 - len - pad + 2))))${BLUE} ║${NC}"
 }
 
-banner() {
-    clear
-    echo -e "${BLUE}"
-    echo '  ╔══════════════════════════════════════════════════════╗'
-    echo '  ║                                                      ║'
-    echo '  ║   ███████╗████████╗██╗██╗   ██╗ █████╗ ██████╗       ║'
-    echo '  ║   ██╔════╝╚══██╔══╝██║██║   ██║██╔══██╗██╔══██╗      ║'
-    echo '  ║   ███████╗   ██║   ██║██║   ██║███████║██████╔╝      ║'
-    echo '  ║   ╚════██║   ██║   ██║╚██╗ ██╔╝██╔══██║██╔═══╝       ║'
-    echo '  ║   ███████║   ██║   ██║ ╚████╔╝ ██║  ██║██║  ██║      ║'
-    echo '  ║   ╚══════╝   ╚═╝   ╚═╝  ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═╝      ║'
-    echo '  ║                                                      ║'
-    echo -e "  ║        ${GOLD}${BOLD}S  T  I  V  A  R  O  S    P  A  N  E  L${NC}${BLUE}          ║"
-    echo -e '  ║            VPN Manager • Activation API • Tunnels    ║'
-    echo '  ║                  v2.1 — build UI moderne             ║'
-    echo '  ╚══════════════════════════════════════════════════════╝'
-    echo -e "${NC}"
-}
+banner() { clear; }
 
 # ── Dashboard (v2.1): infos système + comptes + tunnels ────────────────
 # Uniquement de la lecture/affichage; aucune mutation.
@@ -174,40 +157,40 @@ tun_dot() { # $1 nom court — pastille colorée ●◌
     esac
 }
 
+# Fusé dans menu() — un seul cadre: supervision + options + invite.
 dashboard() {
-    local ip cuv cpun ram disk counts valid expired uptime_v
+    local ip cuv cpun ram disk counts valid expired uptime_v osname
     ip=$(sys_ip_pub)
     cuv=$(sys_cpu); cpun=$(nproc 2>/dev/null || echo 1)
     ram=$(sys_ram); disk=$(sys_disk)
     counts=$(acc_counts); valid=${counts%|*}; expired=${counts#*|}
-    # barre CPU: jauge 10 blocs (compacte — la ligne reste dans le cadre)
     ((cuv > 100)) && cuv=100
-    local fill=$((cuv / 10)); local bar
+    local fill=$((cuv / 10)) bar
     bar="$(printf '█%.0s' $(seq 1 $fill 2>/dev/null))$(printf '░%.0s' $(seq 1 $((10-fill)) 2>/dev/null))"
     local load; load=$(cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo "?")
     uptime_v=$(uptime -p 2>/dev/null | sed 's/up //' || echo "?")
     local apic="${RED}●${NC}"
     systemctl is-active --quiet stivaros-api && apic="${GREEN}●${NC}"
-
-    echo -e "${GRAY}  ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄ TABLEAU DE BORD ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄${NC}"
-    box_top
-    box_title "SUPERVISION VPS"
+    # OS court : NAME VERSION_ID (par ex. "Ubuntu 22.04")
+    osname=$(. /etc/os-release 2>/dev/null && echo "${NAME:-Linux} ${VERSION_ID:-}" | sed 's/ *$//' || uname -s)
+    # centre "STIVAROS V2.5" sur 52 colonnes visibles : 52-13=39 -> 19/20
+    echo -e "${BLUE}  ╔$(printf '═%.0s' $(seq 54))╗${NC}"
+    echo -e "${BLUE}  ║$(printf ' %.0s' $(seq 1 19))${BOLD}${GOLD}STIVAROS V2.5${NC}$(printf ' %.0s' $(seq 1 20))${BLUE}║${NC}"
     box_mid
-    box_line "  ${GOLD}IP publique${NC}  : ${BOLD}${CYAN}${ip}${NC}"
-    box_line "  ${GOLD}Hostname${NC}     : ${WHITE}$(hostname)${NC}"
-    box_line "  ${GOLD}Uptime${NC}       : ${WHITE}${uptime_v}${NC}"
+    box_line "  ${GOLD}IP publique${NC} : ${BOLD}${CYAN}${ip}${NC}"
+    box_line "  ${GOLD}OS${NC}          : ${WHITE}${osname} ${GRAY}($(uname -m))${NC}"
+    box_line "  ${GOLD}Uptime${NC}      : ${WHITE}${uptime_v}${NC}"
     box_sep
-    box_line "  ${GOLD}CPU${NC}     : ${cpun} (${PURPLE}${bar}${NC}) ${BOLD}${WHITE}${cuv}%${NC}  ${GRAY}load:${load}${NC}"
-    box_line "  ${GOLD}RAM${NC}     : ${PINK}${ram}${NC}"
-    box_line "  ${GOLD}Disque${NC}  : ${ORANGE}${disk}${NC}"
+    box_line "  ${GOLD}CPU${NC}    : ${cpun} ${PURPLE}${bar}${NC} ${BOLD}${WHITE}${cuv}%${NC} ${GRAY}load ${load}${NC}"
+    box_line "  ${GOLD}RAM${NC}    : ${PINK}${ram}${NC}"
+    box_line "  ${GOLD}Disque${NC} : ${ORANGE}${disk}${NC}"
     box_sep
-    box_line "  ${GOLD}Comptes${NC}  :  ${LIME}${BOLD}${valid} valide(s)${NC}  ${GRAY}│${NC}  ${RED}${BOLD}${expired} expiré(s)/bloqué(s)${NC}"
+    box_line "  ${GOLD}Comptes${NC} : ${LIME}${BOLD}${valid} valide(s)${NC} ${GRAY}│${NC} ${RED}${BOLD}${expired} expiré(s)${NC}"
     box_sep
-    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC}  $(tun_dot zivpn) ${WHITE}ZIVPN${NC}  $(tun_dot ssh) ${WHITE}SSH${NC}"
-    box_line "             $(tun_dot v2ray) ${WHITE}V2Ray-DNS${NC}  $(tun_dot slowdns) ${WHITE}SlowDNS${NC}"
+    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC} $(tun_dot zivpn) ${WHITE}ZIVPN${NC} $(tun_dot ssh) ${WHITE}SSH${NC}"
+    box_line "            $(tun_dot v2ray) ${WHITE}V2Ray-DNS${NC} $(tun_dot slowdns) ${WHITE}SlowDNS${NC}"
     box_line "  ${GOLD}API${NC}     : ${apic} ${WHITE}stivaros-api :${API_PORT}${NC}"
-    box_bot
-    echo
+    box_sep
 }
 
 # ── Garde-fous ─────────────────────────────────────────────────────────
@@ -1685,7 +1668,7 @@ orange_menu() {
     echo "  0) Retour"
     echo
     local c
-    read -r -p "Choix: " c
+    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c
     case "$c" in
         1)
             local h
@@ -2217,7 +2200,7 @@ quotas_menu() {
     echo "  0) Retour"
     echo
     local c
-    read -r -p "Choix: " c
+    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c
     case "$c" in
         1)
             local id q
@@ -2442,7 +2425,7 @@ manage_devices() {
     echo "  0) Retour"
     echo
     local action
-    read -r -p "Choix: " action
+    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " action
     [[ "$action" == "0" ]] && return 0
     [[ "$action" =~ ^[1-4]$ ]] || { warn "Choix invalide"; pause; return 1; }
     local pick
@@ -2504,28 +2487,27 @@ manage_devices() {
 menu() {
     while true; do
         banner
+        # Un seul cadre: supervision (dashboard) + options du menu.
         dashboard
-        echo -e "${BOLD}${GOLD}Menu principal${NC}\n"
-        box_top
         box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Installer / réparer le panel ${GRAY}(API + tunnels)${NC}"
         box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} ${LIME}Créer un compte${NC}"
         box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} Lister les comptes"
         box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Supprimer des comptes"
-        box_mid
+        box_sep
         box_line "  ${GOLD}${BOLD}5${NC} ${WHITE})${NC} Gestion des tunnels"
         box_line "  ${GOLD}${BOLD}6${NC} ${WHITE})${NC} État des tunnels"
-        box_mid
+        box_sep
         box_line "  ${GOLD}${BOLD}7${NC} ${WHITE})${NC} Appareils & verrou UUID"
         box_line "  ${GOLD}${BOLD}8${NC} ${WHITE})${NC} Config Orange ${GRAY}(host)${NC}"
         box_line "  ${GOLD}${BOLD}9${NC} ${WHITE})${NC} Quotas & consommation"
-        box_mid
+        box_sep
         box_line " ${RED}${BOLD}10${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
         local c=""
         # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
-        read -r -p "  ${GOLD}Choix${NC} ${WHITE}▸${NC} " c 2>/dev/null || { echo; exit 0; }
+        read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c 2>/dev/null || { echo; exit 0; }
         case "$c" in
             1) install_all || true ;;
             2) create_user || true ;;
