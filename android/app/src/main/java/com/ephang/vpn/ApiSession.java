@@ -79,7 +79,34 @@ public final class ApiSession {
     /** Full logout: forget credentials and detach any active API tunnel. */
     public static void logout(Context ctx) {
         clearActive(ctx);
+        clearAccountCard(ctx);
         PhoHelper.vaultClear(deviceUuid(ctx));
+    }
+
+    // --- Bloc compte (carte "Client" de l'écran d'activation) ---
+    // Non sensible : nom, plan, quota et expiration. Uniquement quand le
+    // compte est actif et validé ; rafraîchi via /api/v1/devices/check.
+    private static final String K_ACCOUNT_CARD = "api_account_card";
+
+    public static void saveAccountCard(Context ctx, JSONObject card) {
+        p(ctx).edit().putString(K_ACCOUNT_CARD,
+                card == null ? "" : card.toString()).apply();
+    }
+
+    public static JSONObject accountCard(Context ctx) {
+        try {
+            String s = p(ctx).getString(K_ACCOUNT_CARD, "");
+            if (s == null || s.isEmpty()) {
+                return null;
+            }
+            return new JSONObject(s);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static void clearAccountCard(Context ctx) {
+        p(ctx).edit().remove(K_ACCOUNT_CARD).apply();
     }
 
     // --- Remote configs cache ---

@@ -75,6 +75,22 @@ public final class PhoHelper {
         });
     }
 
+    /** GET /api/v1/devices/check — statut du compte lié à cet appareil. */
+    public static void check(String uuid, Callback cb) {
+        IO.execute(() -> {
+            try {
+                JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid));
+                if (r.has("error")) {
+                    deliver(cb, null, new Exception(r.optString("error")));
+                    return;
+                }
+                deliver(cb, r, null);
+            } catch (Exception e) {
+                deliver(cb, null, e);
+            }
+        });
+    }
+
     // -- coffre chiffré (jamais de valeur lisible dans SharedPreferences) --
 
     public static void vaultPut(android.content.Context ctx, String uuid, String k, String v) {

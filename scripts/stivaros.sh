@@ -1238,9 +1238,10 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
-                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
-        # quota_mb/bytes_used ciblent la table users
-        table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
+                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0"),
+                     ("plan", "TEXT DEFAULT 'BASIC'")]:
+        # quota_mb/bytes_used/plan ciblent la table users
+        table = "users" if col in ("quota_mb", "bytes_used", "plan") else "vpn_configs"
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         except Exception:
@@ -1268,6 +1269,28 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+def account_card(user):
+    """Bloc « Client » consommé par l'app : identité, abonnement et quota
+    REELS (bytes_used est alimenté par quota.py toutes les 2 min, donc les
+    données restantes évoluent avec la consommation effective)."""
+    q = user["quota_mb"] or 0
+    used = user["bytes_used"] or 0
+    limit_b = q * 1024 * 1024
+    remaining = -1 if q <= 0 else max(0, limit_b - used)
+    plan = user["plan"] if "plan" in user.keys() else None
+    return {
+        "name": user["name"] or "",
+        "phone": user["phone"] or "",
+        "plan": plan or "BASIC",
+        "expires_at": user["expires_at"] or "",
+        "quota_mb": q,
+        "bytes_used": used,
+        "data_limit_bytes": limit_b,
+        "data_remaining_bytes": remaining,
+        "unlimited": q <= 0,
+        "active": 1 if user["active"] else 0,
+    }
 
 def find_users(identifier):
     """TOUTes les lignes correspondant à un identifiant (uuid du compte,
@@ -1389,6 +1412,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     return self._send({"activated": False, "message": "Subscription expired"}, 403)
                 return self._send({"activated": True, "phone": user["phone"],
                                    "name": user["name"], "expires_at": user["expires_at"],
+                                   "account": account_card(user),
                                    "message": "Device is active"})
             return self._send({"activated": False, "message": "Device not found or inactive"}, 404)
 
@@ -1533,6 +1557,7 @@ class APIHandler(BaseHTTPRequestHandler):
             conn.close()
             return self._send({"success": True, "message": "Device activated successfully",
                                "phone": phone, "expires_at": exp,
+                               "account": account_card(user),
                                "device_mode": "multi" if user["multi_device"] else "mono"})
 
         return self._send({"error": "Not found"}, 404)
