@@ -380,11 +380,16 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
         }
         showToast("Nuclear disconnect: killing all VPN processes...");
-        handler.postDelayed(() -> {
-            if (vpnTeardownOutstanding()) {
-                forceKillProcess();
-            }
-        }, 3500);
+        // Kill-process INCONDITIONNEL à 3.5s : le nucléaire est un
+        // force-close explicite (le dialogue de confirmation le promet
+        // littéralement). Auparavant, le kill n'était posé que si un
+        // teardown était visible (vpnTeardownOutstanding) — or en CONNECTING,
+        // quand la tentative est en retry-sleep ou n'a pas encore publié son
+        // contrôleur Go, tout paraît "clean" : aucun kill n'avait jamais
+        // lieu, la tentative reprenait et le VPN finissait par se CONNECTER
+        // malgré le nucléaire (bug intermittent CONNECTING + configs API,
+        // dont le démarrage round-robin est très long).
+        handler.postDelayed(this::forceKillProcess, 3500);
     }
 
     /** Kill our own process: children die, system revokes the VPN key. */

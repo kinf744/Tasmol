@@ -300,6 +300,12 @@ public class TasVpnService extends VpnService {
                     // stopSession() used to see a null controller here, do
                     // nothing, and let the data plane build itself to the end.
                     pendingController.set(ctrl);
+                    if (isSuperseded(gen)) {
+                        // Déconnexion arrivée pile avant le start() Go : ne
+                        // jamais lancer le plan de données, tout démonter.
+                        abortSupersededStart(gen, ctrl);
+                        return;
+                    }
                     String err = invokeStart(ctrl, params);
                     if (err != null && !err.isEmpty()) {
                         pendingController.compareAndSet(ctrl, null);
@@ -568,18 +574,22 @@ public class TasVpnService extends VpnService {
         activeTunnelId = null;
         final Object target = ctrl != null ? ctrl : inflight;
         if (target == null) {
-            // Nothing was up and nothing is starting. Deliberately NOT
-            // disarming the watchdog here: stopSession() already returned
-            // early on the call that armed it, and this one runs from
-            // onDestroy() after stopSelf(). Disarming now would cancel the
-            // very watchdog the first call armed. The runnable is a no-op when
-            // no teardown is in flight, so leaving it armed is harmless.
-            // Exception : un teardown PRÉCÉDENT peut être resté coincé (ex.
-            // cleanup borné entre deux retries) — en nucléaire, armer le
-            // watchdog pour garantir que le processus finisse par mourir.
-            if (nuclear && goStopHanging.get()) {
-                logEvent("warning", "app", "nuclear disconnect (teardown already hanging)");
-                armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
+            // Nothing was up and nothing is starting. En nucléaire, armer le
+            // kill-process DANS TOUS LES CAS — pas seulement si un teardown
+            // est visible : la tentative de connexion peut être en vol sans
+            // contrôleur publié (dans le retry-sleep entre deux essais, ou
+            // entre la création du TUN et pendingController.set). Sans ce
+            // kill garanti, l'attempt reprend après le stopSession et finit
+            // par construire la session malgré le nucléaire — c'était la
+            // cause du "nucléaire intermittant en CONNECTING" (configs API
+            // round-robin : le start() Go peut durer des dizaines de
+            // secondes, la fenêtre est énorme). Le nucléaire est un
+            // force-close explicite : mourir même quand tout semblait propre
+            // est le comportement voulu.
+            if (nuclear) {
+                logEvent("warning", "app",
+                        "nuclear disconnect (no live target - process kill armed)");
+                armNuclearHardKill(WATCHDOG_KILL_NUCLEAR_MS);
             }
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
@@ -591,6 +601,10 @@ public class TasVpnService extends VpnService {
         if (nuclear) {
             logEvent("warning", "app", "nuclear disconnect (bound " + timeoutS + "s)");
             armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
+            // Kill-process garanti aussi quand le teardown Go est visible :
+            // il peut retourner "proprement" pendant qu'une NOUVELLE
+            // tentative (non supersédée) re-bâtit la session.
+            armNuclearHardKill(WATCHDOG_KILL_NUCLEAR_MS);
         } else {
             // Armed on the normal path too, with a long grace: a healthy
             // teardown disarms it by finishing, and a wedged one still cannot
@@ -721,6 +735,32 @@ public class TasVpnService extends VpnService {
             android.os.Process.killProcess(android.os.Process.myPid());
         }
     };
+
+    /**
+     * Kill-process GARANTI du chemin nucléaire : aucune condition sur l'état
+     * du teardown. Le nucléaire est un force-close explicite (dialogue de
+     * confirmation) — seule la mort du processus garantit que la clé VPN est
+     * révoquée, que les processus enfants meurent et qu'aucune tentative de
+     * connexion en vol ne peut re-bâtir la session derrière. Jamais désarmé
+     * par un teardown propre : c'est voulu.
+     */
+    private final Runnable nuclearHardKill = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                stopForeground(true);
+            } catch (Exception ignored) {
+            }
+            cancelNotification();
+            logEvent("warning", "app", "nuclear: ending process");
+            android.os.Process.killProcess(android.os.Process.myPid());
+        }
+    };
+
+    private void armNuclearHardKill(long delayMs) {
+        serviceHandler.removeCallbacks(nuclearHardKill);
+        serviceHandler.postDelayed(nuclearHardKill, delayMs);
+    }
 
     private void armNuclearWatchdog(long delayMs) {
         serviceHandler.removeCallbacks(nuclearKill);
