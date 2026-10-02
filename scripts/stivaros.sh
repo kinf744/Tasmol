@@ -2078,6 +2078,96 @@ def stats_query_v2ray(binary, addr):
                 pass
     return out
 
+# --- comptabilisation SSH par utilisateur (ssh_slowdns) -------------------
+# Les tunnels SSH (directs ou via dnstt) sortent par des processus sshd
+# appartenant à l'utilisateur système "u<tel>". nftables peut donc compter
+# par UID (meta skuid) dans les deux sens : output (requêtes) et input
+# (réponses vers la socket possédée par l'utilisateur).
+
+NFT_TABLE = "stivaros_quota"
+NFT_COMMENT_PREFIX = "stq-"
+
+def _nft(*args):
+    return subprocess.run(["nft"] + list(args),
+                          capture_output=True, text=True, timeout=10)
+
+def nft_ensure_schema():
+    if _nft("list", "table", "inet", NFT_TABLE).returncode != 0:
+        if _nft("add", "table", "inet", NFT_TABLE).returncode != 0:
+            return False
+    for hook in ("output", "input"):
+        if _nft("list", "chain", "inet", NFT_TABLE, hook).returncode != 0:
+            _nft("add", "chain", "inet", NFT_TABLE, hook,
+                 "{", "type", "filter", "hook", hook, "priority", "0", ";",
+                 "policy", "accept", ";", "}")
+    return True
+
+def nft_sync_ssh(users, state, usage_now):
+    """Règles nft par login + lecture des compteurs -> usage_now[*]["ssh"]."""
+    import pwd
+    if not nft_ensure_schema():
+        return
+    wanted = {}   # login -> uid
+    for u in users:
+        login = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
+        if login == "u":
+            continue
+        try:
+            wanted[login] = pwd.getpwnam(login).pw_uid
+        except KeyError:
+            continue
+    existing = {}  # login -> {"handle": h, "bytes": b} (somme in+out)
+    for hook in ("output", "input"):
+        try:
+            r = _nft("-j", "list", "chain", "inet", NFT_TABLE, hook)
+            data = json.loads(r.stdout or "{}")
+        except Exception:
+            continue
+        for item in data.get("nftables", []):
+            rule = item.get("rule")
+            if not rule:
+                continue
+            comment = rule.get("comment") or ""
+            if not comment.startswith(NFT_COMMENT_PREFIX):
+                continue
+            login = comment[len(NFT_COMMENT_PREFIX):]
+            nbytes = 0
+            for expr in rule.get("expr", []):
+                counter = expr.get("counter")
+                if counter:
+                    nbytes = int(counter.get("bytes", 0))
+            e = existing.setdefault(login, {"handles": [], "bytes": 0})
+            e["handles"].append(rule.get("handle"))
+            e["bytes"] += nbytes
+    # Ajouter les règles manquantes.
+    for login, uid in wanted.items():
+        if login not in existing:
+            for hook in ("output", "input"):
+                _nft("add", "rule", "inet", NFT_TABLE, hook,
+                     "meta", "skuid", str(uid), "counter",
+                     "comment", NFT_COMMENT_PREFIX + login)
+    # Retirer les règles des comptes supprimés (plus de login système).
+    for hook in ("output", "input"):
+        try:
+            r = _nft("-j", "list", "chain", "inet", NFT_TABLE, hook)
+            data = json.loads(r.stdout or "{}")
+        except Exception:
+            continue
+        for item in data.get("nftables", []):
+            rule = item.get("rule")
+            if not rule:
+                continue
+            comment = rule.get("comment") or ""
+            if comment.startswith(NFT_COMMENT_PREFIX) and \
+                    comment[len(NFT_COMMENT_PREFIX):] not in wanted:
+                _nft("delete", "rule", "inet", NFT_TABLE, hook,
+                     "handle", str(rule.get("handle")))
+    # Attribuer les octets aux comptes.
+    for u in users:
+        login = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
+        if login in existing:
+            usage_now.setdefault(u["uuid"], {})["ssh"] = existing[login]["bytes"]
+
 def main():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
@@ -2124,6 +2214,9 @@ def main():
                 usage_now.setdefault(uuid, {})["zivpn"] = total
     except Exception:
         pass
+
+    # SSH (ssh_slowdns / ssh direct): compteurs nftables par UID.
+    nft_sync_ssh(users, state, usage_now)
 
     # Accumulation delta (compteurs remis à 0 au restart du tunnel).
     for uuid, per in usage_now.items():
