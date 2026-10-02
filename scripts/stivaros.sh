@@ -1668,7 +1668,7 @@ orange_menu() {
     echo "  0) Retour"
     echo
     local c
-    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c
     case "$c" in
         1)
             local h
@@ -2200,7 +2200,7 @@ quotas_menu() {
     echo "  0) Retour"
     echo
     local c
-    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c
     case "$c" in
         1)
             local id q
@@ -2284,7 +2284,7 @@ tunnel_menu() {
         echo
         local c=""
         # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
-        read -r -p "  ${GOLD}Choix${NC} ${WHITE}▸${NC} " c 2>/dev/null || { echo; exit 0; }
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; exit 0; }
         case "$c" in
             1) install_xray || true ;;
             2) install_zivpn || true ;;
@@ -2425,7 +2425,7 @@ manage_devices() {
     echo "  0) Retour"
     echo
     local action
-    read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " action
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r action
     [[ "$action" == "0" ]] && return 0
     [[ "$action" =~ ^[1-4]$ ]] || { warn "Choix invalide"; pause; return 1; }
     local pick
@@ -2507,7 +2507,7 @@ menu() {
         echo
         local c=""
         # EOF (entrée fermée / mode pipe) → quitter au lieu de boucler.
-        read -r -p "  ${GOLD}► Option${NC} ${WHITE}:${NC} " c 2>/dev/null || { echo; exit 0; }
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; exit 0; }
         case "$c" in
             1) install_all || true ;;
             2) create_user || true ;;
