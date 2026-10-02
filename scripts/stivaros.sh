@@ -1911,27 +1911,46 @@ SQL
 }
 
 list_users() {
-    banner; echo -e "${BOLD}Comptes${NC}\n"
+    banner
     [[ -f "$DB_PATH" ]] || { error "API non installée (option 1)"; pause; return 1; }
-    printf "${CYAN}%-3s | %-12s | %-14s | %-10s | %-13s | %s${NC}\n" "#" "Nom" "Téléphone" "Expire" "Appareils" "Statut"
-    printf -- "----|--------------|----------------|------------|---------------|---------\n"
     local i=0 today
     today=$(date +%F)
-    while IFS='|' read -r id name phone expires active md did; do
+    box_top
+    box_title "GESTION DES COMPTES"
+    box_mid
+    # En-tête du tableau (4 colonnes visibles + statut texte)
+    box_line "  ${GRAY}${BOLD}Terminal   │ Expire     │ Quota (used/total)  │ Statut${NC}"
+    box_sep
+    while IFS='|' read -r name phone expires active md used quota; do
         i=$((i + 1))
-        local mode
-        if [[ "$md" == "1" ]]; then mode="${CYAN}multi${NC}"
-        elif [[ -n "$did" ]]; then mode="${YELLOW}mono 🔒${NC}"
-        else mode="mono (libre)"; fi
         local status
-        if [[ "$active" -eq 0 ]]; then status="${RED}désactivé${NC}"
+        if [[ "$active" -eq 0 ]]; then status="${RED}bloqué${NC}"
         elif [[ -n "$expires" && "$expires" < "$today" ]]; then status="${YELLOW}expiré${NC}"
-        else status="${GREEN}actif${NC}"; fi
-        printf "%-3s | %-12s | %-14s | %-10s | %-13b | %b\n" "$id" "$name" "$phone" "$expires" "$mode" "$status"
+        else status="${LIME}actif${NC}"; fi
+        # Quota: quota_mb est en Mo; convertir en bytes pour fmt_bytes
+        local qtxt
+        local used_b quota_b
+        used_b=$((used)); quota_b=$((quota * 1024 * 1024))
+        if (( quota > 0 )); then
+            qtxt="$(fmt_bytes "$used_b")/${GOLD}$(fmt_bytes "$quota_b")${NC}"
+        else
+            qtxt="$(fmt_bytes "$used_b")/${GOLD}illimité${NC}"
+        fi
+        # nom@phone tronqué à 12, expire fixe 10
+        local who="${name}"
+        [[ ${#who} -gt 12 ]] && who="${who:0:12}"
+        box_line "  ${WHITE}${BOLD}$(printf '%-12s' "$who")${NC}│ ${WHITE}${expires:-jamais}${NC}│ ${qtxt} ${GRAY}│${NC} ${status}"
+        [[ -n "$phone" ]] && box_line "  ${GRAY}  ${phone}${NC}"
     done < <(sqlite3 -batch "$DB_PATH" \
-        "SELECT id, COALESCE(name,''), phone, COALESCE(expires_at,''), active, COALESCE(multi_device,0), COALESCE(device_install_id,'') FROM users ORDER BY id;")
-    [[ $i -eq 0 ]] && warn "Aucun compte"
-    echo -e "\n${CYAN}Total: $i${NC}  —  ${YELLOW}mono 🔒 = verrouillé sur un appareil${NC}"
+        "SELECT COALESCE(name,''), phone, COALESCE(expires_at,''), active,
+                COALESCE(multi_device,0), COALESCE(bytes_used,0), COALESCE(quota_mb,0)
+           FROM users ORDER BY id;")
+    if [[ $i -eq 0 ]]; then
+        box_line "  ${GRAY}Aucun compte — utilisez l'option 2 du menu${NC}"
+    fi
+    box_bot
+    echo
+    echo -e "  ${GRAY}Total: ${i} compte(s)${NC}"
     pause
 }
 
@@ -2275,7 +2294,7 @@ tunnel_menu() {
         box_line "  ${GOLD}${BOLD}2${NC}${WHITE})${NC} Installer / réparer ${CYAN}ZIVPN${NC}"
         box_line "  ${GOLD}${BOLD}3${NC}${WHITE})${NC} Installer / réparer ${CYAN}SSH${NC}"
         box_line "  ${GOLD}${BOLD}4${NC}${WHITE})${NC} Installer / réparer ${CYAN}V2Ray-DNS${NC}"
-        box_line "  ${GOLD}${BOLD}5${NC}${WHITE})${NC} Installer / réparer ${CYAN}SlowDNS${NC} ${GRAY}(SSH + V2Ray over DNS)${NC}"
+        box_line "  ${GOLD}${BOLD}5${NC}${WHITE})${NC} Installer / réparer ${CYAN}SlowDNS${NC} ${GRAY}(SSH+V2Ray/DNS)${NC}"
         box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
         box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} État détaillé"
         box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
