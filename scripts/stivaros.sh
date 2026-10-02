@@ -2027,8 +2027,8 @@ def save_state(s):
     os.replace(tmp, STATE)
     os.chmod(STATE, 0o600)
 
-def stats_query(binary, addr):
-    """Compteurs user>>>email>>>traffic>>>u{plink,downlink} -> {email: bytes}."""
+def stats_query_xray(binary, addr):
+    """Sortie proto-text Xray: name: "user>>>EMAIL>>>traffic>>>uplink" / value: N."""
     try:
         r = subprocess.run([binary, "api", "statsquery", "--server=" + addr,
                             "-pattern", "user>>>"],
@@ -2038,11 +2038,6 @@ def stats_query(binary, addr):
     out = {}
     last_name = ""
     for line in r.stdout.splitlines():
-        # sortie proto-text (multiligne):
-        #   stat: <
-        #     name: "user>>>EMAIL>>>traffic>>>uplink"
-        #     value: 1234
-        #   >
         clean = line.strip().replace('"', " ")
         parts = clean.split()
         if parts[:1] == ["name:"]:
@@ -2058,39 +2053,75 @@ def stats_query(binary, addr):
             last_name = ""
     return out
 
+def stats_query_v2ray(binary, addr):
+    """CLI V2Ray réelle: `v2ray api stats -json ... "user>>>"`
+    (le binaire n'a pas de sous-commande statsquery, et le service gRPC est
+    nommé v2ray.app.*, pas xray.app.* -> le client xray ne peut pas l'appeler).
+    Sortie: {"stat":[{"name": "user>>>EMAIL>>>traffic>>>uplink", "value": "N"}]}."""
+    try:
+        r = subprocess.run([binary, "api", "stats", "-json",
+                            "--server=" + addr, "user>>>"],
+                           capture_output=True, text=True, timeout=10)
+    except Exception:
+        return {}
+    out = {}
+    try:
+        data = json.loads(r.stdout)
+    except Exception:
+        return {}
+    for ent in data.get("stat", []):
+        seg = str(ent.get("name", "")).split(">>>")
+        if len(seg) >= 4 and seg[0] == "user" and seg[2] == "traffic":
+            try:
+                out[seg[1]] = out.get(seg[1], 0) + int(ent.get("value") or 0)
+            except (ValueError, TypeError):
+                pass
+    return out
+
 def main():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     users = conn.execute(
         "SELECT id, uuid, name, phone, quota_mb, bytes_used, active FROM users").fetchall()
-    by_uuid = {u["uuid"]: u for u in users}
 
     state = load_state()
     usage_now = {}      # uuid -> bytes constatés ce cycle
-    # Xray / V2Ray: compteurs par email (= uuid)
-    for key, binary, addr in (("xray", XRAY, "127.0.0.1:10085"),
-                              ("v2ray", V2RAY, "127.0.0.1:10086")):
-        if not os.path.exists(binary):
-            continue
-        for uuid, total in stats_query(binary, addr).items():
-            usage_now.setdefault(uuid, {})[key] = total
-    # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid
+    # Xray: client statsquery (proto-text). V2Ray: client stats -json.
+    if os.path.exists(XRAY):
+        for uuid, total in stats_query_xray(XRAY, "127.0.0.1:10085").items():
+            usage_now.setdefault(uuid, {})["xray"] = total
+    if os.path.exists(V2RAY):
+        for uuid, total in stats_query_v2ray(V2RAY, "127.0.0.1:10086").items():
+            usage_now.setdefault(uuid, {})["v2ray"] = total
+    # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid.
+    # Instance dédiée stivaros (5668) d'abord, puis instance partagée
+    # (5667) en complément : la valeur d'un mot de passe présent dans les
+    # deux n'est pas additionnée (setdefault).
+    zivpn_states = [os.environ.get("STIVAROS_ZIVPN_STATE",
+                                   "/etc/stivaros-zivpn/quota-state.json"),
+                    "/etc/zivpn/quota-state.json"]
     try:
-        with open(os.environ.get("STIVAROS_ZIVPN_STATE",
-                                 "/etc/stivaros-zivpn/quota-state.json")) as f:
-            zstate = json.load(f)
         pw_rows = conn.execute(
             "SELECT v.zivpn_password, u.uuid FROM vpn_configs v"
             " JOIN users u ON v.user_id = u.id WHERE v.zivpn_password != ''").fetchall()
         pw2uuid = {r[0]: r[1] for r in pw_rows}
-        used_map = zstate.get("used", zstate) if isinstance(zstate, dict) else {}
-        for pw, total in (used_map.items() if isinstance(used_map, dict) else []):
-            uuid = pw2uuid.get(pw)
-            if uuid:
+        pw_used = {}
+        for zpath in zivpn_states:
+            try:
+                with open(zpath) as f:
+                    zstate = json.load(f)
+            except Exception:
+                continue
+            used_map = zstate.get("used", zstate) if isinstance(zstate, dict) else {}
+            for pw, total in (used_map.items() if isinstance(used_map, dict) else []):
                 try:
-                    usage_now.setdefault(uuid, {})["zivpn"] = int(total)
+                    pw_used.setdefault(pw, int(total))
                 except (TypeError, ValueError):
                     pass
+        for pw, total in pw_used.items():
+            uuid = pw2uuid.get(pw)
+            if uuid:
+                usage_now.setdefault(uuid, {})["zivpn"] = total
     except Exception:
         pass
 
@@ -2121,9 +2152,9 @@ def main():
 
     # Purge des credentials dans chaque tunnel pour les bloqués.
     for u in blocked:
-        # SSH système
+        # SSH système (le login créé par le panel est préfixé de "u").
         ssh_user = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
-        if ssh_user:
+        if ssh_user != "u":
             subprocess.run(["usermod", "-L", ssh_user], capture_output=True)
         sys.stderr.write("[quota] BLOQUE: %s (%s)\n" % (u["name"], u["uuid"]))
     conn.close()
