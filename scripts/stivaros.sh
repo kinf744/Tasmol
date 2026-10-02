@@ -1918,39 +1918,35 @@ list_users() {
     box_top
     box_title "GESTION DES COMPTES"
     box_mid
-    # En-tête du tableau (4 colonnes visibles + statut texte)
-    box_line "  ${GRAY}${BOLD}Terminal   │ Expire     │ Quota (used/total)  │ Statut${NC}"
-    box_sep
     while IFS='|' read -r name phone expires active md used quota; do
         i=$((i + 1))
         local status
-        if [[ "$active" -eq 0 ]]; then status="${RED}bloqué${NC}"
-        elif [[ -n "$expires" && "$expires" < "$today" ]]; then status="${YELLOW}expiré${NC}"
-        else status="${LIME}actif${NC}"; fi
+        if [[ "$active" -eq 0 ]]; then status="${RED}● bloqué${NC}"
+        elif [[ -n "$expires" && "$expires" < "$today" ]]; then status="${YELLOW}● expiré${NC}"
+        else status="${LIME}● actif${NC}"; fi
         # Quota: quota_mb est en Mo; convertir en bytes pour fmt_bytes
-        local qtxt
-        local used_b quota_b
+        local qtxt used_b quota_b
         used_b=$((used)); quota_b=$((quota * 1024 * 1024))
         if (( quota > 0 )); then
-            qtxt="$(fmt_bytes "$used_b")/${GOLD}$(fmt_bytes "$quota_b")${NC}"
+            qtxt="$(fmt_bytes "$used_b") / $(fmt_bytes "$quota_b")"
         else
-            qtxt="$(fmt_bytes "$used_b")/${GOLD}illimité${NC}"
+            qtxt="$(fmt_bytes "$used_b") / illimité"
         fi
-        # nom@phone tronqué à 12, expire fixe 10
-        local who="${name}"
-        [[ ${#who} -gt 12 ]] && who="${who:0:12}"
-        box_line "  ${WHITE}${BOLD}$(printf '%-12s' "$who")${NC}│ ${WHITE}${expires:-jamais}${NC}│ ${qtxt} ${GRAY}│${NC} ${status}"
-        [[ -n "$phone" ]] && box_line "  ${GRAY}  ${phone}${NC}"
+        # Ligne 1: nom + statut ; Ligne 2: tel + expiration + quota
+        box_line "  ${WHITE}${BOLD}${name}${NC} ${status}"
+        box_line "  ${GRAY}${phone}${NC} ${GRAY}exp:${WHITE} ${expires:-jamais}${NC}"
+        box_line "  ${GRAY}data:${NC} ${GOLD}${qtxt}${NC}"
+        box_sep
     done < <(sqlite3 -batch "$DB_PATH" \
         "SELECT COALESCE(name,''), phone, COALESCE(expires_at,''), active,
                 COALESCE(multi_device,0), COALESCE(bytes_used,0), COALESCE(quota_mb,0)
            FROM users ORDER BY id;")
     if [[ $i -eq 0 ]]; then
-        box_line "  ${GRAY}Aucun compte — utilisez l'option 2 du menu${NC}"
+        box_line "  ${GRAY}Aucun compte — utilisez l'option 2${NC}"
+        box_sep
     fi
+    box_line "  ${GRAY}Total: ${i} compte(s)${NC}"
     box_bot
-    echo
-    echo -e "  ${GRAY}Total: ${i} compte(s)${NC}"
     pause
 }
 
