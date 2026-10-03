@@ -58,10 +58,18 @@ public final class ApiSession {
         PhoHelper.vaultPut(ctx, id, V_PHONE, phone);
         PhoHelper.vaultPut(ctx, id, V_CODE, code);
         PhoHelper.vaultPut(ctx, id, V_EXPIRES, expiresAt == null ? "" : expiresAt);
+        p(ctx).edit().putBoolean(K_AUTHED, true).apply();
     }
 
     public static boolean isAuthenticated(Context ctx) {
-        return !code(ctx).isEmpty() && !phone(ctx).isEmpty();
+        if (p(ctx).getBoolean(K_AUTHED, false)) {
+            return true; // chemin rapide : pas de decrypt par tick UI
+        }
+        boolean ok = !code(ctx).isEmpty() && !phone(ctx).isEmpty();
+        if (ok) {
+            p(ctx).edit().putBoolean(K_AUTHED, true).apply(); // migration
+        }
+        return ok;
     }
 
     public static String phone(Context ctx) {
@@ -80,6 +88,7 @@ public final class ApiSession {
     public static void logout(Context ctx) {
         clearActive(ctx);
         clearAccountCard(ctx);
+        p(ctx).edit().putBoolean(K_AUTHED, false).apply();
         PhoHelper.vaultClear(deviceUuid(ctx));
     }
 
@@ -87,6 +96,9 @@ public final class ApiSession {
     // Non sensible : nom, plan, quota et expiration. Uniquement quand le
     // compte est actif et validé ; rafraîchi via /api/v1/devices/check.
     private static final String K_ACCOUNT_CARD = "api_account_card";
+    // Drapeau non secret : évite d'appeler le coffre chiffré (lecture =
+    // fichier + AES-GCM) à chaque tick UI de la Home.
+    private static final String K_AUTHED = "api_authed";
 
     public static void saveAccountCard(Context ctx, JSONObject card) {
         p(ctx).edit().putString(K_ACCOUNT_CARD,
@@ -114,14 +126,26 @@ public final class ApiSession {
     public static void saveConfigs(Context ctx, JSONArray configs) {
         PhoHelper.vaultPut(ctx, deviceUuid(ctx), V_CONFIGS,
                 configs == null ? "[]" : configs.toString());
+        lastConfigsRaw = null; // force le re-parse au prochain accès
     }
 
+    // Cache anti-reparse : le tick UI d'accueil (2 s) relisait et re-parsait
+    // TOUT le JSON des configs depuis le coffre chiffré à chaque tick.
+    private static String lastConfigsRaw = null;
+    private static JSONArray lastConfigsParsed = new JSONArray();
+
     public static JSONArray configs(Context ctx) {
-        try {
-            return new JSONArray(PhoHelper.vaultGet(deviceUuid(ctx), V_CONFIGS));
-        } catch (Exception e) {
-            return new JSONArray();
+        String raw = PhoHelper.vaultGet(deviceUuid(ctx), V_CONFIGS);
+        if (raw != null && raw.equals(lastConfigsRaw)) {
+            return lastConfigsParsed;
         }
+        try {
+            lastConfigsParsed = new JSONArray(raw);
+        } catch (Exception e) {
+            lastConfigsParsed = new JSONArray();
+        }
+        lastConfigsRaw = raw;
+        return lastConfigsParsed;
     }
 
     // --- Active API tunnel ---

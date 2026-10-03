@@ -368,8 +368,18 @@ public class HomeFragment extends Fragment {
         }
     }
 
+    // Empreinte du snapshot de configs : sans ce garde, le spinner entier
+    // était reconstruit à CHAQUE tick 2 s (parse JSON + nouvel adapter +
+    // reset de la sélection) — jauge à l'écran et sélection sautante.
+    private String lastApiKey = null;
+
     private void populateApiSpinner() {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
+        String key = Integer.toHexString(cfgs.toString().hashCode());
+        if (key.equals(lastApiKey)) {
+            return; // rien à changer : garder adapter et sélection
+        }
+        lastApiKey = key;
         java.util.List<String> labels = new java.util.ArrayList<>();
         labels.add(cfgs.length() == 0 ? "— UPDATE —" : " ••• ");
         // Affichage professionnel : les paires SlowDNS (2 profils servis
