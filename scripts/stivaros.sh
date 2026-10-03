@@ -9,7 +9,7 @@
 #    - Détection automatique des tunnels installés (Xray, ZIVPN,
 #      SlowDNS/dnstt, V2Ray-DNS, SSH) et installation à la demande.
 #    - Tunnels: Xray (VLESS+XHTTP+TLS:443), ZIVPN (UDP:5667),
-#      SSH+SlowDNS (dnstt NS -> SSH:22), V2Ray+SlowDNS (dnstt NV -> V2Ray:5401).
+#      SSH+SlowDNS (dnstt NS -> SSH:22), V2Ray+SlowDNS (dnstt NV -> V2Ray:5402).
 #
 #  Sécurité: set -euo pipefail, validation stricte des entrées, échappement
 #  SQL, permissions restrictives sur les secrets, aucun secret dans les
@@ -56,13 +56,14 @@ readonly SLOWDNS_DIR="/etc/slowdns"
 readonly DNSTT_BIN="/usr/local/bin/dnstt-server"
 readonly DNSDIST_PORT=5300
 readonly DNSTT_NS4_PORT=5353   # NS4 -> SSH (127.0.0.1:22)
-readonly DNSTT_NV4_PORT=5354   # NV4 -> V2Ray (127.0.0.1:5401)
+readonly DNSTT_NV4_PORT=5354   # NV4 -> V2Ray stivaros (127.0.0.1:5402)
 readonly SLOWDNS_MTU_DEFAULT=1232
 
 # V2Ray-DNS
 readonly V2RAY_BIN="/usr/local/bin/v2ray"
-readonly V2RAY_DIR="/etc/v2ray"
-readonly V2RAY_PORT=5401
+readonly V2RAY_DIR="/etc/stivaros-v2ray"
+readonly V2RAY_PORT=5402
+readonly V2RAY_SERVICE="stivaros-v2ray.service"
 
 # Orange illimité: SNI/adresse FIXES, seul le host XHTTP est administrable
 # (exactement UN host à la fois, partagé par toutes les configs orange).
@@ -71,7 +72,7 @@ readonly ORANGE_HOST_FILE="$INSTALL_DIR/orange_host.txt"
 
 # Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
 readonly XRAY_STATS_ADDR="127.0.0.1:10085"
-readonly V2RAY_STATS_ADDR="127.0.0.1:10086"
+readonly V2RAY_STATS_ADDR="127.0.0.1:10087"
 readonly QUOTA_STATE="$INSTALL_DIR/quota_state.json"
 readonly QUOTA_SCRIPT="$API_DIR/quota.py"
 readonly QUOTA_TIMER="stivaros-quota.timer"
@@ -247,7 +248,7 @@ tunnel_installed() {
         xray)    [[ -x "$XRAY_BIN" && -f /etc/systemd/system/xray.service ]] ;;
         zivpn)   [[ -x "$ZIVPN_BIN" && -f "/etc/systemd/system/$ZIVPN_SERVICE" ]] ;;
         slowdns) [[ -x "$DNSTT_BIN" && -f /etc/systemd/system/slowdns-ns4.service ]] ;;
-        v2ray)   [[ -x "$V2RAY_BIN" && -f /etc/systemd/system/v2ray.service ]] ;;
+        v2ray)   [[ -x "$V2RAY_BIN" && -f "/etc/systemd/system/$V2RAY_SERVICE" ]] ;;
         ssh)     dpkg -s openssh-server &>/dev/null || command -v sshd &>/dev/null ;;
         *)       return 1 ;;
     esac
@@ -260,7 +261,7 @@ tunnel_active() {
         slowdns) systemctl is-active --quiet slowdns-ns4 \
               && systemctl is-active --quiet slowdns-nv4 \
               && systemctl is-active --quiet dnsdist ;;
-        v2ray)   systemctl is-active --quiet v2ray ;;
+        v2ray)   systemctl is-active --quiet "$V2RAY_SERVICE" ;;
         ssh)     systemctl is-active --quiet ssh || systemctl is-active --quiet sshd ;;
         *)       return 1 ;;
     esac
@@ -825,15 +826,15 @@ install_v2ray() {
             || die "Échec du téléchargement de V2Ray"
     fi
 
-    mkdir -p "$V2RAY_DIR" /var/log/v2ray
+    mkdir -p "$V2RAY_DIR" /var/log/stivaros-v2ray
     [[ -f "$V2RAY_DIR/users.json" ]] || echo '{"vless":[],"trojan":[]}' > "$V2RAY_DIR/users.json"
     chmod 600 "$V2RAY_DIR/users.json"
 
     cat > "$V2RAY_DIR/config.json" << EOF
 {
   "log": { "loglevel": "warning",
-           "access": "/var/log/v2ray/access.log",
-           "error": "/var/log/v2ray/error.log" },
+           "access": "/var/log/stivaros-v2ray/access.log",
+           "error": "/var/log/stivaros-v2ray/error.log" },
   "stats": {},
   "api": { "tag": "api", "services": ["StatsService"] },
   "policy": {
@@ -841,15 +842,11 @@ install_v2ray() {
     "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
   },
   "inbounds": [
-    { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "vless",
+    { "port": $V2RAY_PORT, "listen": "127.0.0.1", "protocol": "vless",
       "settings": { "clients": [], "decryption": "none" },
       "streamSettings": { "network": "tcp", "security": "none" },
       "tag": "VLESS-TCP" },
-    { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "trojan",
-      "settings": { "clients": [] },
-      "streamSettings": { "network": "tcp", "security": "none" },
-      "tag": "TROJAN-TCP" },
-    { "tag": "api", "listen": "127.0.0.1", "port": 10086,
+    { "tag": "api", "listen": "127.0.0.1", "port": 10087,
       "protocol": "dokodemo-door", "settings": { "address": "127.0.0.1" } }
   ],
   "outbounds": [{ "protocol": "freedom", "settings": {} }],
@@ -860,38 +857,37 @@ install_v2ray() {
 EOF
     chmod 600 "$V2RAY_DIR/config.json"
 
-    cat > /etc/systemd/system/v2ray.service << 'EOF'
+    cat > "/etc/systemd/system/$V2RAY_SERVICE" << EOF
 [Unit]
-Description=Stivaros V2Ray-DNS
+Description=Stivaros V2Ray-DNS (instance dédiée :$V2RAY_PORT)
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/v2ray run -config /etc/v2ray/config.json
+ExecStart=$V2RAY_BIN run -config $V2RAY_DIR/config.json
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
-KillMode=process
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now v2ray
+    systemctl enable --now "$V2RAY_SERVICE"
     v2ray_sync_users
-    tunnel_active v2ray && msg "V2Ray-DNS actif (port $V2RAY_PORT)" \
-                        || { error "V2Ray ne démarre pas"; journalctl -u v2ray -n 10 --no-pager; return 1; }
+    tunnel_active v2ray && msg "V2Ray-DNS actif (port $V2RAY_PORT, loopback)" \
+                        || { error "V2Ray ne démarre pas"; journalctl -u "$V2RAY_SERVICE" -n 10 --no-pager; return 1; }
     pause
 }
 
 v2ray_uninstall() {
     confirm "Supprimer complètement V2Ray-DNS ?" || return 0
-    systemctl disable --now v2ray 2>/dev/null || true
-    rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"
-    rm -rf "$V2RAY_DIR"
+    systemctl disable --now "$V2RAY_SERVICE" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$V2RAY_SERVICE"
+    rm -rf "$V2RAY_DIR" /var/log/stivaros-v2ray
     systemctl daemon-reload
     msg "V2Ray-DNS désinstallé"
 }
@@ -916,17 +912,18 @@ try:
     conn.close()
 except Exception:
     pass
-with open("/etc/v2ray/config.json") as f:
+conf = "/etc/stivaros-v2ray/config.json"
+with open(conf) as f:
     cfg = json.load(f)
 for ib in cfg.get("inbounds", []):
-    if ib.get("tag") in ("VLESS-TCP", "TROJAN-TCP"):
+    if ib.get("tag") == "VLESS-TCP":
         ib["settings"]["clients"] = clients
-tmp = "/etc/v2ray/config.json.tmp"
+tmp = conf + ".tmp"
 with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
-os.replace(tmp, "/etc/v2ray/config.json")
+os.replace(tmp, conf)
 PYEOF
-    tunnel_active v2ray && systemctl restart v2ray
+    tunnel_active v2ray && systemctl restart "$V2RAY_SERVICE"
 }
 
 # ── SlowDNS (dnstt NS4→SSH:22, NV4→V2Ray:5401, dnsdist routeur :5300) ──
@@ -1255,6 +1252,11 @@ def init_db():
         "   AND port_range != ?",
         ("34000-37999,38000-41999,42000-45999,46000-49999",
          "34000-37999,38000-41999,42000-45999,46000-49999"))
+
+    # v2raydns -> instance V2Ray DÉDIÉE stivaros (loopback 5402, plus jamais
+    # la config partagée /etc/v2ray qu'un autre panel écrase).
+    conn.execute(
+        "UPDATE vpn_configs SET server_port = 5402 WHERE mode = 'v2raydns'")
 
     # Verrou d'appareil : multi_device (0 = mono, activable/joignable
     # uniquement depuis l'UUID qui a activé le compte ; 1 = tout appareil).
@@ -2206,7 +2208,7 @@ def main():
         for uuid, total in stats_query_xray(XRAY, "127.0.0.1:10085").items():
             usage_now.setdefault(uuid, {})["xray"] = total
     if os.path.exists(V2RAY):
-        for uuid, total in stats_query_v2ray(V2RAY, "127.0.0.1:10086").items():
+        for uuid, total in stats_query_v2ray(V2RAY, "127.0.0.1:10087").items():
             usage_now.setdefault(uuid, {})["v2ray"] = total
     # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid.
     # Instance dédiée stivaros (5668) d'abord, puis instance partagée
@@ -2557,7 +2559,7 @@ uninstall_all() {
 
 xray_uninstall_silent()    { systemctl disable --now xray 2>/dev/null; rm -f /etc/systemd/system/xray.service "$XRAY_BIN"; rm -rf "$XRAY_DIR"; }
 zivpn_uninstall_silent()   { systemctl disable --now "$ZIVPN_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$ZIVPN_SERVICE"; rm -rf "$ZIVPN_HOME" /etc/nftables/stivaros-zivpn.nft; nft delete table inet stivaros_zivpn 2>/dev/null; }
-v2ray_uninstall_silent()   { systemctl disable --now v2ray 2>/dev/null; rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"; rm -rf "$V2RAY_DIR"; }
+v2ray_uninstall_silent()   { systemctl disable --now "$V2RAY_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$V2RAY_SERVICE"; rm -rf "$V2RAY_DIR" /var/log/stivaros-v2ray; }
 slowdns_uninstall_silent() { systemctl disable --now slowdns-ns4 slowdns-nv4 dnsdist 2>/dev/null; rm -f /etc/systemd/system/slowdns-ns4.service /etc/systemd/system/slowdns-nv4.service "$DNSTT_BIN" /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh; rm -rf "$SLOWDNS_DIR" /etc/nftables/slowdns.nft; nft delete table inet slowdns 2>/dev/null; }
 
 # ── Appareils & verrouillage UUID ────────────────────────────────────

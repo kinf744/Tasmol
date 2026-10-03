@@ -167,13 +167,20 @@ public class AuthActivity extends AppCompatActivity {
 
     /** Rafraîchit la carte depuis /api/v1/devices/check (uuid d'appareil). */
     private void refreshAccount() {
+        if (!cardVisible) {
+            return;
+        }
         if (!ApiSession.isAuthenticated(this)) {
             hideCard();
             return;
         }
         PhoHelper.check(ApiSession.deviceUuid(this), (resp, err) -> {
             if (err != null || resp == null) {
-                return; // coupure réseau : on conserve le cache affiché
+                // Coupure réseau : conserver le cache affiché ET reprogrammer
+                // — sans ce re-arm, une seule erreur figeait le quota pour
+                // toute la session (bug "données restantes toujours fixes").
+                scheduleRefresh();
+                return;
             }
             JSONObject account = resp.optJSONObject("account");
             if (resp.optBoolean("activated", false)
@@ -188,6 +195,13 @@ public class AuthActivity extends AppCompatActivity {
         });
     }
 
+    private void scheduleRefresh() {
+        handler.removeCallbacks(refreshTask);
+        if (cardVisible) {
+            handler.postDelayed(refreshTask, REFRESH_MS);
+        }
+    }
+
     private void showCard(JSONObject account) {
         fillCard(account);
         ApiSession.saveAccountCard(this, account);
@@ -195,8 +209,7 @@ public class AuthActivity extends AppCompatActivity {
             cardVisible = true;
             accountCard.setVisibility(View.VISIBLE);
         }
-        handler.removeCallbacks(refreshTask);
-        handler.postDelayed(refreshTask, REFRESH_MS);
+        scheduleRefresh();
     }
 
     private void hideCard() {
