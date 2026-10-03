@@ -80,7 +80,7 @@ public class AuthActivity extends AppCompatActivity {
                 accountCard.setVisibility(View.VISIBLE);
                 fillCard(cached);
             }
-            refreshAccount();
+            refreshAccount(true); // sonde initiale, avec ou sans cache
         }
 
         findViewById(R.id.auth_copy).setOnClickListener(v -> {
@@ -167,7 +167,16 @@ public class AuthActivity extends AppCompatActivity {
 
     /** Rafraîchit la carte depuis /api/v1/devices/check (uuid d'appareil). */
     private void refreshAccount() {
-        if (!cardVisible) {
+        refreshAccount(false);
+    }
+
+    /**
+     * probe=true : compte authentifié mais carte pas encore visible (première
+     * ouverture après mise à jour, cache vide) — on interroge quand même le
+     * serveur pour décider d'afficher ou non.
+     */
+    private void refreshAccount(boolean probe) {
+        if (!cardVisible && !probe) {
             return;
         }
         if (!ApiSession.isAuthenticated(this)) {
