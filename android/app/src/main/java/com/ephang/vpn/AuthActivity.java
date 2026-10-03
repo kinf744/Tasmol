@@ -34,7 +34,6 @@ public class AuthActivity extends AppCompatActivity {
     private View accountCard;
     private TextView accName;
     private TextView accPhone;
-    private TextView accPlan;
     private TextView accExpiry;
     private TextView accLimit;
     private TextView accRemaining;
@@ -59,7 +58,6 @@ public class AuthActivity extends AppCompatActivity {
         accountCard = findViewById(R.id.auth_account_card);
         accName = findViewById(R.id.auth_acc_name);
         accPhone = findViewById(R.id.auth_acc_phone);
-        accPlan = findViewById(R.id.auth_acc_plan);
         accExpiry = findViewById(R.id.auth_acc_expiry);
         accLimit = findViewById(R.id.auth_acc_limit);
         accRemaining = findViewById(R.id.auth_acc_remaining);
@@ -230,7 +228,6 @@ public class AuthActivity extends AppCompatActivity {
     private void fillCard(JSONObject a) {
         accName.setText(a.optString("name", "-"));
         accPhone.setText(a.optString("phone", "-"));
-        accPlan.setText(a.optString("plan", "-"));
         String exp = a.optString("expires_at", "");
         accExpiry.setText(exp.isEmpty() ? "Jamais" : exp);
         if (a.optBoolean("unlimited", false)) {
