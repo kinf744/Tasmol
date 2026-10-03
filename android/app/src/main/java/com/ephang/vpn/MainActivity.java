@@ -209,13 +209,6 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
-    private void showTab(Fragment fragment, String tag) {
-        getSupportFragmentManager()
-                .beginTransaction()
-                .replace(R.id.fragment_container, fragment, tag)
-                .commit();
-    }
-
     @Override
     protected void onResume() {
         super.onResume();
