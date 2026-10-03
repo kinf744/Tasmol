@@ -83,6 +83,12 @@ public class TasVpnService extends VpnService {
     // leaves the key with nobody left able to remove it.
     private final android.os.Handler serviceHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
+    // True pendant qu'un thread de connexion existe (y compris pendant le
+    // retry-sleep entre deux essais et AVANT la publication du contrôleur Go).
+    // Sans ce marqueur, un nucléaire arrivé dans cette fenêtre ne voyait rien
+    // à tuer : la tentative reprenait et bâtissait la session malgré tout.
+    private static final java.util.concurrent.atomic.AtomicBoolean connectInFlight =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     // Connection attempts: CONNECTING stays on across retries until the
     // session is up or the user disconnects (disconnect supersedes via
     // sessionGen, nuclear kill ends the process outright).
@@ -233,6 +239,7 @@ public class TasVpnService extends VpnService {
         starting = true;
         startGen = gen;
         startAttempt = 0;
+        connectInFlight.set(true);
         new Thread(() -> startSessionBackground(gen, requestedId), "ephang-connect").start();
     }
 
@@ -393,6 +400,7 @@ public class TasVpnService extends VpnService {
                 stopSelf();
             }
         } finally {
+            connectInFlight.set(false);
             pendingController.set(null);
             // Last line of defence: if this attempt was superseded at any
             // point, make sure no "Connecting..." / "Connected" post of ours
@@ -534,12 +542,17 @@ public class TasVpnService extends VpnService {
         sessionGen.incrementAndGet();
         starting = false;
         // Journal de session UDP : la séquence d'arrêt complète la ligne de
-        // connexion. Résolu avant que activeTunnelId ne soit effacé.
-        if (controller != null && activeTunnelId != null) {
-            String t = UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, activeTunnelId));
-            if (!t.isEmpty()) {
-                UdpSessionLog.stopping();
+        // connexion. Résolu avant que activeTunnelId ne soit effacé. Bloc
+        // entièrement défensif : un crash ICI (main thread, dans le chemin
+        // nucléaire) fermerait l'app sans libérer proprement la session.
+        try {
+            if (controller != null && activeTunnelId != null) {
+                String t = UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, activeTunnelId));
+                if (!t.isEmpty()) {
+                    UdpSessionLog.stopping();
+                }
             }
+        } catch (Exception ignored) {
         }
         // 1) RELEASE THE KEY IMMEDIATELY: fermer le TUN et quitter le
         // foreground fait disparaître l'icône clé sur le champ, même si
@@ -574,22 +587,16 @@ public class TasVpnService extends VpnService {
         activeTunnelId = null;
         final Object target = ctrl != null ? ctrl : inflight;
         if (target == null) {
-            // Nothing was up and nothing is starting. En nucléaire, armer le
-            // kill-process DANS TOUS LES CAS — pas seulement si un teardown
-            // est visible : la tentative de connexion peut être en vol sans
-            // contrôleur publié (dans le retry-sleep entre deux essais, ou
-            // entre la création du TUN et pendingController.set). Sans ce
-            // kill garanti, l'attempt reprend après le stopSession et finit
-            // par construire la session malgré le nucléaire — c'était la
-            // cause du "nucléaire intermittant en CONNECTING" (configs API
-            // round-robin : le start() Go peut durer des dizaines de
-            // secondes, la fenêtre est énorme). Le nucléaire est un
-            // force-close explicite : mourir même quand tout semblait propre
-            // est le comportement voulu.
+            // Nothing visible to stop — mais une tentative peut être en vol
+            // (retry-sleep ou avant pendingController.set). En nucléaire, le
+            // watchdog est TOUJOURS armé : au moment où il tire (5s), toute
+            // activité restante (teardown coincé, thread de connexion encore
+            // vivant, contrôleur publié entre-temps) provoque la mort du
+            // processus ; si tout est propre, l'app survit (nucléaire
+            // « propre »).
             if (nuclear) {
-                logEvent("warning", "app",
-                        "nuclear disconnect (no live target - process kill armed)");
-                armNuclearHardKill(WATCHDOG_KILL_NUCLEAR_MS);
+                logEvent("warning", "app", "nuclear disconnect (watchdog armed)");
+                armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
             }
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
@@ -601,10 +608,6 @@ public class TasVpnService extends VpnService {
         if (nuclear) {
             logEvent("warning", "app", "nuclear disconnect (bound " + timeoutS + "s)");
             armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
-            // Kill-process garanti aussi quand le teardown Go est visible :
-            // il peut retourner "proprement" pendant qu'une NOUVELLE
-            // tentative (non supersédée) re-bâtit la session.
-            armNuclearHardKill(WATCHDOG_KILL_NUCLEAR_MS);
         } else {
             // Armed on the normal path too, with a long grace: a healthy
             // teardown disarms it by finishing, and a wedged one still cannot
@@ -719,11 +722,19 @@ public class TasVpnService extends VpnService {
      * user may well have left the app by then, and a watchdog bound to a dead
      * Activity is precisely why the key used to survive.
      */
+    /**
+     * Kill-process de dernier recours (voie nucléaire ET voie normale).
+     * Il ne tire que si une session reste VIVANTE au moment du délai :
+     * teardown Go coincé, tentative de connexion encore en vol (retry-sleep
+     * ou start() bloqué), contrôleur publié non arrêté. S'il n'y a plus rien,
+     * l'app survit — le nucléaire ne doit pas fermer l'application quand la
+     * déconnexion a réussi proprement.
+     */
     private final Runnable nuclearKill = new Runnable() {
         @Override
         public void run() {
-            if (!goStopHanging.get()) {
-                return; // Teardown completed on its own: nothing to kill.
+            if (!hasSessionActivity()) {
+                return; // Tout est arrêté : rien à tuer.
             }
             try {
                 stopForeground(true);
@@ -737,29 +748,17 @@ public class TasVpnService extends VpnService {
     };
 
     /**
-     * Kill-process GARANTI du chemin nucléaire : aucune condition sur l'état
-     * du teardown. Le nucléaire est un force-close explicite (dialogue de
-     * confirmation) — seule la mort du processus garantit que la clé VPN est
-     * révoquée, que les processus enfants meurent et qu'aucune tentative de
-     * connexion en vol ne peut re-bâtir la session derrière. Jamais désarmé
-     * par un teardown propre : c'est voulu.
+     * Vrai tant que quelque chose doit encore mourir avant que la clé VPN
+     * puisse survivre : session active, tentative en cours (même entre deux
+     * essais), contrôleur publié mais pas encore promu, ou teardown Go coincé.
+     * Utilisé par le watchdog service ET par le kill de la voie Activity.
      */
-    private final Runnable nuclearHardKill = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                stopForeground(true);
-            } catch (Exception ignored) {
-            }
-            cancelNotification();
-            logEvent("warning", "app", "nuclear: ending process");
-            android.os.Process.killProcess(android.os.Process.myPid());
-        }
-    };
-
-    private void armNuclearHardKill(long delayMs) {
-        serviceHandler.removeCallbacks(nuclearHardKill);
-        serviceHandler.postDelayed(nuclearHardKill, delayMs);
+    public static boolean hasSessionActivity() {
+        return controller != null
+                || starting
+                || pendingController.get() != null
+                || connectInFlight.get()
+                || goStopHanging.get();
     }
 
     private void armNuclearWatchdog(long delayMs) {

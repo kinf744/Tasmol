@@ -262,15 +262,14 @@ public class MainActivity extends AppCompatActivity {
      * True while something is still up: a live session, a start in flight, or
      * a Go teardown that has not come back.
      *
-     * <p>The third term is the one that used to be missing. stopSession()
-     * clears controller and starting as its very first act, so a watchdog
-     * looking only at those two saw "nothing to do" and walked away — while
-     * the teardown was in fact wedged and the VPN key was still in the shade.
+     * <p>Délègue au prédicat complet du service (inclut le thread de
+     * connexion en vol et le contrôleur publié non promu) : stopSession()
+     * remet controller/starting à faux dès la première ligne, donc un
+     * contrôle qui ne regarderait que ces deux drapeaux conclurait « propre »
+     * pendant qu'une tentative reconstruit la session.
      */
     private boolean vpnTeardownOutstanding() {
-        return TasVpnService.isRunning()
-                || TasVpnService.isStarting()
-                || TasVpnService.isTeardownHanging();
+        return TasVpnService.hasSessionActivity();
     }
 
     /**
@@ -380,16 +379,17 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
         }
         showToast("Nuclear disconnect: killing all VPN processes...");
-        // Kill-process INCONDITIONNEL à 3.5s : le nucléaire est un
-        // force-close explicite (le dialogue de confirmation le promet
-        // littéralement). Auparavant, le kill n'était posé que si un
-        // teardown était visible (vpnTeardownOutstanding) — or en CONNECTING,
-        // quand la tentative est en retry-sleep ou n'a pas encore publié son
-        // contrôleur Go, tout paraît "clean" : aucun kill n'avait jamais
-        // lieu, la tentative reprenait et le VPN finissait par se CONNECTER
-        // malgré le nucléaire (bug intermittent CONNECTING + configs API,
-        // dont le démarrage round-robin est très long).
-        handler.postDelayed(this::forceKillProcess, 3500);
+        // Dernier recours à 3.5s : le processus ne meurt QUE si une session
+        // est encore vivante (teardown Go coincé ou tentative de connexion
+        // toujours en vol — y compris en retry-sleep / avant publication du
+        // contrôleur, via connectInFlight). Si la déconnexion a réussi
+        // proprement (cas CONNECTED typique), l'application reste ouverte :
+        // un nucléaire « propre » ne doit pas se fermer comme un crash.
+        handler.postDelayed(() -> {
+            if (TasVpnService.hasSessionActivity()) {
+                forceKillProcess();
+            }
+        }, 3500);
     }
 
     /** Kill our own process: children die, system revokes the VPN key. */
