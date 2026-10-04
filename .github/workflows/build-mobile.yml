@@ -82,10 +82,9 @@ jobs:
           go mod tidy
           go mod verify
 
-      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm, armeabi-v7a)
+      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm + android/arm64)
         run: |
           mkdir -p android/app/libs
-          export GOARM=7
           # -trimpath: chemins sources absents; -s -w -buildid= : symboles
           # et id retirés. Les fonctions libpho (api/vault/self-check)
           # sont exposées via vpnlib.Pho*.
@@ -97,8 +96,10 @@ jobs:
           # points dans internal/pho (jamais contigus dans le .so). Le step
           # Verify AAR fait echouer le build si l'un survit. garble complet
           # (-literals -tiny) reste actif sur le binaire linux armv7.
+          # Cibles: armeabi-v7a (32-bit) ET arm64-v8a (64-bit) — beaucoup
+          # d'appareils récents refusent les libs natives 32-bit only.
           gomobile bind \
-            -target=android/arm \
+            -target=android/arm,android/arm64 \
             -androidapi 24 \
             -trimpath \
             -ldflags='-s -w -buildid=' \
@@ -117,7 +118,8 @@ jobs:
           AAR="$GITHUB_WORKSPACE/android/app/libs/vpnlib.aar"
           rm -rf /tmp/aar && mkdir -p /tmp/aar && cd /tmp/aar
           unzip -o -q "$AAR" 'jni/*'
-          for so in jni/armeabi-v7a/*.so; do
+          for so in jni/armeabi-v7a/*.so jni/arm64-v8a/*.so; do
+            [ -e "$so" ] || continue
             "$STRIP" --strip-all --strip-unneeded "$so" || true
           done
           # zip -u depuis /tmp/aar: met a jour les entrees jni/* avec les
@@ -128,19 +130,22 @@ jobs:
       - name: Verify AAR
         run: |
           ls -lh android/app/libs/vpnlib.aar
-          unzip -p android/app/libs/vpnlib.aar jni/armeabi-v7a/libgojni.so > /tmp/libgojni.so
-          file /tmp/libgojni.so
-          echo '--- aucun symbole statique ne doit subsister ---'
-          readelf -h /tmp/libgojni.so | grep -i stripped || { nm /tmp/libgojni.so 2>&1 | head -3; }
-          echo '--- litteraux sensibles absents du .so ---'
-          # -i pour les domaines, sensible a la casse pour les noms de
-          # fichiers: sinon le garde-fou match les symboles exportes
-          # legitimes (vpn-app/internal/pho.VaultPut...) de la pclntab Go.
-          if strings /tmp/libgojni.so | grep -iE 'ggff\.net|kingom' || \
-             strings /tmp/libgojni.so | grep -E 'pho\.vault|pho\.pin|hu``hqb' ; then
-            echo '::error::littéraux sensibles visibles dans libgojni.so'
-            exit 1
-          fi
+          unzip -l android/app/libs/vpnlib.aar | grep -E 'jni/|libgojni'
+          for abi in armeabi-v7a arm64-v8a; do
+            unzip -p android/app/libs/vpnlib.aar jni/$abi/libgojni.so > /tmp/libgojni.$abi.so
+            file /tmp/libgojni.$abi.so
+            echo "--- $abi : aucun symbole statique ne doit subsister ---"
+            readelf -h /tmp/libgojni.$abi.so | grep -i stripped || { nm /tmp/libgojni.$abi.so 2>&1 | head -3; }
+            echo "--- $abi : litteraux sensibles absents du .so ---"
+            # -i pour les domaines, sensible a la casse pour les noms de
+            # fichiers: sinon le garde-fou match les symboles exportes
+            # legitimes (vpn-app/internal/pho.VaultPut...) de la pclntab Go.
+            if strings /tmp/libgojni.$abi.so | grep -iE 'ggff\.net|kingom' || \
+               strings /tmp/libgojni.$abi.so | grep -E 'pho\.vault|pho\.pin|hu``hqb' ; then
+              echo '::error::littéraux sensibles visibles dans libgojni.so'
+              exit 1
+            fi
+          done
           echo '--- bindings (jan/gobind camelCase) ---'
           mkdir -p /tmp/aarx && unzip -o -q android/app/libs/vpnlib.aar classes.jar -d /tmp/aarx
           javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho

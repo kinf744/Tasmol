@@ -1,6 +1,6 @@
-# VPN App - Complete VPN Solution for Android (armeabi-v7a)
+# VPN App - Complete VPN Solution for Android (armeabi-v7a + arm64-v8a)
 
-A full-featured VPN application supporting multiple tunnel protocols with a modern Web UI, designed to run on Android via Termux (armv7/armeabi-v7a architecture).
+A full-featured VPN application supporting multiple tunnel protocols with a modern Web UI, designed to run on Android (32-bit armv7 and 64-bit arm64 devices).
 
 ## Supported Tunnel Protocols
 
