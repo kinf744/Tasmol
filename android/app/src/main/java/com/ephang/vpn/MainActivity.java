@@ -83,42 +83,10 @@ public class MainActivity extends AppCompatActivity {
 
     /** Public fragment swap for sub-screens (Settings / Hotspot under More). */
     public void showFragment(Fragment fragment, String tag) {
-        showTab(fragment, tag);
-    }
-
-    // Onglets + sous-écrans gardés EN VIE : avant, chaque changement
-    // d'onglet recréait le fragment (new + replace) → ré-inflation complète
-    // du layout, rechargement de la liste des profils, relecture du journal…
-    // d'où la lenteur de navigation. On cache/montre désormais (hide/show).
-    private String currentTag = null;
-    private static final String[] ALL_TAGS = {
-            "home", "configs", "logs", "more", "settings", "hotspot"};
-
-    private void showTab(Fragment fresh, String tag) {
-        if (tag.equals(currentTag)) {
-            return;
-        }
-        androidx.fragment.app.FragmentManager fm = getSupportFragmentManager();
-        androidx.fragment.app.Fragment target = fm.findFragmentByTag(tag);
-        if (target == null) {
-            target = fresh;
-        }
-        androidx.fragment.app.FragmentTransaction tx = fm.beginTransaction();
-        if (!target.isAdded()) {
-            tx.add(R.id.fragment_container, target, tag);
-        }
-        for (String t : ALL_TAGS) {
-            if (t.equals(tag)) {
-                continue;
-            }
-            androidx.fragment.app.Fragment g = fm.findFragmentByTag(t);
-            if (g != null && !g.isHidden()) {
-                tx.hide(g);
-            }
-        }
-        tx.show(target);
-        tx.commit();
-        currentTag = tag;
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.fragment_container, fragment, tag)
+                .commit();
     }
 
     /** "Démarrer au lancement": offer one-tap reconnect of the last tunnel. */
@@ -209,6 +177,13 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
     }
 
+    private void showTab(Fragment fragment, String tag) {
+        getSupportFragmentManager()
+                .beginTransaction()
+                .replace(R.id.fragment_container, fragment, tag)
+                .commit();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -223,7 +198,8 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
-        if (!"home".equals(currentTag)) {
+        Fragment f = getSupportFragmentManager().findFragmentById(R.id.fragment_container);
+        if (!(f instanceof HomeFragment)) {
             bottomNav.setSelectedItemId(R.id.nav_home);
         } else {
             super.onBackPressed();
