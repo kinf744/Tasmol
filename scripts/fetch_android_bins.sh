@@ -1,8 +1,11 @@
 #!/bin/bash
 # Stage official tunnel binaries as Android native libraries.
-# ABIs: armeabi-v7a (32-bit) + arm64-v8a (64-bit).
+# ABI: armeabi-v7a (32-bit) UNIQUEMENT — l'arm64-v8a est retiré
+# volontairement pour réduire la taille de l'APK (téléchargements
+# facilités sur faibles connexions). Le bundle bin/arm64/ reste dans le
+# dépôt si un jour la cible 64-bit devait revenir.
 # The APK executes them from applicationInfo.nativeLibraryDir.
-# Sources: repository bundles bin/armv7/ et bin/arm64/
+# Source: repository bundle bin/armv7/
 #   (xray v26.9.8, zivpn/uz_core 1.4.9, hysteria v1.3.5, dnstt-client).
 set -e
 
@@ -31,7 +34,10 @@ echo "=== Staging Android native binaries ==="
 
 fail=0
 stage_abi "$REPO_ROOT/bin/armv7" "armeabi-v7a" || fail=1
-stage_abi "$REPO_ROOT/bin/arm64" "arm64-v8a" || fail=1
+
+# Purge des résidus éventuels d'un ancien staging 64-bit (les .so d'un
+# build local précédent seraient sinon embarqués dans l'APK).
+rm -rf "$REPO_ROOT/android/app/src/main/jniLibs/arm64-v8a"
 
 # geoip.dat/geosite.dat ne sont plus embarqués (≈30 Mo économisés) :
 # l'app ne génère aucune règle geoip:/geosite: (vérif: aucune référence
@@ -39,10 +45,9 @@ stage_abi "$REPO_ROOT/bin/arm64" "arm64-v8a" || fail=1
 # échouera proprement au démarrage sans casser le reste.
 
 if [ "$fail" -ne 0 ]; then
-    echo "FAILED: some binaries are missing from bin/armv7/ or bin/arm64/"
+    echo "FAILED: some binaries are missing from bin/armv7/"
     exit 1
 fi
 
 echo "=== Staging complete ==="
 file "$REPO_ROOT/android/app/src/main/jniLibs/armeabi-v7a"/*.so
-file "$REPO_ROOT/android/app/src/main/jniLibs/arm64-v8a"/*.so

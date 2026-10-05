@@ -1,6 +1,6 @@
-# VPN App - Complete VPN Solution for Android (armeabi-v7a + arm64-v8a)
+# VPN App - Complete VPN Solution for Android (armeabi-v7a)
 
-A full-featured VPN application supporting multiple tunnel protocols with a modern Web UI, designed to run on Android (32-bit armv7 and 64-bit arm64 devices).
+A full-featured VPN application supporting multiple tunnel protocols with a modern Web UI, designed to run on Android (32-bit armv7 devices — the 64-bit arm64 ABI is deliberately excluded from the APK to halve its size for downloads on slow connections; the bin/arm64/ bundle is kept in the repo if needed).
 
 ## Supported Tunnel Protocols
 

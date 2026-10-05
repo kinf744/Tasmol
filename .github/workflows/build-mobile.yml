@@ -82,7 +82,7 @@ jobs:
           go mod tidy
           go mod verify
 
-      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm + android/arm64)
+      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm uniquement)
         run: |
           mkdir -p android/app/libs
           # -trimpath: chemins sources absents; -s -w -buildid= : symboles
@@ -96,10 +96,13 @@ jobs:
           # points dans internal/pho (jamais contigus dans le .so). Le step
           # Verify AAR fait echouer le build si l'un survit. garble complet
           # (-literals -tiny) reste actif sur le binaire linux armv7.
-          # Cibles: armeabi-v7a (32-bit) ET arm64-v8a (64-bit) — beaucoup
-          # d'appareils récents refusent les libs natives 32-bit only.
+          # Cible: armeabi-v7a (32-bit) UNIQUEMENT — retrait volontaire de
+          # l'ABI arm64-v8a : taille de l'APK quasi divisée par deux pour
+          # les téléchargements sur faibles connexions. Rétablir
+          # -target=android/arm,android/arm64 si un appareil 64-bit-only
+          # doit être supporté.
           gomobile bind \
-            -target=android/arm,android/arm64 \
+            -target=android/arm \
             -androidapi 24 \
             -trimpath \
             -ldflags='-s -w -buildid=' \
@@ -131,7 +134,7 @@ jobs:
         run: |
           ls -lh android/app/libs/vpnlib.aar
           unzip -l android/app/libs/vpnlib.aar | grep -E 'jni/|libgojni'
-          for abi in armeabi-v7a arm64-v8a; do
+          for abi in armeabi-v7a; do
             unzip -p android/app/libs/vpnlib.aar jni/$abi/libgojni.so > /tmp/libgojni.$abi.so
             file /tmp/libgojni.$abi.so
             echo "--- $abi : aucun symbole statique ne doit subsister ---"
