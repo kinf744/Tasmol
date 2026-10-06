@@ -6,7 +6,11 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -22,6 +26,25 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class TcpRelay {
     /** Fixed proxy port, never changes between launches. */
     public static final int FIXED_PORT = 8080;
+
+    // HARD crash fix (itel P662L, OOM pthread_create, 2187 threads):
+    // newCachedThreadPool() acceptait une connexion = 3 threads (relais +
+    // t1 up + t2 down) SANS LIMITE. Quelques dizaines de clients hotspot
+    // navigant en parallèle faisaient dépasser 2000 threads natifs
+    // (1 Mo de stack chacun) — OutOfMemoryError dans acceptLoop.
+    // Pool BORNÉ à 32 relais simultanés (≈ 97 threads max) avec une
+    // SynchronousQueue + CallerRunsPolicy : au-delà, la tâche tourne sur
+    // le thread d'accept, donc accept() bloque et le backlog TCP gère la
+    // file d'attente nativement — aucun thread n'est jamais créé en trop.
+    private static final int MAX_CONCURRENT_RELAYS = 32;
+
+    private static ThreadFactory daemonThreads(final String prefix) {
+        return r -> {
+            Thread t = new Thread(r, prefix);
+            t.setDaemon(true);
+            return t;
+        };
+    }
 
     private ServerSocket server;
     private ExecutorService pool;
@@ -62,7 +85,12 @@ public final class TcpRelay {
             listenPort = server.getLocalPort();
             upBytes.set(0);
             downBytes.set(0);
-            pool = Executors.newCachedThreadPool();
+            pool = new ThreadPoolExecutor(
+                    0, MAX_CONCURRENT_RELAYS,
+                    30L, TimeUnit.SECONDS,
+                    new SynchronousQueue<>(),
+                    daemonThreads("ephang-relay-io"),
+                    new CallerRunsPolicy());
             running.set(true);
             acceptThread = new Thread(this::acceptLoop, "ephang-relay");
             acceptThread.setDaemon(true);
