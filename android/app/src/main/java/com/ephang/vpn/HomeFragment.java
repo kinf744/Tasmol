@@ -382,10 +382,11 @@ public class HomeFragment extends Fragment {
         lastApiKey = key;
         java.util.List<String> labels = new java.util.ArrayList<>();
         labels.add(cfgs.length() == 0 ? "— UPDATE —" : " ••• ");
-        // Affichage professionnel : les paires SlowDNS (2 profils servis
-        // pour le round-robin) apparaissent comme UNE SEULE entrée déjà
-        // suffixée « 2 » par l'API (ex. "SSH + SlowDNS 2"), ce qui signifie
-        // "2 profils combinés". L'entrée "… 1" est masquée.
+        // Affichage professionnel : les profils SlowDNS d'un meme mode
+        // (N servis pour le round-robin — jusqu'a 4 pour WG+SlowDNS)
+        // apparaissent comme UNE SEULE entree, suffixee du rang du DERNIER
+        // profil par l'API (ex. "WireGuard + SlowDNS 4"), ce qui signifie
+        // "N profils combines". Les entrees "… 1"/"… 2"/"… 3" sont masquees.
         java.util.List<JSONObject> visible = new java.util.ArrayList<>();
         for (int i = 0; i < cfgs.length(); i++) {
             JSONObject c = cfgs.optJSONObject(i);
@@ -469,32 +470,23 @@ public class HomeFragment extends Fragment {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
             String mode = c.optString("mode", "");
-            // Round-robin PAR FAMILLE : choisir une config SlowDNS active
-            // ses 2 profils DE MÊME MODE (SSH SlowDNS 1+2 ensemble, ou
-            // V2Ray SlowDNS 1+2 ensemble) — 2 connexions dnstt parallèles
-            // sur le même canal = agrégation de débit. Jamais de mix
-            // SSH+V2Ray.
+            // Round-robin PAR FAMILLE: choisir une config SlowDNS active
+            // TOUS ses profils DE MEME MODE (jusqu'a 4 — serveur en sert
+            // desormais 4 pour WireGuard+SlowDNS) — N dnstt paralleles =
+            // agregation de debit. Jamais de mix SSH+V2Ray.
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
-                JSONObject first = null;
-                JSONObject second = null;
+                java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
-                    if (it == null) {
-                        continue;
-                    }
-                    if (mode.equalsIgnoreCase(it.optString("mode", ""))) {
-                        if (first == null) {
-                            first = it;
-                        } else {
-                            second = it;
-                            break;
-                        }
+                    if (it != null && mode.equalsIgnoreCase(it.optString("mode", ""))) {
+                        family.add(it);
                     }
                 }
-                if (first != null && second != null) {
-                    ApiSession.activateRoundRobin(requireContext(), first, second);
+                if (family.size() >= 2) {
+                    ApiSession.activateRoundRobinN(requireContext(), family);
                     Toast.makeText(getContext(),
-                            "Round-Robin ×2: " + first.optString("label", mode),
+                            "Round-Robin \u00d7" + Math.min(family.size(), 4) + ": "
+                                    + family.get(0).optString("label", mode),
                             Toast.LENGTH_SHORT).show();
                     refreshStatus();
                     return;

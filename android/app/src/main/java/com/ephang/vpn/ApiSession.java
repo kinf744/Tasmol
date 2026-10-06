@@ -212,24 +212,52 @@ public final class ApiSession {
      */
     public static String activateRoundRobin(Context ctx, JSONObject cfgA, JSONObject cfgB)
             throws Exception {
+        java.util.List<JSONObject> cfgs = new java.util.ArrayList<>();
+        cfgs.add(cfgA);
+        cfgs.add(cfgB);
+        return activateRoundRobinN(ctx, cfgs);
+    }
+
+    /**
+     * Round-robin generalise a N profils SlowDNS (SSHL+DNS x4 ou
+     * WireGuard+SlowDNS x4) : tous les profils DE MEME MODE servis par
+     * l'API sont materialises en local et selectionnes ensemble, donc la
+     * connexion agrege N flux dnstt paralleles sur le meme canal.
+     * Limite dure a 4 profils (des tests a montre une saturation dnstt
+     * au-dela, sans gain de debit mesurable). Retourne les ids CSV.
+     */
+    public static String activateRoundRobinN(Context ctx, java.util.List<JSONObject> cfgs)
+            throws Exception {
+        if (cfgs == null || cfgs.isEmpty()) {
+            throw new Exception("aucune config fournie");
+        }
+        java.util.List<JSONObject> use = cfgs.size() > 4
+                ? cfgs.subList(0, 4) : cfgs;
+
         // Reuse previously stored ids (update in place) when possible.
         String[] stored = p(ctx).getString(K_ACTIVE_IDS, "").split(",", -1);
-        String idA = materialize(ctx, cfgA, stored.length >= 1 ? stored[0] : "");
-        String idB = materialize(ctx, cfgB, stored.length >= 2 ? stored[1] : "");
-        String csv = idA + "," + idB;
+        // K_SELECTED_CONFIG recoit les config_id N-exaires (Information for
+        // "update" dedup), K_ACTIVE_IDS les tunnel ids.
+        java.util.List<String> ids = new java.util.ArrayList<>();
+        java.util.List<String> cfgIds = new java.util.ArrayList<>();
+        for (int i = 0; i < use.size(); i++) {
+            JSONObject c = use.get(i);
+            String reuse = (stored.length > i && stored[i] != null) ? stored[i].trim() : "";
+            ids.add(materialize(ctx, c, reuse));
+            cfgIds.add(String.valueOf(c.optInt("config_id", 0)));
+        }
+        String csv = android.text.TextUtils.join(",", ids);
 
         VPNApplication app = VPNApplication.getInstance();
         java.util.LinkedHashSet<String> sel = new java.util.LinkedHashSet<>();
-        sel.add(idA);
-        sel.add(idB);
+        sel.addAll(ids);
         app.setSelectedIds(sel);
-        app.setActiveTunnelId(idA);
+        app.setActiveTunnelId(ids.get(0));
 
         p(ctx).edit()
-                .putString(K_ACTIVE_TUNNEL, idA)
+                .putString(K_ACTIVE_TUNNEL, ids.get(0))
                 .putString(K_ACTIVE_IDS, csv)
-                .putString(K_SELECTED_CONFIG,
-                        cfgA.optInt("config_id", 0) + "," + cfgB.optInt("config_id", 0))
+                .putString(K_SELECTED_CONFIG, android.text.TextUtils.join(",", cfgIds))
                 .apply();
         return csv;
     }
