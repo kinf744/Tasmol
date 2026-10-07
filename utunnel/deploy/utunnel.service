@@ -1,0 +1,38 @@
+# Déploiement utunnel — intégration serveur (style stivaros)
+#
+#   - unité systemd durcie (Restart, LimitNOFILE, capabilities minimales) ;
+#   - table nftables : ACCEPT du port principal + DNAT de la PLAGE clients
+#     vers le port d'écoute (le port-hopping client marche nativement car
+#     utunnel suit l'adresse:port du pair à chaque paquet) ;
+#   - la table est recréée par 'destroy' : un rechargement ne duplique
+#     jamais les règles (même approche que stivaros-zivpn.nft).
+#
+# Usage :
+#   cp utunnel.service   /etc/systemd/system/
+#   cp utunnel.nft       /etc/nftables/
+#   nft -f /etc/nftables/utunnel.nft
+#   systemctl daemon-reload && systemctl enable --now utunnel
+
+[Unit]
+Description=utunnel UDP tunnel (ARQ selectif, X25519+XChaCha, port-range)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Recharge la table DNAT à chaque (re)démarrage : les tables nft créées
+# par ce déploiement ne survivent pas au reboot.
+ExecStartPre=/bin/sh -c 'nft -f /etc/nftables/utunnel.nft 2>/dev/null || true'
+ExecStart=/usr/local/bin/utunnel-server \
+    -listen :5669 \
+    -key-file /etc/utunnel/server.psk \
+    -users-file /etc/utunnel/users.list \
+    -max-sessions 4096
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

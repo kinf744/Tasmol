@@ -13,6 +13,10 @@ const (
 	TunnelXraySlowDNS TunnelType = "xray_slowdns"
 	TunnelZivpn       TunnelType = "zivpn"
 	TunnelHysteria    TunnelType = "hysteria"
+	// TunnelUtunnel : tunnel UDP propriétaire (fiabilisation ARQ sélective,
+	// X25519+XChaCha20-Poly1305, port-hopping par rotation de socket) —
+	// voir /root/utunnel (serveur + client).
+	TunnelUtunnel TunnelType = "utunnel"
 )
 
 type Config struct {

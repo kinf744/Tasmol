@@ -174,6 +174,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
             case "xray":
             case "zivpn":
             case "hysteria":
+            case "utunnel":
                 return type;
             default:
                 return type;

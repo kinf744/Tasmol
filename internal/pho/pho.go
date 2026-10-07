@@ -393,11 +393,13 @@ func storeOpen(uuid string, data []byte) ([]byte, error) {
 //	xray      : uuid, flow, password (trojan/ss), method
 //	hysteria  : auth (auth_str), obfs
 //	zivpn     : password
+//	utunnel   : password (PSK ou clé hex dérivée)
 //	slowdns*  : pubkey, nameserver
 var tunnelKinds = map[string]bool{
 	"ssh": true, "ssh_slowdns": true,
 	"xray": true, "xray_slowdns": true,
 	"zivpn": true, "hysteria": true,
+	"utunnel": true,
 	"slowdns": true,
 }
 

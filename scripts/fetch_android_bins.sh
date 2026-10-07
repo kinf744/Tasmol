@@ -16,7 +16,7 @@ stage_abi() {
     local dir="$REPO_ROOT/android/app/src/main/jniLibs/$abi_dir"
     mkdir -p "$dir"
     local fail=0
-    for pair in "xray lib_xray.so" "zivpn lib_zivpn.so" "slowdns lib_slowdns.so" "hysteria lib_hysteria.so"; do
+    for pair in "xray lib_xray.so" "zivpn lib_zivpn.so" "slowdns lib_slowdns.so" "hysteria lib_hysteria.so" "utunnel lib_utunnel.so"; do
         local src="${pair%% *}" dst="${pair##* }"
         if [ ! -f "$src_dir/$src" ]; then
             echo "  ✗ missing in repo bundle: $src_dir/$src"

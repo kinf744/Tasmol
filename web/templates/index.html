@@ -355,6 +355,7 @@
                         <option value="xray">Xray (VLESS/VMess/Trojan)</option>
                         <option value="xray_slowdns">Xray + SlowDNS</option>
                         <option value="zivpn">Zivpn</option>
+                        <option value="utunnel">Utunnel UDP</option>
                     </select>
                 </div>
                 <div>
@@ -609,6 +610,19 @@
                         </div>
                     </div>
                     <input type="hidden" id="tunnel-zivpn-uuid">
+                </div>
+                <div id="utunnel-auth-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
+                    <h4 class="text-md font-medium text-gray-700 dark:text-gray-300 mb-3">Utunnel UDP Authentication</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Key PSK (server secret or 64-hex key)</label>
+                            <input type="text" id="tunnel-utunnel-key" autocomplete="off" class="input-field w-full">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Source port rotation (seconds, 0 = never)</label>
+                            <input type="number" id="tunnel-utunnel-hop" placeholder="10" min="0" class="input-field w-full">
+                        </div>
+                    </div>
                 </div>
                 <div id="slowdns-fields" class="border-t border-gray-200 dark:border-gray-700 pt-4 hidden">
                     <h4 class="text-md font-medium text-gray-900 dark:text-white mb-3">SlowDNS (dnstt-client) Configuration</h4>

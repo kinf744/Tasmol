@@ -110,6 +110,7 @@ const (
 	BinXray     = "xray"
 	BinZivpn    = "zivpn"
 	BinHysteria = "hysteria"
+	BinUtunnel  = "utunnel"
 	BinUDPGW    = "udpgw"
 )
 
@@ -158,6 +159,7 @@ const (
 	DefaultXraySlowDNSPort = 10809
 	DefaultZivpnPort       = 10810
 	DefaultHysteriaPort    = 10811
+	DefaultUtunnelPort     = 10812
 )
 
 // SocksPort returns the local SOCKS5 port a tunnel exposes.
@@ -175,6 +177,8 @@ func SocksPort(cfg *config.TunnelConfig) int {
 		return advInt(cfg.Advanced, "socks_port", DefaultZivpnPort)
 	case config.TunnelHysteria:
 		return advInt(cfg.Advanced, "socks_port", DefaultHysteriaPort)
+	case config.TunnelUtunnel:
+		return advInt(cfg.Advanced, "socks_port", DefaultUtunnelPort)
 	default:
 		return advInt(cfg.Advanced, "socks_port", DefaultXrayPort)
 	}

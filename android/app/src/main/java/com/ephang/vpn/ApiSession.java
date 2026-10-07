@@ -383,6 +383,13 @@ public final class ApiSession {
             auth.put("uuid", c.optString("xray_uuid", ""));
             transport.put("network", "tcp");
             transport.put("security", "none");
+        } else if ("utunnel".equalsIgnoreCase(mode)) {
+            // Utunnel UDP propriétaire : PSK pré-calculée (64 hex =
+            // SHA256(uuid:secret)) servie telle quelle au binaire ;
+            // server.port = port RÉEL d'écoute (ex. 5669), la plage
+            // clients est DNAT-ée côté serveur, jamais dialée.
+            type = "utunnel";
+            auth.put("password", c.optString("utunnel_secret", ""));
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));
@@ -417,6 +424,10 @@ public final class ApiSession {
         String dnsttPub = c.optString("slowdns_pubkey", "");
         if (!dnsttPub.isEmpty()) {
             advanced.put("slowdns_pubkey", dnsttPub);
+        }
+        // Utunnel: source port rotation (seconds, 0 = never, server default 10).
+        if (c.has("utunnel_hop")) {
+            advanced.put("utunnel_hop", c.optInt("utunnel_hop", 10));
         }
 
         JSONObject routing = new JSONObject(

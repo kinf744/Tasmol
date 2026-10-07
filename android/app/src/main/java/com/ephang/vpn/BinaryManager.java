@@ -41,6 +41,7 @@ public class BinaryManager {
             {"lib_zivpn.so", "zivpn"},
             {"lib_slowdns.so", "slowdns"},
             {"lib_hysteria.so", "hysteria"},
+            {"lib_utunnel.so", "utunnel"},
     };
 
     public static File binDir(Context ctx) {
@@ -172,6 +173,7 @@ public class BinaryManager {
         names.put("xray", "lib_xray.so");
         names.put("slowdns", "lib_slowdns.so");
         names.put("hysteria", "lib_hysteria.so");
+        names.put("utunnel", "lib_utunnel.so");
         p.put("bin_names", names);
 
         p.put("native_ssh", true);

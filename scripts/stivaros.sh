@@ -51,6 +51,18 @@ readonly ZIVPN_RANGE="34000-49999"
 # Plages clients round-robin (8 sous-plages, un processus par plage).
 readonly ZIVPN_RANGES="34000-37999,38000-41999,42000-45999,46000-49999"
 
+# utunnel (UDP propriétaire : ARQ sélective + XChaCha20-Poly1305,
+# port-hopping par rotation de socket). Plage DNAT DISTINCTE de ZIVPN.
+readonly UTUNNEL_BIN="/usr/local/bin/utunnel-server"
+readonly UTUNNEL_SERVICE="utunnel.service"
+readonly UTUNNEL_HOME="/etc/utunnel"
+readonly UTUNNEL_PSK="$UTUNNEL_HOME/server.psk"
+readonly UTUNNEL_USERS="$UTUNNEL_HOME/users.list"
+readonly UTUNNEL_NFT="/etc/nftables/utunnel.nft"
+readonly UTUNNEL_PORT=5669
+readonly UTUNNEL_RANGE="50000-59999"
+readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
+
 # SlowDNS (dnstt + dnsdist)
 readonly SLOWDNS_DIR="/etc/slowdns"
 readonly DNSTT_BIN="/usr/local/bin/dnstt-server"
@@ -188,7 +200,7 @@ dashboard() {
     box_sep
     box_line "  ${GOLD}Comptes${NC} : ${LIME}${BOLD}${valid} valide(s)${NC} ${GRAY}│${NC} ${RED}${BOLD}${expired} expiré(s)${NC}"
     box_sep
-    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC} $(tun_dot zivpn) ${WHITE}ZIVPN${NC} $(tun_dot ssh) ${WHITE}SSH${NC}"
+    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC} $(tun_dot zivpn) ${WHITE}ZIVPN${NC} $(tun_dot ssh) ${WHITE}SSH${NC} $(tun_dot utunnel) ${WHITE}Utunnel${NC}"
     box_line "            $(tun_dot v2ray) ${WHITE}V2Ray-DNS${NC} $(tun_dot slowdns) ${WHITE}SlowDNS${NC}"
     box_line "  ${GOLD}API${NC}     : ${apic} ${WHITE}stivaros-api :${API_PORT}${NC}"
     box_sep
@@ -249,6 +261,7 @@ tunnel_installed() {
         zivpn)   [[ -x "$ZIVPN_BIN" && -f "/etc/systemd/system/$ZIVPN_SERVICE" ]] ;;
         slowdns) [[ -x "$DNSTT_BIN" && -f /etc/systemd/system/slowdns-ns4.service ]] ;;
         v2ray)   [[ -x "$V2RAY_BIN" && -f "/etc/systemd/system/$V2RAY_SERVICE" ]] ;;
+        utunnel) [[ -x "$UTUNNEL_BIN" && -f "/etc/systemd/system/$UTUNNEL_SERVICE" ]] ;;
         ssh)     dpkg -s openssh-server &>/dev/null || command -v sshd &>/dev/null ;;
         *)       return 1 ;;
     esac
@@ -262,6 +275,7 @@ tunnel_active() {
               && systemctl is-active --quiet slowdns-nv4 \
               && systemctl is-active --quiet dnsdist ;;
         v2ray)   systemctl is-active --quiet "$V2RAY_SERVICE" ;;
+        utunnel) systemctl is-active --quiet "$UTUNNEL_SERVICE" ;;
         ssh)     systemctl is-active --quiet ssh || systemctl is-active --quiet sshd ;;
         *)       return 1 ;;
     esac
@@ -1235,6 +1249,7 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
+                     ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 10"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0"),
                      ("plan", "TEXT DEFAULT 'BASIC'")]:
         # quota_mb/bytes_used/plan ciblent la table users

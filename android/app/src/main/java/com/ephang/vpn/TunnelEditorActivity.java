@@ -36,8 +36,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
     // "Xray + SlowDNS" n'est plus un type séparé : c'est le type Xray avec
     // la case SlowDNS cochée (sw_xray_slowdns) -> type effectif xray_slowdns.
     // "SSH + SlowDNS" est devenu le mode SSH-DNSTT du tunnel SSH.
-    private static final String[] TYPES = {"ssh", "xray", "zivpn", "hysteria"};
-    private static final String[] TYPE_LABELS = {"SSH", "Xray", "Zivpn UDP", "Hysteria UDP"};
+    private static final String[] TYPES = {"ssh", "xray", "zivpn", "hysteria", "utunnel"};
+    private static final String[] TYPE_LABELS = {"SSH", "Xray", "Zivpn UDP", "Hysteria UDP", "Utunnel UDP"};
 
     // 9 modes SSH (alignes sur l'editeur de reference). Le mode DNSTT
     // remplace l'ancien type ssh_slowdns (type effectif ssh_slowdns).
@@ -221,6 +221,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edHyPortRange;
     private EditText edHyUp;
     private EditText edHyDown;
+    private LinearLayout secUtunnel;
+    private EditText edUtKey;
+    private EditText edUtHop;
     private Spinner edObfs;
     private EditText edObfsParam;
     private LinearLayout secSlowdns;
@@ -322,6 +325,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edHyPortRange = findViewById(R.id.ed_hy_port_range);
         edHyUp = findViewById(R.id.ed_hy_up);
         edHyDown = findViewById(R.id.ed_hy_down);
+        secUtunnel = findViewById(R.id.sec_utunnel);
+        edUtKey = findViewById(R.id.ed_ut_key);
+        edUtHop = findViewById(R.id.ed_ut_hop);
         edObfs = findViewById(R.id.ed_obfs);
         edObfsParam = findViewById(R.id.ed_obfs_param);
         secSlowdns = findViewById(R.id.sec_slowdns);
@@ -682,6 +688,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean isSlowDNS = sshDnstt || slowXray;
         boolean isZivpn = type.equals("zivpn");
         boolean isHysteria = type.equals("hysteria");
+        boolean isUtunnel = type.equals("utunnel");
         boolean showServer = !type.equals("xray");
 
         // xray uses link/JSON exclusively; the manual form builds the
@@ -707,6 +714,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXrayLink.setVisibility(isXray ? View.VISIBLE : View.GONE);
         secZivpn.setVisibility(isZivpn ? View.VISIBLE : View.GONE);
         secHysteria.setVisibility(isHysteria ? View.VISIBLE : View.GONE);
+        secUtunnel.setVisibility(isUtunnel ? View.VISIBLE : View.GONE);
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
         secServer.setVisibility(showServer && !isXraySlowDns ? View.VISIBLE : View.GONE);
         secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
@@ -819,6 +827,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edMethod.setText(auth.optString("method", ""));
                     edZpass.setText(auth.optString("password", ""));
                     edHyAuth.setText(auth.optString("password", ""));
+                    edUtKey.setText(auth.optString("password", ""));
                     // Cle privee : bascule l'onglet Authentication.
                     String pk = auth.optString("private_key", "");
                     if (!pk.isEmpty()) {
@@ -840,6 +849,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     }
                     if (down > 0) {
                         edHyDown.setText(String.valueOf(down));
+                    }
+                    // Utunnel : rotation du port source (0 = jamais).
+                    if (adv0.has("utunnel_hop")) {
+                        edUtHop.setText(String.valueOf(adv0.optInt("utunnel_hop", 10)));
                     }
                     // Options SSH avancees (TLS, proxy, DNSTT, UDPGW).
                     if (adv0.has("ssh_tls_version")) {
@@ -2269,6 +2282,24 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     return;
                 }
             }
+            if (type.equals("utunnel")) {
+                if (edUtKey.getText().toString().trim().isEmpty()) {
+                    toast("Clé PSK utunnel requise (secret serveur ou clé hex 64)");
+                    return;
+                }
+                String hopS = edUtHop.getText().toString().trim();
+                if (!hopS.isEmpty()) {
+                    try {
+                        int hv = Integer.parseInt(hopS);
+                        if (hv < 0) {
+                            throw new NumberFormatException();
+                        }
+                    } catch (NumberFormatException e) {
+                        toast("Rotation du port source : nombre de secondes (0 ou plus)");
+                        return;
+                    }
+                }
+            }
 
             JSONObject auth = new JSONObject();
             JSONObject ssh = new JSONObject();
@@ -2335,6 +2366,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             if (type.equals("hysteria")) {
                 auth.put("password", edHyAuth.getText().toString().trim());
+            }
+            if (type.equals("utunnel")) {
+                auth.put("password", edUtKey.getText().toString().trim());
             }
 
             int secPos = edSecurity.getSelectedItemPosition();
@@ -2480,6 +2514,17 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         advanced.put("down_mbps", down);
                     }
                 } catch (NumberFormatException ignored) {
+                }
+            }
+
+            if (type.equals("utunnel")) {
+                // Rotation du port source en secondes (0 = jamais, défaut 10).
+                String hopS = edUtHop.getText().toString().trim();
+                if (!hopS.isEmpty()) {
+                    try {
+                        advanced.put("utunnel_hop", Integer.parseInt(hopS));
+                    } catch (NumberFormatException ignored) {
+                    }
                 }
             }
 

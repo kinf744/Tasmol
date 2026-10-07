@@ -57,6 +57,9 @@ final class UdpSessionLog {
         if (type.equals("hysteria")) {
             return new Kind("UDP", "Hysteria");
         }
+        if (type.equals("utunnel")) {
+            return new Kind("UDP", "Utunnel");
+        }
         if (type.equals("xray")) {
             return new Kind("XRAY", "Xray");
         }

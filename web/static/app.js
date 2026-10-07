@@ -316,6 +316,7 @@ function updateTunnelFields() {
     const isXray = ['xray', 'xray_slowdns'].includes(type);
     const isSlowDNS = ['ssh_slowdns', 'xray_slowdns'].includes(type);
     const isZivpn = type === 'zivpn';
+    const isUtunnel = type === 'utunnel';
     // ssh_slowdns dials through dnstt and xray uses link/JSON only:
     // no direct server host/port.
     const showServer = type !== 'ssh_slowdns' && type !== 'xray';
@@ -335,6 +336,7 @@ function updateTunnelFields() {
         xraySecurityChange();
     }
     document.getElementById('zivpn-auth-fields').classList.toggle('hidden', !isZivpn);
+    document.getElementById('utunnel-auth-fields').classList.toggle('hidden', !isUtunnel);
     document.getElementById('slowdns-fields').classList.toggle('hidden', !isSlowDNS);
     document.getElementById('server-fields').classList.toggle('hidden', !showServer);
     document.getElementById('transport-fields').classList.add('hidden'); // Always hide transport
@@ -430,6 +432,19 @@ function saveTunnel(event) {
 
     if (type === 'zivpn') {
         tunnel.auth.password = document.getElementById('tunnel-zivpn-password').value;
+    }
+
+    if (type === 'utunnel') {
+        // server.port = REAL listen port (e.g. 5669); the client range is
+        // DNAT'd server-side, never dialed.
+        tunnel.auth.password = document.getElementById('tunnel-utunnel-key').value;
+        const hopRaw = document.getElementById('tunnel-utunnel-hop').value.trim();
+        if (hopRaw !== '') {
+            const hop = parseInt(hopRaw);
+            if (!isNaN(hop) && hop >= 0) {
+                tunnel.advanced.utunnel_hop = hop;
+            }
+        }
     }
 
     const url = id ? `/api/v1/tunnels/${id}` : '/api/v1/tunnels';
@@ -644,7 +659,8 @@ function formatTunnelType(type) {
         'ssh_slowdns': 'SSH + SlowDNS',
         'xray': 'Xray',
         'xray_slowdns': 'Xray + SlowDNS',
-        'zivpn': 'Zivpn'
+        'zivpn': 'Zivpn',
+        'utunnel': 'Utunnel UDP'
     };
     return types[type] || type;
 }

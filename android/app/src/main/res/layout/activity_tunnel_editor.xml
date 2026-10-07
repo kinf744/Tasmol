@@ -1586,6 +1586,50 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/sec_utunnel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@drawable/card_bg"
+            android:orientation="vertical"
+            android:padding="14dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:text="Utunnel UDP (propriétaire)"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Clé PSK (secret serveur, ou clé hex 64)" />
+
+            <EditText
+                android:id="@+id/ed_ut_key"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="text" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Rotation du port source en secondes (0 = jamais)" />
+
+            <EditText
+                android:id="@+id/ed_ut_hop"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="10"
+                android:inputType="number" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/sec_slowdns"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

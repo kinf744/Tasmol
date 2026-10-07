@@ -1,0 +1,126 @@
+name: Build utunnel (server + client)
+
+on:
+  push:
+    branches: [master, main]
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.23'
+
+jobs:
+  build:
+    name: Build utunnel binaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross gcc-aarch64-linux-gnu
+
+      # garble : identifiants/paquets internes renommés, littéraux encodés,
+      # infos runtime retirées — mêmes protections anti-analyse statique
+      # que les autres workflows de l'écosystème.
+      - name: Install garble (obfuscation anti-analyse statique)
+        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH && go install mvdan.cc/garble@v0.13.0
+
+      - name: Run protocol tests
+        working-directory: utunnel
+        run: go test ./proto/ -v -timeout 300s
+
+      - name: Build all architectures
+        working-directory: utunnel
+        run: |
+          VERSION="${{ github.ref_name }}"
+          COMMIT=$(git rev-parse --short HEAD)
+          LDFLAGS="-s -w -X main.version=$VERSION -X main.commit=$COMMIT"
+          mkdir -p ../dist-utunnel
+
+          build_one() { # $1 GOOS $2 GOARCH $3 GOARM $4 suffix
+            export GOOS="$1" GOARCH="$2" CGO_ENABLED=0
+            if [ -n "$3" ]; then export GOARM="$3"; else unset GOARM || true; fi
+            garble -literals -tiny -seed=random build -trimpath -ldflags="$LDFLAGS" \
+              -o ../dist-utunnel/utunnel-server-$4 ./cmd/utunnel-server
+            garble -literals -tiny -seed=random build -trimpath -ldflags="$LDFLAGS" \
+              -o ../dist-utunnel/utunnel-client-$4 ./cmd/utunnel-client
+            echo "  built $4"
+          }
+
+          build_one linux amd64 "" amd64
+          build_one linux arm64 "" arm64
+          build_one linux arm 7   armv7
+
+          # Binaires du bundle Android (bin/armv7, bin/arm64) : le CLIENT
+          # uniquement, embarqué comme lib_utunnel.so par fetch_android_bins.sh.
+          cp ../dist-utunnel/utunnel-client-armv7 ../bin/armv7/utunnel
+          cp ../dist-utunnel/utunnel-client-arm64 ../bin/arm64/utunnel
+          ls -lh ../dist-utunnel ../bin/armv7/utunnel ../bin/arm64/utunnel
+
+      - name: Verify binaries
+        run: |
+          file dist-utunnel/*
+          echo '--- litteraux sensibles absents ---'
+          if strings dist-utunnel/utunnel-server-amd64 | grep -iE 'kingom|ggff\.net|stivaros\.db' || \
+             strings dist-utunnel/utunnel-server-amd64 | grep -E 'server\.psk|users\.list'; then
+            echo '::warning::chemins attendus dans le binaire (non critiques)'
+          fi
+          ./dist-utunnel/utunnel-server-amd64 --help 2>&1 | head -3 || true
+
+      - name: Upload binaries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: utunnel-binaries
+          path: |
+            dist-utunnel/utunnel-server-amd64
+            dist-utunnel/utunnel-server-arm64
+            dist-utunnel/utunnel-client-amd64
+            dist-utunnel/utunnel-client-arm64
+            dist-utunnel/utunnel-client-armv7
+          retention-days: 30
+          if-no-files-found: error
+
+  # Job séparé : `permissions` n'est valide qu'au niveau workflow/job.
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download binaries artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: utunnel-binaries
+          path: dist
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/utunnel-server-amd64
+            dist/utunnel-server-arm64
+            dist/utunnel-client-amd64
+            dist/utunnel-client-arm64
+            dist/utunnel-client-armv7
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

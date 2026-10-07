@@ -1,0 +1,17 @@
+# utunnel nftables — ACCEPT :5669 + DNAT de la plage clients vers :5669
+#
+# Adapter UT_IFACE / UT_RANGE au déploiement (iface principale, plage
+# distincte des autres tunnels : stivaros-zivpn utilise 34000-49999).
+# 'destroy' recrée la table à zéro : aucun doublon de règles.
+destroy table inet utunnel
+table inet utunnel {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport 5669 accept
+        udp dport 34000-49999 accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        iifname "eth0" udp dport 34000-49999 dnat to :5669
+    }
+}
