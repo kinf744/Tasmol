@@ -60,11 +60,13 @@ func main() {
 
 	// Trafic périodique (toutes les 15 s) : diagnostics "downlink calé à
 	// 0B" dans kighmu.txt — montre si les réponses du serveur arrivent
-	// réellement (rx = downlink, tx = uplink).
+	// réellement (rx = downlink, tx = uplink). pktsIn/pktsBad = vie de la
+	// session vs paquets indéchiffrables (PSK, tamper).
 	go func() {
 		for range time.Tick(15 * time.Second) {
 			rx, tx := sess.Stats()
-			log.Printf("trafic: rx=%d B (downlink) tx=%d B (uplink)", rx, tx)
+			in, bad := sess.PacketStats()
+			log.Printf("trafic: rx=%d B (downlink) tx=%d B (uplink) pkts=%d bad=%d", rx, tx, in, bad)
 		}
 	}()
 
@@ -162,14 +164,23 @@ func hopLoop(addr string, psk []byte, sec int, cur *proto.Session) {
 		}
 		hopping.Add(1)
 		// Nouvelle socket source : le serveur suit le pair paquet par
-		// paquet, donc la rotation est gratuite (aucun re-handshake). Un
-		// ping immédiat met s.remote du serveur à jour sans attendre du
-		// trafic, réduisant la fenêtre de perte post-hop.
+		// paquet, donc la rotation est gratuite (aucun re-handshake).
 		c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
 		if err == nil {
 			cur.SwapConn(c)
-			cur.SendKeepalive()
-			log.Printf("hop: nouveau port source %s", c.LocalAddr())
+			// Résistance aux pertes du réseau mobile (CGNAT) : un SEUL
+			// ping immédiat peut être perdu, et alors le serveur garde
+			// l'ancienne adresse de réponse -> downlink mort pour
+			// toujours ("downlink calé à 0B" rapporté). On envoie 3
+			// pings espacés : le serveur met s.remote à jour au premier
+			// qui arrive.
+			go func() {
+				for i := 0; i < 3; i++ {
+					cur.SendKeepalive()
+					log.Printf("hop: ping %d/3 nouveau port source %s", i+1, c.LocalAddr())
+					time.Sleep(400 * time.Millisecond)
+				}
+			}()
 		}
 		hopping.Add(-1)
 	}

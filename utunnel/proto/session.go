@@ -62,6 +62,8 @@ type Session struct {
 	// montre si le trafic passe réellement dans chaque direction.
 	bytesIn  atomic.Int64 // payload reçu du pair (client: downlink)
 	bytesOut atomic.Int64 // payload envoyé au pair (client: uplink)
+	pktsIn   atomic.Int64 // paquets décodés OK (tout type) — vie de la session
+	pktsBad  atomic.Int64 // paquets indéchiffrables (PSK, tamper, troncature)
 
 	// émission
 	txSeq    uint32
@@ -208,6 +210,13 @@ func (s *Session) WireToken() [tokenLen]byte {
 // le log périodique du serveur et du client montre la direction morte.
 func (s *Session) Stats() (int64, int64) {
 	return s.bytesIn.Load(), s.bytesOut.Load()
+}
+
+// PacketStats retourne (pktsIn, pktsBad) : paquets décodés OK vs
+// indéchiffrables. pktsBad>0 avec rx=0 = PSK invalide ou troncature —
+// diagnostics dans kighmu.txt.
+func (s *Session) PacketStats() (int64, int64) {
+	return s.pktsIn.Load(), s.pktsBad.Load()
 }
 
 // RemoteString retourne le dernier pair vu (thread-safe), pour les logs.
@@ -415,8 +424,26 @@ func (s *Session) SwapConn(c *net.UDPConn) {
 	old := s.conn
 	s.conn = c
 	s.mu.Unlock()
-	if old != nil && old != c {
-		old.Close()
+	if old != nil {
+		// DRAIN avant fermeture : les réponses du serveur encore en vol
+		// dans le buffer de réception de l'ancienne socket sont des
+		// données downlink réelles. Les fermer les perd (le CGNAT du
+		// réseau mobile droppe ensuite le port mort) — on les récupère
+		// pendant une fenêtre courte puis on ferme.
+		go func() {
+			old.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+			buf := make([]byte, 4096)
+			for {
+				n, from, err := old.ReadFromUDP(buf)
+				if err != nil || n == 0 {
+					break
+				}
+				if n >= MinPktLen {
+					s.handle(from, append([]byte(nil), buf[:n]...))
+				}
+			}
+			old.Close()
+		}()
 	}
 }
 
@@ -448,8 +475,10 @@ func (s *Session) reader() {
 func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 	typ, flags, _, seq, ack, bits, payload, err := decodePacket(&s.rxKey, raw)
 	if err != nil {
+		s.pktsBad.Add(1)
 		return
 	}
+	s.pktsIn.Add(1)
 	s.mu.Lock()
 	s.remote = from // suit le port-hopping
 	s.lastRX = time.Now()
