@@ -9,7 +9,7 @@
 #    - Détection automatique des tunnels installés (Xray, ZIVPN,
 #      SlowDNS/dnstt, V2Ray-DNS, SSH) et installation à la demande.
 #    - Tunnels: Xray (VLESS+XHTTP+TLS:443), ZIVPN (UDP:5667),
-#      SSH+SlowDNS (dnstt NS -> SSH:22), V2Ray+SlowDNS (dnstt NV -> V2Ray:5402).
+#      SSH+SlowDNS (dnstt NS -> SSH:22), V2Ray+SlowDNS (dnstt NV -> V2Ray:5401).
 #
 #  Sécurité: set -euo pipefail, validation stricte des entrées, échappement
 #  SQL, permissions restrictives sur les secrets, aucun secret dans les
@@ -68,14 +68,13 @@ readonly SLOWDNS_DIR="/etc/slowdns"
 readonly DNSTT_BIN="/usr/local/bin/dnstt-server"
 readonly DNSDIST_PORT=5300
 readonly DNSTT_NS4_PORT=5353   # NS4 -> SSH (127.0.0.1:22)
-readonly DNSTT_NV4_PORT=5354   # NV4 -> V2Ray stivaros (127.0.0.1:5402)
+readonly DNSTT_NV4_PORT=5354   # NV4 -> V2Ray (127.0.0.1:5401)
 readonly SLOWDNS_MTU_DEFAULT=1232
 
 # V2Ray-DNS
 readonly V2RAY_BIN="/usr/local/bin/v2ray"
-readonly V2RAY_DIR="/etc/stivaros-v2ray"
-readonly V2RAY_PORT=5402
-readonly V2RAY_SERVICE="stivaros-v2ray.service"
+readonly V2RAY_DIR="/etc/v2ray"
+readonly V2RAY_PORT=5401
 
 # Orange illimité: SNI/adresse FIXES, seul le host XHTTP est administrable
 # (exactement UN host à la fois, partagé par toutes les configs orange).
@@ -84,7 +83,7 @@ readonly ORANGE_HOST_FILE="$INSTALL_DIR/orange_host.txt"
 
 # Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
 readonly XRAY_STATS_ADDR="127.0.0.1:10085"
-readonly V2RAY_STATS_ADDR="127.0.0.1:10087"
+readonly V2RAY_STATS_ADDR="127.0.0.1:10086"
 readonly QUOTA_STATE="$INSTALL_DIR/quota_state.json"
 readonly QUOTA_SCRIPT="$API_DIR/quota.py"
 readonly QUOTA_TIMER="stivaros-quota.timer"
@@ -260,7 +259,7 @@ tunnel_installed() {
         xray)    [[ -x "$XRAY_BIN" && -f /etc/systemd/system/xray.service ]] ;;
         zivpn)   [[ -x "$ZIVPN_BIN" && -f "/etc/systemd/system/$ZIVPN_SERVICE" ]] ;;
         slowdns) [[ -x "$DNSTT_BIN" && -f /etc/systemd/system/slowdns-ns4.service ]] ;;
-        v2ray)   [[ -x "$V2RAY_BIN" && -f "/etc/systemd/system/$V2RAY_SERVICE" ]] ;;
+        v2ray)   [[ -x "$V2RAY_BIN" && -f /etc/systemd/system/v2ray.service ]] ;;
         utunnel) [[ -x "$UTUNNEL_BIN" && -f "/etc/systemd/system/$UTUNNEL_SERVICE" ]] ;;
         ssh)     dpkg -s openssh-server &>/dev/null || command -v sshd &>/dev/null ;;
         *)       return 1 ;;
@@ -274,7 +273,7 @@ tunnel_active() {
         slowdns) systemctl is-active --quiet slowdns-ns4 \
               && systemctl is-active --quiet slowdns-nv4 \
               && systemctl is-active --quiet dnsdist ;;
-        v2ray)   systemctl is-active --quiet "$V2RAY_SERVICE" ;;
+        v2ray)   systemctl is-active --quiet v2ray ;;
         utunnel) systemctl is-active --quiet "$UTUNNEL_SERVICE" ;;
         ssh)     systemctl is-active --quiet ssh || systemctl is-active --quiet sshd ;;
         *)       return 1 ;;
@@ -840,15 +839,15 @@ install_v2ray() {
             || die "Échec du téléchargement de V2Ray"
     fi
 
-    mkdir -p "$V2RAY_DIR" /var/log/stivaros-v2ray
+    mkdir -p "$V2RAY_DIR" /var/log/v2ray
     [[ -f "$V2RAY_DIR/users.json" ]] || echo '{"vless":[],"trojan":[]}' > "$V2RAY_DIR/users.json"
     chmod 600 "$V2RAY_DIR/users.json"
 
     cat > "$V2RAY_DIR/config.json" << EOF
 {
   "log": { "loglevel": "warning",
-           "access": "/var/log/stivaros-v2ray/access.log",
-           "error": "/var/log/stivaros-v2ray/error.log" },
+           "access": "/var/log/v2ray/access.log",
+           "error": "/var/log/v2ray/error.log" },
   "stats": {},
   "api": { "tag": "api", "services": ["StatsService"] },
   "policy": {
@@ -856,11 +855,15 @@ install_v2ray() {
     "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
   },
   "inbounds": [
-    { "port": $V2RAY_PORT, "listen": "127.0.0.1", "protocol": "vless",
+    { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "vless",
       "settings": { "clients": [], "decryption": "none" },
       "streamSettings": { "network": "tcp", "security": "none" },
       "tag": "VLESS-TCP" },
-    { "tag": "api", "listen": "127.0.0.1", "port": 10087,
+    { "port": $V2RAY_PORT, "listen": "0.0.0.0", "protocol": "trojan",
+      "settings": { "clients": [] },
+      "streamSettings": { "network": "tcp", "security": "none" },
+      "tag": "TROJAN-TCP" },
+    { "tag": "api", "listen": "127.0.0.1", "port": 10086,
       "protocol": "dokodemo-door", "settings": { "address": "127.0.0.1" } }
   ],
   "outbounds": [{ "protocol": "freedom", "settings": {} }],
@@ -871,37 +874,38 @@ install_v2ray() {
 EOF
     chmod 600 "$V2RAY_DIR/config.json"
 
-    cat > "/etc/systemd/system/$V2RAY_SERVICE" << EOF
+    cat > /etc/systemd/system/v2ray.service << 'EOF'
 [Unit]
-Description=Stivaros V2Ray-DNS (instance dédiée :$V2RAY_PORT)
+Description=Stivaros V2Ray-DNS
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-ExecStart=$V2RAY_BIN run -config $V2RAY_DIR/config.json
+ExecStart=/usr/local/bin/v2ray run -config /etc/v2ray/config.json
 Restart=always
 RestartSec=5
 LimitNOFILE=65536
+KillMode=process
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now "$V2RAY_SERVICE"
+    systemctl enable --now v2ray
     v2ray_sync_users
-    tunnel_active v2ray && msg "V2Ray-DNS actif (port $V2RAY_PORT, loopback)" \
-                        || { error "V2Ray ne démarre pas"; journalctl -u "$V2RAY_SERVICE" -n 10 --no-pager; return 1; }
+    tunnel_active v2ray && msg "V2Ray-DNS actif (port $V2RAY_PORT)" \
+                        || { error "V2Ray ne démarre pas"; journalctl -u v2ray -n 10 --no-pager; return 1; }
     pause
 }
 
 v2ray_uninstall() {
     confirm "Supprimer complètement V2Ray-DNS ?" || return 0
-    systemctl disable --now "$V2RAY_SERVICE" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$V2RAY_SERVICE"
-    rm -rf "$V2RAY_DIR" /var/log/stivaros-v2ray
+    systemctl disable --now v2ray 2>/dev/null || true
+    rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"
+    rm -rf "$V2RAY_DIR"
     systemctl daemon-reload
     msg "V2Ray-DNS désinstallé"
 }
@@ -926,18 +930,17 @@ try:
     conn.close()
 except Exception:
     pass
-conf = "/etc/stivaros-v2ray/config.json"
-with open(conf) as f:
+with open("/etc/v2ray/config.json") as f:
     cfg = json.load(f)
 for ib in cfg.get("inbounds", []):
-    if ib.get("tag") == "VLESS-TCP":
+    if ib.get("tag") in ("VLESS-TCP", "TROJAN-TCP"):
         ib["settings"]["clients"] = clients
-tmp = conf + ".tmp"
+tmp = "/etc/v2ray/config.json.tmp"
 with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
-os.replace(tmp, conf)
+os.replace(tmp, "/etc/v2ray/config.json")
 PYEOF
-    tunnel_active v2ray && systemctl restart "$V2RAY_SERVICE"
+    tunnel_active v2ray && systemctl restart v2ray
 }
 
 # ── SlowDNS (dnstt NS4→SSH:22, NV4→V2Ray:5401, dnsdist routeur :5300) ──
@@ -1250,10 +1253,9 @@ def init_db():
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
                      ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 10"),
-                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0"),
-                     ("plan", "TEXT DEFAULT 'BASIC'")]:
-        # quota_mb/bytes_used/plan ciblent la table users
-        table = "users" if col in ("quota_mb", "bytes_used", "plan") else "vpn_configs"
+                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
+        # quota_mb/bytes_used ciblent la table users
+        table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         except Exception:
@@ -1268,11 +1270,6 @@ def init_db():
         ("34000-37999,38000-41999,42000-45999,46000-49999",
          "34000-37999,38000-41999,42000-45999,46000-49999"))
 
-    # v2raydns -> instance V2Ray DÉDIÉE stivaros (loopback 5402, plus jamais
-    # la config partagée /etc/v2ray qu'un autre panel écrase).
-    conn.execute(
-        "UPDATE vpn_configs SET server_port = 5402 WHERE mode = 'v2raydns'")
-
     # Verrou d'appareil : multi_device (0 = mono, activable/joignable
     # uniquement depuis l'UUID qui a activé le compte ; 1 = tout appareil).
     # Les comptes créés AVANT l'introduction du verrou passent en mode
@@ -1286,28 +1283,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-def account_card(user):
-    """Bloc « Client » consommé par l'app : identité, abonnement et quota
-    REELS (bytes_used est alimenté par quota.py toutes les 2 min, donc les
-    données restantes évoluent avec la consommation effective)."""
-    q = user["quota_mb"] or 0
-    used = user["bytes_used"] or 0
-    limit_b = q * 1024 * 1024
-    remaining = -1 if q <= 0 else max(0, limit_b - used)
-    plan = user["plan"] if "plan" in user.keys() else None
-    return {
-        "name": user["name"] or "",
-        "phone": user["phone"] or "",
-        "plan": plan or "BASIC",
-        "expires_at": user["expires_at"] or "",
-        "quota_mb": q,
-        "bytes_used": used,
-        "data_limit_bytes": limit_b,
-        "data_remaining_bytes": remaining,
-        "unlimited": q <= 0,
-        "active": 1 if user["active"] else 0,
-    }
 
 def find_users(identifier):
     """TOUTes les lignes correspondant à un identifiant (uuid du compte,
@@ -1429,7 +1404,6 @@ class APIHandler(BaseHTTPRequestHandler):
                     return self._send({"activated": False, "message": "Subscription expired"}, 403)
                 return self._send({"activated": True, "phone": user["phone"],
                                    "name": user["name"], "expires_at": user["expires_at"],
-                                   "account": account_card(user),
                                    "message": "Device is active"})
             return self._send({"activated": False, "message": "Device not found or inactive"}, 404)
 
@@ -1458,6 +1432,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 tier = cfg["tier"] or "150"
                 if mode == "zivpn":
                     label = "Camtel UDP"
+                elif mode == "utunnel":
+                    label = "Utunnel UDP"
                 elif mode == "v2raydns":
                     label = "V2Ray + SlowDNS"
                 elif mode == "sshslowdns":
@@ -1492,6 +1468,17 @@ class APIHandler(BaseHTTPRequestHandler):
                     entry["zivpn_password"] = cfg["zivpn_password"] or ""
                     entry["port_range"] = cfg["port_range"] or \
                         "34000-37999,38000-41999,42000-45999,46000-49999"
+                if mode == "utunnel":
+                    # Clé client PRÉ-CALCULÉE (64 hex) : le serveur utunnel
+                    # dérive SHA256(uuid:secret) — la même formule est servie
+                    # ici, l'app n'a rien à calculer. server_port = port RÉEL
+                    # d'écoute (:5669), la plage est DNAT-ée côté serveur.
+                    entry["utunnel_secret"] = cfg["utunnel_secret"] or ""
+                    entry["utunnel_hop"] = cfg["utunnel_hop"] or 10
+                    # Plage DNAT servie aussi : le journal de l'app
+                    # (kighmu.txt) l'affiche — "plage absente" dans le log
+                    # = cause n°1 du "dial: aucune réponse du serveur".
+                    entry["port_range"] = cfg["port_range"] or "50000-59999"
                 if mode in ("v2raydns", "sshslowdns"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""
@@ -1574,7 +1561,6 @@ class APIHandler(BaseHTTPRequestHandler):
             conn.close()
             return self._send({"success": True, "message": "Device activated successfully",
                                "phone": phone, "expires_at": exp,
-                               "account": account_card(user),
                                "device_mode": "multi" if user["multi_device"] else "mono"})
 
         return self._send({"error": "Not found"}, 404)
@@ -1801,22 +1787,24 @@ create_user() {
     echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
+    echo -e "   ${CYAN}5${NC}) UTUNNEL (UDP propriétaire ARQ+XChaCha)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-4,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_utunnel=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns)) -ge 1 ]] \
+    if want 5; then want_utunnel=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_utunnel)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -1828,15 +1816,21 @@ create_user() {
     if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
     # slowdns implique ssh + v2ray
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
+    if (( want_utunnel )); then ensure_tunnel utunnel || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
-    local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
+    local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub utunnel_pass utunnel_key
     domain=$(get_domain)
     server_addr=${domain:-$(hostname -I | awk '{print $1}')}
     code=$(gen_code)
     xray_uuid=$(gen_uuid)
     zivpn_pass=$(gen_pass 12)
     ssh_pass=$(gen_pass 12)
+    utunnel_pass=$(gen_pass 16)
+    # Clé client PRÉ-CALCULÉE (SHA256(uuid:secret), hex) : le serveur
+    # utunnel dérive exactement cette formule depuis users.list — l'app
+    # n'a rien à calculer, la clé sert telle quelle au binaire.
+    utunnel_key=$(printf '%s:%s' "$uuid" "$utunnel_pass" | sha256sum | awk '{print $1}')
     ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
     ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
     nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
@@ -1901,11 +1895,25 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
 SQL
     fi
+    if (( want_utunnel )); then
+    cat << SQL
+-- Utunnel UDP propriétaire : port RÉEL d'écoute (:5669), la plage clients
+-- (50000-59999) est DNAT-ée côté serveur. Clé = SHA256(uuid:secret) hex.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
+SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '150', '$utunnel_key', 10, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
+SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 10, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
+SQL
+    fi
     } | sqlite3 -batch "$DB_PATH"
 
     # Provisionne les identifiants côté tunnels.
     if (( want_sshdns )); then
         ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
+    fi
+
+    if (( want_utunnel )); then
+        utunnel_provision "$uuid" "$utunnel_pass" "$expires"
     fi
 
     if (( want_zivpn )) && tunnel_active zivpn; then
@@ -1944,6 +1952,9 @@ SQL
     fi
     if (( want_v2dns )); then
         echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
+    fi
+    if (( want_utunnel )); then
+        echo -e "${CYAN}  UTUNNEL    : $server_addr:$UTUNNEL_PORT clé=$utunnel_key hop=10s${NC}"
     fi
     if (( want_sshdns || want_v2dns )); then
         echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
@@ -2069,8 +2080,8 @@ def save_state(s):
     os.replace(tmp, STATE)
     os.chmod(STATE, 0o600)
 
-def stats_query_xray(binary, addr):
-    """Sortie proto-text Xray: name: "user>>>EMAIL>>>traffic>>>uplink" / value: N."""
+def stats_query(binary, addr):
+    """Compteurs user>>>email>>>traffic>>>u{plink,downlink} -> {email: bytes}."""
     try:
         r = subprocess.run([binary, "api", "statsquery", "--server=" + addr,
                             "-pattern", "user>>>"],
@@ -2080,6 +2091,11 @@ def stats_query_xray(binary, addr):
     out = {}
     last_name = ""
     for line in r.stdout.splitlines():
+        # sortie proto-text (multiligne):
+        #   stat: <
+        #     name: "user>>>EMAIL>>>traffic>>>uplink"
+        #     value: 1234
+        #   >
         clean = line.strip().replace('"', " ")
         parts = clean.split()
         if parts[:1] == ["name:"]:
@@ -2095,170 +2111,41 @@ def stats_query_xray(binary, addr):
             last_name = ""
     return out
 
-def stats_query_v2ray(binary, addr):
-    """CLI V2Ray réelle: `v2ray api stats -json ... "user>>>"`
-    (le binaire n'a pas de sous-commande statsquery, et le service gRPC est
-    nommé v2ray.app.*, pas xray.app.* -> le client xray ne peut pas l'appeler).
-    Sortie: {"stat":[{"name": "user>>>EMAIL>>>traffic>>>uplink", "value": "N"}]}."""
-    try:
-        r = subprocess.run([binary, "api", "stats", "-json",
-                            "--server=" + addr, "user>>>"],
-                           capture_output=True, text=True, timeout=10)
-    except Exception:
-        return {}
-    out = {}
-    try:
-        data = json.loads(r.stdout)
-    except Exception:
-        return {}
-    for ent in data.get("stat", []):
-        seg = str(ent.get("name", "")).split(">>>")
-        if len(seg) >= 4 and seg[0] == "user" and seg[2] == "traffic":
-            try:
-                out[seg[1]] = out.get(seg[1], 0) + int(ent.get("value") or 0)
-            except (ValueError, TypeError):
-                pass
-    return out
-
-# --- comptabilisation SSH par utilisateur (ssh_slowdns) -------------------
-# Les tunnels SSH (directs ou via dnstt) sortent par des processus sshd
-# appartenant à l'utilisateur système "u<tel>". nftables peut donc compter
-# par UID (meta skuid) dans les deux sens : output (requêtes) et input
-# (réponses vers la socket possédée par l'utilisateur).
-
-NFT_TABLE = "stivaros_quota"
-NFT_COMMENT_PREFIX = "stq-"
-
-def _nft(*args):
-    return subprocess.run(["nft"] + list(args),
-                          capture_output=True, text=True, timeout=10)
-
-def nft_ensure_schema():
-    if _nft("list", "table", "inet", NFT_TABLE).returncode != 0:
-        if _nft("add", "table", "inet", NFT_TABLE).returncode != 0:
-            return False
-    for hook in ("output", "input"):
-        if _nft("list", "chain", "inet", NFT_TABLE, hook).returncode != 0:
-            _nft("add", "chain", "inet", NFT_TABLE, hook,
-                 "{", "type", "filter", "hook", hook, "priority", "0", ";",
-                 "policy", "accept", ";", "}")
-    return True
-
-def nft_sync_ssh(users, state, usage_now):
-    """Règles nft par login + lecture des compteurs -> usage_now[*]["ssh"]."""
-    import pwd
-    if not nft_ensure_schema():
-        return
-    wanted = {}   # login -> uid
-    for u in users:
-        login = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
-        if login == "u":
-            continue
-        try:
-            wanted[login] = pwd.getpwnam(login).pw_uid
-        except KeyError:
-            continue
-    existing = {}  # login -> {"handle": h, "bytes": b} (somme in+out)
-    for hook in ("output", "input"):
-        try:
-            r = _nft("-j", "list", "chain", "inet", NFT_TABLE, hook)
-            data = json.loads(r.stdout or "{}")
-        except Exception:
-            continue
-        for item in data.get("nftables", []):
-            rule = item.get("rule")
-            if not rule:
-                continue
-            comment = rule.get("comment") or ""
-            if not comment.startswith(NFT_COMMENT_PREFIX):
-                continue
-            login = comment[len(NFT_COMMENT_PREFIX):]
-            nbytes = 0
-            for expr in rule.get("expr", []):
-                counter = expr.get("counter")
-                if counter:
-                    nbytes = int(counter.get("bytes", 0))
-            e = existing.setdefault(login, {"handles": [], "bytes": 0})
-            e["handles"].append(rule.get("handle"))
-            e["bytes"] += nbytes
-    # Ajouter les règles manquantes.
-    for login, uid in wanted.items():
-        if login not in existing:
-            for hook in ("output", "input"):
-                _nft("add", "rule", "inet", NFT_TABLE, hook,
-                     "meta", "skuid", str(uid), "counter",
-                     "comment", NFT_COMMENT_PREFIX + login)
-    # Retirer les règles des comptes supprimés (plus de login système).
-    for hook in ("output", "input"):
-        try:
-            r = _nft("-j", "list", "chain", "inet", NFT_TABLE, hook)
-            data = json.loads(r.stdout or "{}")
-        except Exception:
-            continue
-        for item in data.get("nftables", []):
-            rule = item.get("rule")
-            if not rule:
-                continue
-            comment = rule.get("comment") or ""
-            if comment.startswith(NFT_COMMENT_PREFIX) and \
-                    comment[len(NFT_COMMENT_PREFIX):] not in wanted:
-                _nft("delete", "rule", "inet", NFT_TABLE, hook,
-                     "handle", str(rule.get("handle")))
-    # Attribuer les octets aux comptes.
-    for u in users:
-        login = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
-        if login in existing:
-            usage_now.setdefault(u["uuid"], {})["ssh"] = existing[login]["bytes"]
-
 def main():
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     users = conn.execute(
         "SELECT id, uuid, name, phone, quota_mb, bytes_used, active FROM users").fetchall()
+    by_uuid = {u["uuid"]: u for u in users}
 
     state = load_state()
     usage_now = {}      # uuid -> bytes constatés ce cycle
-    # Xray: client statsquery (proto-text). V2Ray: client stats -json.
-    if os.path.exists(XRAY):
-        for uuid, total in stats_query_xray(XRAY, "127.0.0.1:10085").items():
-            usage_now.setdefault(uuid, {})["xray"] = total
-    if os.path.exists(V2RAY):
-        for uuid, total in stats_query_v2ray(V2RAY, "127.0.0.1:10087").items():
-            usage_now.setdefault(uuid, {})["v2ray"] = total
-    # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid.
-    # Instance dédiée stivaros (5668) d'abord, puis instance partagée
-    # (5667) en complément : la valeur d'un mot de passe présent dans les
-    # deux n'est pas additionnée (setdefault).
-    zivpn_states = [os.environ.get("STIVAROS_ZIVPN_STATE",
-                                   "/etc/stivaros-zivpn/quota-state.json"),
-                    "/etc/zivpn/quota-state.json"]
+    # Xray / V2Ray: compteurs par email (= uuid)
+    for key, binary, addr in (("xray", XRAY, "127.0.0.1:10085"),
+                              ("v2ray", V2RAY, "127.0.0.1:10086")):
+        if not os.path.exists(binary):
+            continue
+        for uuid, total in stats_query(binary, addr).items():
+            usage_now.setdefault(uuid, {})[key] = total
+    # ZIVPN: compteurs natifs par mot de passe -> retrouver l'uuid
     try:
+        with open(os.environ.get("STIVAROS_ZIVPN_STATE",
+                                 "/etc/stivaros-zivpn/quota-state.json")) as f:
+            zstate = json.load(f)
         pw_rows = conn.execute(
             "SELECT v.zivpn_password, u.uuid FROM vpn_configs v"
             " JOIN users u ON v.user_id = u.id WHERE v.zivpn_password != ''").fetchall()
         pw2uuid = {r[0]: r[1] for r in pw_rows}
-        pw_used = {}
-        for zpath in zivpn_states:
-            try:
-                with open(zpath) as f:
-                    zstate = json.load(f)
-            except Exception:
-                continue
-            used_map = zstate.get("used", zstate) if isinstance(zstate, dict) else {}
-            for pw, total in (used_map.items() if isinstance(used_map, dict) else []):
-                try:
-                    pw_used.setdefault(pw, int(total))
-                except (TypeError, ValueError):
-                    pass
-        for pw, total in pw_used.items():
+        used_map = zstate.get("used", zstate) if isinstance(zstate, dict) else {}
+        for pw, total in (used_map.items() if isinstance(used_map, dict) else []):
             uuid = pw2uuid.get(pw)
             if uuid:
-                usage_now.setdefault(uuid, {})["zivpn"] = total
+                try:
+                    usage_now.setdefault(uuid, {})["zivpn"] = int(total)
+                except (TypeError, ValueError):
+                    pass
     except Exception:
         pass
-
-    # SSH (ssh_slowdns / ssh direct): compteurs nftables par UID.
-    nft_sync_ssh(users, state, usage_now)
 
     # Accumulation delta (compteurs remis à 0 au restart du tunnel).
     for uuid, per in usage_now.items():
@@ -2287,9 +2174,9 @@ def main():
 
     # Purge des credentials dans chaque tunnel pour les bloqués.
     for u in blocked:
-        # SSH système (le login créé par le panel est préfixé de "u").
+        # SSH système
         ssh_user = "u" + "".join(c for c in (u["phone"] or "") if c.isdigit())
-        if ssh_user != "u":
+        if ssh_user:
             subprocess.run(["usermod", "-L", ssh_user], capture_output=True)
         sys.stderr.write("[quota] BLOQUE: %s (%s)\n" % (u["name"], u["uuid"]))
     conn.close()
@@ -2447,6 +2334,7 @@ tunnel_menu() {
         box_line "  $(tunnel_state ssh     >/dev/null; tun_dot ssh)    ${WHITE}SSH${NC}       ${GRAY}(base SSH+SlowDNS, :22)${NC}"
         box_line "  $(tunnel_state v2ray   >/dev/null; tun_dot v2ray)    ${WHITE}V2Ray-DNS${NC} ${GRAY}(base V2Ray+SlowDNS, :${V2RAY_PORT})${NC}"
         box_line "  $(tunnel_state slowdns >/dev/null; tun_dot slowdns)    ${WHITE}SlowDNS${NC}   ${GRAY}(dnstt + dnsdist :${DNSDIST_PORT})${NC}"
+        box_line "  $(tunnel_state utunnel >/dev/null; tun_dot utunnel)    ${WHITE}Utunnel${NC}   ${GRAY}(UDP ARQ :${UTUNNEL_PORT}, DNAT ${UTUNNEL_RANGE})${NC}"
         box_bot
         echo
         box_top
@@ -2457,9 +2345,10 @@ tunnel_menu() {
         box_line "  ${GOLD}${BOLD}3${NC}${WHITE})${NC} Installer / réparer ${CYAN}SSH${NC}"
         box_line "  ${GOLD}${BOLD}4${NC}${WHITE})${NC} Installer / réparer ${CYAN}V2Ray-DNS${NC}"
         box_line "  ${GOLD}${BOLD}5${NC}${WHITE})${NC} Installer / réparer ${CYAN}SlowDNS${NC} ${GRAY}(SSH+V2Ray/DNS)${NC}"
-        box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
-        box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} État détaillé"
-        box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
+        box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} Installer / réparer ${CYAN}Utunnel${NC} ${GRAY}(UDP ARQ+XChaCha)${NC}"
+        box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
+        box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} État détaillé"
+        box_line "  ${GOLD}${BOLD}9${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
         box_line "  ${GOLD}${BOLD}0${NC}${WHITE})${NC} Retour"
         box_bot
         echo
@@ -2472,16 +2361,18 @@ tunnel_menu() {
             3) install_ssh || true ;;
             4) install_v2ray || true ;;
             5) install_slowdns || true ;;
-            6) for t in xray zivpn ssh v2ray slowdns; do ensure_tunnel "$t" || true; done; pause ;;
-            7) tunnels_status || true ;;
-            8)
+            6) install_utunnel || true ;;
+            7) for t in xray zivpn ssh v2ray slowdns utunnel; do ensure_tunnel "$t" || true; done; pause ;;
+            8) tunnels_status || true ;;
+            9)
                 local t=""
-                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns): " t || true
+                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns/utunnel): " t || true
                 case "$t" in
                     xray)    xray_uninstall ;;
                     zivpn)   zivpn_uninstall ;;
                     v2ray)   v2ray_uninstall ;;
                     slowdns) slowdns_uninstall ;;
+                    utunnel) utunnel_uninstall ;;
                     *) warn "Inconnu: $t" ;;
                 esac
                 pause ;;
@@ -2540,7 +2431,7 @@ EOF
     # Un tunnel en échec ne doit pas faire quitter le script: on enchaîne
     # et on rapporte à la fin.
     local failed=0
-    for t in xray zivpn ssh v2ray slowdns; do
+    for t in xray zivpn ssh v2ray slowdns utunnel; do
         ensure_tunnel "$t" || { error "Tunnel $t: KO"; failed=1; }
     done
     ((failed)) && warn "Certains tunnels n'ont pas abouti (voir ci-dessus)"
@@ -2566,6 +2457,7 @@ uninstall_all() {
     zivpn_uninstall_silent 2>/dev/null || true
     v2ray_uninstall_silent 2>/dev/null || true
     slowdns_uninstall_silent 2>/dev/null || true
+    utunnel_uninstall_silent 2>/dev/null || true
     systemctl daemon-reload
     rm -rf "$INSTALL_DIR"
     msg "Stivaros complètement désinstallé"
@@ -2574,8 +2466,133 @@ uninstall_all() {
 
 xray_uninstall_silent()    { systemctl disable --now xray 2>/dev/null; rm -f /etc/systemd/system/xray.service "$XRAY_BIN"; rm -rf "$XRAY_DIR"; }
 zivpn_uninstall_silent()   { systemctl disable --now "$ZIVPN_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$ZIVPN_SERVICE"; rm -rf "$ZIVPN_HOME" /etc/nftables/stivaros-zivpn.nft; nft delete table inet stivaros_zivpn 2>/dev/null; }
-v2ray_uninstall_silent()   { systemctl disable --now "$V2RAY_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$V2RAY_SERVICE"; rm -rf "$V2RAY_DIR" /var/log/stivaros-v2ray; }
+v2ray_uninstall_silent()   { systemctl disable --now v2ray 2>/dev/null; rm -f /etc/systemd/system/v2ray.service "$V2RAY_BIN"; rm -rf "$V2RAY_DIR"; }
 slowdns_uninstall_silent() { systemctl disable --now slowdns-ns4 slowdns-nv4 dnsdist 2>/dev/null; rm -f /etc/systemd/system/slowdns-ns4.service /etc/systemd/system/slowdns-nv4.service "$DNSTT_BIN" /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh; rm -rf "$SLOWDNS_DIR" /etc/nftables/slowdns.nft; nft delete table inet slowdns 2>/dev/null; }
+
+# ══════════════════════════════════════════════════════════════════════
+#  UTUNNEL (UDP propriétaire : ARQ + XChaCha, plage DNAT 50000-59999)
+# ══════════════════════════════════════════════════════════════════════
+
+install_utunnel() {
+    banner; echo -e "${BOLD}Tunnel Utunnel (UDP propriétaire ARQ+XChaCha)${NC}\n"
+
+    command -v nft &>/dev/null || apt-get update -qq
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables 2>/dev/null \
+        || die "Échec installation nftables"
+
+    if ! tunnel_installed utunnel; then
+        info "Téléchargement de utunnel-server…"
+        local arch; arch="$(uname -m)"
+        case "$arch" in
+            x86_64)  arch=amd64 ;;
+            aarch64) arch=arm64 ;;
+            armv7*)  arch=armv7 ;;
+            *) die "arch non supportée: $arch" ;;
+        esac
+        # Release GitHub (workflow build-utunnel.yml) sinon dist/ local.
+        if ! download_binary "$UTUNNEL_RELEASES/utunnel-server-$arch" "$UTUNNEL_BIN"; then
+            local src="$INSTALL_DIR/../utunnel/dist/utunnel-server-$arch"
+            [[ -f "$src" ]] || src="/root/Tasmol/utunnel/dist/utunnel-server-$arch"
+            [[ -f "$src" ]] && install -m 755 "$src" "$UTUNNEL_BIN" \
+                || die "Échec du téléchargement de utunnel-server (release absente ? créez le tag v1.0.0-utunnel)"
+            info "binaire depuis dist/ local"
+        fi
+    fi
+    setcap cap_net_bind_service=+ep "$UTUNNEL_BIN" 2>/dev/null || true
+
+    mkdir -p "$UTUNNEL_HOME"
+    if [[ ! -s "$UTUNNEL_PSK" ]]; then
+        generate_secret > "$UTUNNEL_PSK"
+        msg "PSK utunnel générée : $(head -1 "$UTUNNEL_PSK")"
+    fi
+    chmod 600 "$UTUNNEL_PSK"
+    [[ -f "$UTUNNEL_USERS" ]] || : > "$UTUNNEL_USERS"
+    chmod 600 "$UTUNNEL_USERS"
+
+    cat > "/etc/systemd/system/$UTUNNEL_SERVICE" << EOF
+[Unit]
+Description=Stivaros utunnel (UDP ARQ+XChaCha, plage ${UTUNNEL_RANGE})
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Recharge la table DNAT (50000-59999 -> 5669) à chaque (re)démarrage :
+# les tables nft ne survivent pas au reboot.
+ExecStartPre=/bin/sh -c 'nft -f /etc/nftables/utunnel.nft 2>/dev/null || true'
+ExecStart=$UTUNNEL_BIN -listen :$UTUNNEL_PORT -key-file $UTUNNEL_PSK -users-file $UTUNNEL_USERS -max-sessions 4096
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # nftables : plage DISTINCTE de ZIVPN (34000-49999).
+    local iface; iface="$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')"
+    iface="${iface:-eth0}"
+    local tmp; tmp=$(mktemp)
+    cat > "$tmp" << EOF
+destroy table inet utunnel
+table inet utunnel {
+    chain input {
+        type filter hook input priority 0; policy accept;
+        udp dport $UTUNNEL_PORT accept
+        udp dport $UTUNNEL_RANGE accept
+    }
+    chain prerouting {
+        type nat hook prerouting priority -100;
+        iifname "$iface" udp dport $UTUNNEL_RANGE dnat to :$UTUNNEL_PORT
+    }
+}
+EOF
+    if nft -c -f "$tmp" 2>/dev/null; then
+        mkdir -p /etc/nftables
+        cp "$tmp" "$UTUNNEL_NFT"
+        nft -f "$UTUNNEL_NFT" 2>/dev/null || true
+        msg "DNAT nftables : $UTUNNEL_RANGE -> :$UTUNNEL_PORT sur $iface"
+    else
+        warn "règles nftables invalides — ignorées"
+    fi
+    rm -f "$tmp"
+
+    systemctl daemon-reload
+    systemctl enable --now "$UTUNNEL_SERVICE"
+    systemctl restart "$UTUNNEL_SERVICE"
+    if tunnel_active utunnel; then
+        msg "Utunnel actif (:${UTUNNEL_PORT}, plage ${UTUNNEL_RANGE})"
+        echo -e "  ${CYAN}Clé client = hex(sha256(PSK ou uuid:secret))${NC}"
+    else
+        error "Utunnel ne démarre pas"; journalctl -u "$UTUNNEL_SERVICE" -n 10 --no-pager; return 1
+    fi
+    pause
+}
+
+utunnel_uninstall() {
+    confirm "Supprimer complètement Utunnel ?" || return 0
+    systemctl disable --now "$UTUNNEL_SERVICE" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$UTUNNEL_SERVICE" "$UTUNNEL_BIN" "$UTUNNEL_NFT"
+    rm -rf "$UTUNNEL_HOME"
+    nft delete table inet utunnel 2>/dev/null || true
+    systemctl daemon-reload
+    msg "Utunnel désinstallé"
+}
+
+utunnel_uninstall_silent() { systemctl disable --now "$UTUNNEL_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$UTUNNEL_SERVICE" "$UTUNNEL_BIN" "$UTUNNEL_NFT"; rm -rf "$UTUNNEL_HOME"; nft delete table inet utunnel 2>/dev/null; }
+
+# Provisionne la PSK d'un compte côté serveur utunnel (users.list
+# uuid|secret|expire) puis recharge : le serveur dérive la clé client
+# SHA256(uuid:secret) — la même formule que l'API sert à l'app.
+utunnel_provision() { # $1 uuid $2 secret $3 expire
+    [[ -f "$UTUNNEL_USERS" ]] || : > "$UTUNNEL_USERS"
+    grep -v "^$1|" "$UTUNNEL_USERS" > "$UTUNNEL_USERS.tmp" 2>/dev/null || true
+    echo "$1|$2|$3" >> "$UTUNNEL_USERS.tmp"
+    mv "$UTUNNEL_USERS.tmp" "$UTUNNEL_USERS"; chmod 600 "$UTUNNEL_USERS"
+    tunnel_active utunnel && systemctl restart "$UTUNNEL_SERVICE"
+}
 
 # ── Appareils & verrouillage UUID ────────────────────────────────────
 # Gestion fine du verrou par compte :
@@ -2717,6 +2734,7 @@ main() {
         --list)      list_users || true ;;
         --tunnels)   tunnel_menu || true ;;
         --zivpn)     install_zivpn || true ;;
+        --utunnel)   install_utunnel || true ;;
         --sync-only)
             # Appelé par le moteur de quota après un blocage.
             xray_sync_uuids 2>/dev/null || true
