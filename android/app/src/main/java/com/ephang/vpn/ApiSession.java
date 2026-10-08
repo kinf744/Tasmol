@@ -390,6 +390,11 @@ public final class ApiSession {
             // clients est DNAT-ée côté serveur, jamais dialée.
             type = "utunnel";
             auth.put("password", c.optString("utunnel_secret", ""));
+            String ranges = c.optString("port_range", "");
+            if (ranges.isEmpty()) {
+                ranges = "50000-59999";
+            }
+            server.put("port_range", ranges);
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));

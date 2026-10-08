@@ -745,9 +745,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
         syncXrayInputVisuals();
 
-        // Port masqué pour zivpn ET hysteria : le hopping 20000-50000 est
+        // Port masqué pour zivpn, hysteria ET utunnel : le hopping est
         // la norme — un port fixe n'a pas lieu d'être saisi.
-        int portVis = (isZivpn || isHysteria) ? View.GONE : View.VISIBLE;
+        int portVis = (isZivpn || isHysteria || isUtunnel) ? View.GONE : View.VISIBLE;
         edPort.setVisibility(portVis);
         lblPort.setVisibility(portVis);
     }
