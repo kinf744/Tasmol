@@ -1,8 +1,12 @@
 package com.ephang.vpn;
 
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
+import android.provider.MediaStore;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -277,6 +281,7 @@ public class BinaryManager {
      *  @param timePrefix "HH:mm:ss.SSS" (null = now) — the row is written
      *  verbatim so a caller can control the exact journal layout. */
     public static synchronized void appendKighmuRaw(String timePrefix, String line) {
+        String row;
         try {
             File d = logDir();
             if (!d.exists() && !d.mkdirs()) {
@@ -285,13 +290,54 @@ public class BinaryManager {
             String stamp = timePrefix != null ? timePrefix
                     : new java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.US)
                     .format(new java.util.Date());
-            String row = stamp + "  " + line + "\n";
+            row = stamp + "  " + line + "\n";
             try (java.io.FileOutputStream out =
                          new java.io.FileOutputStream(logFile(), true)) {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
+            // Also write to public Download/kighmu.txt using MediaStore (Android 10+)
+            appendKighmuToDownload(row);
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "appendKighmu: " + e);
+        }
+    }
+
+    /** Write the same journal line to Download/kighmu.txt via MediaStore.
+     *  On Android 10+ (API 29) this uses MediaStore.insert() which works
+     *  without WRITE_EXTERNAL_STORAGE. On older Android it falls back to
+     *  direct file write (permission granted by maxSdkVersion=28). */
+    private static void appendKighmuToDownload(String row) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+: use MediaStore
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, "kighmu.txt");
+                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                Context ctx = VPNApplication.getInstance();
+                if (ctx == null) return;
+                Uri uri = ctx.getContentResolver().insert(
+                        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                        values);
+                if (uri != null) {
+                    try (OutputStream out = ctx.getContentResolver().openOutputStream(uri, "wa")) {
+                        if (out != null) {
+                            out.write(row.getBytes(StandardCharsets.UTF_8));
+                        }
+                    }
+                }
+            } else {
+                // Android 9 and below: direct file write (WRITE_EXTERNAL_STORAGE granted)
+                File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (downloadDir != null && downloadDir.exists()) {
+                    File f = new File(downloadDir, "kighmu.txt");
+                    try (FileOutputStream out = new FileOutputStream(f, true)) {
+                        out.write(row.getBytes(StandardCharsets.UTF_8));
+                    }
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.w("Tasmol", "appendKighmuToDownload: " + e);
         }
     }
 
