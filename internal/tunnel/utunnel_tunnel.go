@@ -120,9 +120,12 @@ func isHex64(s string) bool {
 }
 
 // DefaultUtunnelHopInterval : secondes entre deux rotations du port source.
-// Le serveur suit le pair à chaque paquet, donc la rotation est gratuite ;
-// elle casse la visibilité des flux UDP longs côté DPI.
-const DefaultUtunnelHopInterval = 10
+// DÉFAUT 0 = JAMAIS (opt-in) : les hops de port source tuent le downlink
+// derrière un CGNAT de réseau mobile (le mapping NAT du nouveau port ne
+// laisse plus passer les réponses du serveur — "downlink calé à 0B"
+// rapporté, downlink mort exactement après chaque hop dans kighmu.txt).
+// Le keepalive de session (toutes les 10 s) maintient le mapping unique.
+const DefaultUtunnelHopInterval = 0
 
 func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	t.mu.Lock()

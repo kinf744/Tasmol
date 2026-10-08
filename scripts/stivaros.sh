@@ -1252,7 +1252,7 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
-                     ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 10"),
+                     ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 0"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
         # quota_mb/bytes_used ciblent la table users
         table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
@@ -1474,7 +1474,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     # ici, l'app n'a rien à calculer. server_port = port RÉEL
                     # d'écoute (:5669), la plage est DNAT-ée côté serveur.
                     entry["utunnel_secret"] = cfg["utunnel_secret"] or ""
-                    entry["utunnel_hop"] = cfg["utunnel_hop"] or 10
+                    entry["utunnel_hop"] = cfg["utunnel_hop"] or 0
                     # Plage DNAT servie aussi : le journal de l'app
                     # (kighmu.txt) l'affiche — "plage absente" dans le log
                     # = cause n°1 du "dial: aucune réponse du serveur".
@@ -1900,9 +1900,9 @@ SQL
 -- Utunnel UDP propriétaire : port RÉEL d'écoute (:5669), la plage clients
 -- (50000-59999) est DNAT-ée côté serveur. Clé = SHA256(uuid:secret) hex.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
-SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '150', '$utunnel_key', 10, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
+SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '150', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
-SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 10, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
+SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
 SQL
     fi
     } | sqlite3 -batch "$DB_PATH"

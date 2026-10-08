@@ -258,10 +258,16 @@ func socksErr(c net.Conn, code byte) {
 }
 
 func bridge(a net.Conn, st *proto.Stream) {
-	done := make(chan struct{}, 2)
-	go func() { io.Copy(st, a); st.CloseWrite(); done <- struct{}{} }()
-	go func() { io.Copy(a, st); done <- struct{}{} }()
-	<-done
+	// ATTENDRE LES DEUX SENS avant de fermer le stream (aligné sur le
+	// bridgeTCP du serveur) : fermer à la première fin de sens tronque
+	// l'autre — le relais DNS du data plane fait un half-close (CloseWrite
+	// après la requête) et la réponse du résolveur serait perdue
+	// ("downlink calé à 0B" rapporté).
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); io.Copy(st, a); st.CloseWrite() }()
+	go func() { defer wg.Done(); io.Copy(a, st) }()
+	wg.Wait()
 	st.Close()
 }
 
