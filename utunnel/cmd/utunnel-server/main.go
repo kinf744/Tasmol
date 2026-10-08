@@ -81,8 +81,18 @@ func (p *pskSet) loadUsers(file string) int {
 		if len(parts) < 3 || parts[1] == "" || parts[2] < today {
 			continue
 		}
+		// DEUX dérivations acceptées par entrée :
+		//   1. SHA256(uuid:secret) — la formule historique stivaros, servie
+		//      pré-calculée par l'API (champ utunnel_secret, 64 hex) ;
+		//   2. SHA256(secret) seul — le client app (resolveClientKey) ne
+		//      connaît PAS l'uuid du compte : un profil configuré à la main
+		//      avec le secret brut dérivait SHA256(secret) et le serveur le
+		//      rejetait en silence (dial timeout, aucun log). L'app doit
+		//      marcher telle quelle avec la valeur affichée par le panel.
 		sum := sha256.Sum256([]byte(parts[0] + ":" + parts[1]))
 		fresh[fmt.Sprintf("%x", sum)] = struct{}{}
+		sum2 := sha256.Sum256([]byte(parts[1]))
+		fresh[fmt.Sprintf("%x", sum2)] = struct{}{}
 	}
 	p.mu.Lock()
 	p.psks = fresh

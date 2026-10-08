@@ -157,8 +157,18 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	server := fmt.Sprintf("%s:%d", ip, port)
 
 	// ── Traces détaillées de configuration (débogage riche) ──────────────
-	Tracef("[utunnel] config host=%q port=%d resolvedIP=%q (hostname=%q)",
-		host, port, ip, host)
+	// La plage DNAT serveur (port_range) est un élément de diagnostic clé :
+	// "dial: aucune réponse du serveur" survient exactement quand la plage
+	// est absente de la config (le serveur n'écoute que son port réel,
+	// la plage clients est DNAT-ée). On l'affiche TOUJOURS, et
+	// "(absente)" explicitement quand elle manque pour rendre la cause
+	// immédiatement visible dans kighmu.txt.
+	plage := strings.TrimSpace(t.config.Server.PortRange)
+	if plage == "" {
+		plage = "(absente — DNAT serveur requis ?)"
+	}
+	Tracef("[utunnel] config host=%q port=%d plage=%q resolvedIP=%q (hostname=%q)",
+		host, port, plage, ip, host)
 	Tracef("[utunnel] binDir=%q bin=%q exists=%v", BinDir, bin, func() bool {
 		_, e := os.Stat(bin)
 		return e == nil
@@ -202,7 +212,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	}
 	t.keyPath = keyPath
 
-	Journalf("utunnel", "udp %s (socks %s, hop %ds)", server, socksAddr, hop)
+	Journalf("utunnel", "udp %s (plage %s, socks %s, hop %ds)", server, plage, socksAddr, hop)
 	Tracef("[utunnel] binaire=%q pid à venir, tmp=%s", bin, TmpDir)
 
 	// UTUNNEL_TRACE=1 : le binaire journalise les premiers frames mux
