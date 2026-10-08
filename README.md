@@ -11,6 +11,7 @@ A full-featured VPN application supporting multiple tunnel protocols with a mode
 | **Xray** | Xray core (VMess, VLESS, Trojan, Shadowsocks, etc.) |
 | **Xray + SlowDNS** | Xray with DNS tunneling for restricted networks |
 | **Zivpn** | Lightweight UDP-based VPN with obfuscation |
+| **Utunnel** | Proprietary UDP tunnel (ARQ + XChaCha20-Poly1305, port-hopping) |
 
 ## Features
 
@@ -313,6 +314,26 @@ tunnels:
     #   tls_insecure (default true, self-signed server certs),
     #   up_mbps/down_mbps (defaults "50 mbps"/"200 mbps"),
     #   obfs_raw (raw JSON injected as "obfs" for fork variants)
+```
+
+#### Utunnel UDP (proprietary ARQ + XChaCha20-Poly1305)
+Fields: IP/Host, Port range (e.g. `50000-59999`), Secret (64 hex chars =
+SHA256(uuid:secret) precomputed by API), Hop interval in seconds (default 10).
+The client uses port-hopping via socket rotation; the server tracks the
+peer address per packet so DNAT range 50000-59999 → :5669 works natively.
+
+```yaml
+tunnels:
+  - name: "Utunnel"
+    type: "utunnel"
+    enabled: true
+    server:
+      host: "utunnel.example.com"
+      port_range: "50000-59999"  # DNAT range on server
+    auth:
+      password: "<64-hex-psk>"   # SHA256(uuid:secret) from API
+    advanced:
+      utunnel_hop: 10            # source port rotation interval (seconds)
 ```
 
 ### Network Features
