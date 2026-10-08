@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  GO_VERSION: '1.22.10'
+  GO_VERSION: '1.22'
 
 jobs:
   build:
@@ -36,12 +36,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libc6-dev-armhf-cross gcc-aarch64-linux-gnu
 
-      # garble : identifiants/paquets internes renommés, littéraux encodés,
-      # infos runtime retirées — mêmes protections anti-analyse statique
-      # que les autres workflows de l'écosystème.
-      - name: Install garble (obfuscation anti-analyse statique)
-        run: echo "$(go env GOPATH)/bin" >> $GITHUB_PATH && go install mvdan.cc/garble@v0.13.0
-
       - name: Run protocol tests
         working-directory: utunnel
         run: go test ./proto/ -v -timeout 300s
@@ -57,9 +51,9 @@ jobs:
           build_one() { # $1 GOOS $2 GOARCH $3 GOARM $4 suffix
             export GOOS="$1" GOARCH="$2" CGO_ENABLED=0
             if [ -n "$3" ]; then export GOARM="$3"; else unset GOARM || true; fi
-            garble -literals -tiny -seed=random build -trimpath -ldflags="$LDFLAGS" \
+            go build -trimpath -ldflags="$LDFLAGS" \
               -o ../dist-utunnel/utunnel-server-$4 ./cmd/utunnel-server
-            garble -literals -tiny -seed=random build -trimpath -ldflags="$LDFLAGS" \
+            go build -trimpath -ldflags="$LDFLAGS" \
               -o ../dist-utunnel/utunnel-client-$4 ./cmd/utunnel-client
             echo "  built $4"
           }
