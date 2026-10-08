@@ -160,7 +160,8 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	Tracef("[utunnel] config host=%q port=%d resolvedIP=%q (hostname=%q)",
 		host, port, ip, host)
 	Tracef("[utunnel] binDir=%q bin=%q exists=%v", BinDir, bin, func() bool {
-		_, e := os.Stat(bin); return e == nil
+		_, e := os.Stat(bin)
+		return e == nil
 	}())
 	Tracef("[utunnel] tmpDir=%q keyPath=%s", TmpDir, fmt.Sprintf("%s/utunnel-%s.key", TmpDir, t.config.ID))
 

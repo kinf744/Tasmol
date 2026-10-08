@@ -1,8 +1,10 @@
 package com.ephang.vpn;
 
+import android.content.ContentUris;
 import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -279,7 +281,16 @@ public class BinaryManager {
 
     /** Append a journal row with a caller-supplied timestamp column.
      *  @param timePrefix "HH:mm:ss.SSS" (null = now) — the row is written
-     *  verbatim so a caller can control the exact journal layout. */
+     *  verbatim so a caller can control the exact journal layout.
+     *
+     *  NOTE: this ONLY writes the app-private file (filesDir/logs/
+     *  kighmu.txt). Mirroring to Download is owned EXCLUSIVELY by the
+     *  background kighmu-mirror thread (startDownloadMirror), which copies
+     *  new bytes of the private file to the single Download entry on a
+     *  short cadence. Tunnelling through one owner eliminates double content
+     *  (Go DirectLog + this mirror would otherwise duplicate lines) and
+     *  several duplicate files ("kighmu.txt", "kighmu (1).ppt", …) that the
+     *  per-line MediaStore.insert() previously created. */
     public static synchronized void appendKighmuRaw(String timePrefix, String line) {
         String row;
         try {
@@ -295,40 +306,43 @@ public class BinaryManager {
                          new java.io.FileOutputStream(logFile(), true)) {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-            // Also write to public Download/kighmu.txt using MediaStore (Android 10+)
-            appendKighmuToDownload(row);
+            // Lazy-start the live mirror so the Download copy receives the
+            // rich Go detail too (see startDownloadMirror). Starting here
+            // on the first write covers both app start and VPN reconnects.
+            startDownloadMirror();
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "appendKighmu: " + e);
         }
     }
 
     /** Write the same journal line to Download/kighmu.txt via MediaStore.
-     *  On Android 10+ (API 29) this uses MediaStore.insert() which works
-     *  without WRITE_EXTERNAL_STORAGE. On older Android it falls back to
-     *  direct file write (permission granted by maxSdkVersion=28). */
+     *  On Android 10+ (API 29) this uses MediaStore with a SINGLE stable
+     *  entry: we query for the existing kighmu.txt first (append to it),
+     *  and only insert a new one when none exists. The previous version did
+     *  a fresh MediaStore.insert() per line, which created many duplicate
+     *  files in Download ("kighmu.txt", "kighmu (1).txt", "kighmu (2).txt"…)
+     *  — the "plusieurs fichiers kighmu.txt avec un contenu très médiocre"
+     *  symptom the user reported. On older Android it falls back to direct
+     *  file write (permission granted by maxSdkVersion=28). */
     private static void appendKighmuToDownload(String row) {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Android 10+: use MediaStore
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.MediaColumns.DISPLAY_NAME, "kighmu.txt");
-                values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
                 Context ctx = VPNApplication.getInstance();
                 if (ctx == null) return;
-                Uri uri = ctx.getContentResolver().insert(
-                        MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                        values);
+                Uri uri = downloadKighmuUri(ctx);
                 if (uri != null) {
-                    try (OutputStream out = ctx.getContentResolver().openOutputStream(uri, "wa")) {
+                    try (OutputStream out = ctx.getContentResolver()
+                            .openOutputStream(uri, "wa")) {
                         if (out != null) {
                             out.write(row.getBytes(StandardCharsets.UTF_8));
+                            out.flush();
                         }
                     }
                 }
             } else {
                 // Android 9 and below: direct file write (WRITE_EXTERNAL_STORAGE granted)
-                File downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                File downloadDir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS);
                 if (downloadDir != null && downloadDir.exists()) {
                     File f = new File(downloadDir, "kighmu.txt");
                     try (FileOutputStream out = new FileOutputStream(f, true)) {
@@ -339,6 +353,199 @@ public class BinaryManager {
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "appendKighmuToDownload: " + e);
         }
+    }
+
+    /** Find (or lazily create) the SINGLE MediaStore entry for
+     *  Download/kighmu.txt and cache its Uri. Returns null when unavailable. */
+    private static synchronized Uri downloadKighmuUri(Context ctx) {
+        Uri uri = sDownloadKighmuUri;
+        if (uri != null) {
+            return uri;
+        }
+        try {
+            // Look for an existing kighmu.txt this app owns in Download/.
+            // RELATIVE_PATH filter avoids adopting an unrelated kighmu.txt
+            // created by another app (openOutputStream on a foreign entry
+            // throws on Android 10+ scoped storage).
+            String[] proj = { MediaStore.MediaColumns._ID };
+            String sel = MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
+                    + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
+            String[] args = { "kighmu.txt", "Download%" };
+            try (Cursor c = ctx.getContentResolver().query(
+                    MediaStore.Downloads.getContentUri(
+                            MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    proj, sel, args, null)) {
+                if (c != null && c.moveToFirst()) {
+                    long id = c.getLong(0);
+                    uri = ContentUris.withAppendedId(
+                            MediaStore.Downloads.getContentUri(
+                                    MediaStore.VOLUME_EXTERNAL_PRIMARY), id);
+                    sDownloadKighmuUri = uri;
+                    return uri;
+                }
+            }
+            // Not found: create it once.
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.MediaColumns.DISPLAY_NAME, "kighmu.txt");
+            values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+            values.put(MediaStore.MediaColumns.RELATIVE_PATH,
+                    Environment.DIRECTORY_DOWNLOADS);
+            uri = ctx.getContentResolver().insert(
+                    MediaStore.Downloads.getContentUri(
+                            MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                    values);
+            sDownloadKighmuUri = uri;
+            return uri;
+        } catch (Exception e) {
+            android.util.Log.w("Tasmol", "downloadKighmuUri: " + e);
+            return null;
+        }
+    }
+
+    /** Cached Uri of the single Download/kighmu.txt entry. */
+    private static volatile Uri sDownloadKighmuUri = null;
+
+    // ────────────────────────────────────────────────────────────────────
+    //  Live Download mirroring (background kighmu-mirror thread)
+    //
+    //  The Go data plane writes a RICH log into filesDir/logs/kighmu.txt
+    //  (utunnel traces, child-process stdout/stderr, connection milestones).
+    //  That private file is the ONLY sink of detail: before this mirror,
+    //  Download/kighmu.txt only received the coarse Java logEvent() lines,
+    //  which is exactly the "contenu très médiocre" the user reported.
+    //
+    //  The mirror opens the SAME single MediaStore entry in Download
+    //  (query-first, insert-once — no more "kighmu (1).txt", "kighmu (2).txt"
+    //  proliferatition) and appends any NEW bytes appended to the private
+    //  file since the last tick (~700 ms). Truncation (clearKighmu) resets
+    //  the offset and rewrites from byte 0 so the Download copy never mixes
+    //  stale sessions with the live one.
+    // ────────────────────────────────────────────────────────────────────
+
+    // Byte offset up to which the private journal has already been mirrored.
+    // -2 = "not started yet" (triggers the initial copy of the whole file).
+    private static volatile long sMirrorOffset = -2L;
+    private static volatile boolean sMirrorThread = false;
+    private static final Object sMirrorLock = new Object();
+
+    /** Start the background mirror if not running. Safe to call repeatedly.
+     *  Called from appendKighmuRaw and from the VPN session start. */
+    public static void startDownloadMirror() {
+        if (sMirrorThread) {
+            return;
+        }
+        synchronized (sMirrorLock) {
+            if (sMirrorThread) {
+                return;
+            }
+            sMirrorThread = true;
+        }
+        Thread t = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        mirrorTick();
+                    } catch (Throwable th) {
+                        // One broken tick must NEVER kill the mirror — log
+                        // and continue; the next tick sees the file state.
+                        Log.w(TAG, "kighmu-mirror tick failed", th);
+                    }
+                    try {
+                        Thread.sleep(700);
+                    } catch (InterruptedException ignored) {
+                        // interrupted: app is shutting down; exit thread.
+                        sMirrorThread = false;
+                        return;
+                    }
+                }
+            }
+        }, "kighmu-mirror");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** One mirror tick: copy new bytes of the private journal to Download. */
+    private static void mirrorTick() {
+        Context ctx = VPNApplication.getInstance();
+        if (ctx == null) {
+            return;
+        }
+        File src;
+        try {
+            src = logFile();
+        } catch (Throwable ignored) {
+            return;
+        }
+        if (src == null) {
+            return;
+        }
+        long srcLen = src.exists() ? src.length() : -1L;
+        if (srcLen < 0) {
+            // Private file gone (app reinstall / clear): drop Download copy
+            // as well so the analysis never mixes stale sessions.
+            deleteDownloadKighmu(ctx);
+            sMirrorOffset = -2L;
+            return;
+        }
+        if (sMirrorOffset == -2L) {
+            // First tick: drop any stale Download copy from a previous app
+            // version, then mirror the existing content from byte 0. Without
+            // the reset, the old per-line MediaStore "insert-per-line"
+            // leftovers would stay glued ahead of the new rich content.
+            deleteDownloadKighmu(ctx);
+            sMirrorOffset = 0;
+        }
+        if (srcLen < sMirrorOffset) {
+            // Truncated externally (e.g. clearKighmu): restart from 0 and
+            // wipe the lingering Download copy to keep both files in sync.
+            sMirrorOffset = 0;
+            deleteDownloadKighmu(ctx);
+            return;
+        }
+        if (srcLen == sMirrorOffset) {
+            return; // nothing new
+        }
+        long from = sMirrorOffset;
+        long remaining = srcLen - from;
+        // Read in bounded chunks and pass to Download append.
+        try (java.io.FileInputStream in = new java.io.FileInputStream(src)) {
+            in.skip(from);
+            byte[] buf = new byte[65536];
+            long written = 0;
+            int n;
+            while (written < remaining && (n = in.read(buf)) > 0) {
+                String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
+                appendKighmuToDownload(chunk);
+                written += n;
+            }
+            sMirrorOffset = from + written;
+        } catch (Exception e) {
+            Log.w(TAG, "kighmu-mirror read: " + e);
+        }
+    }
+
+    /** Delete the Download/kighmu.txt entry (if known). Next append lazily
+     *  recreates it. Keeps the Download folder clean after a clear. */
+    private static synchronized void deleteDownloadKighmu(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            File downloadDir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS);
+            if (downloadDir != null) {
+                new File(downloadDir, "kighmu.txt").delete();
+                return;
+            }
+        }
+        Uri uri = sDownloadKighmuUri;
+        if (uri == null) {
+            return;
+        }
+        try {
+            ctx.getContentResolver().delete(uri, null, null);
+        } catch (Exception e) {
+            Log.w(TAG, "deleteDownloadKighmu: " + e);
+        }
+        sDownloadKighmuUri = null;
     }
 
     /** Stamp bon marché du journal (taille ^ mtime) : 0 si absent. Les écrans
@@ -391,6 +598,40 @@ public class BinaryManager {
             }
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "clearKighmu: " + e);
+        }
+        // Reset the Download copy too: without this the stale content from a
+        // previous analysis stays appended in Download/kighmu.txt forever
+        // and the next session's log is preceded by garbage. We reopen the
+        // entry in "wt" (truncate) mode — mode "" rewrite — on MediaStore,
+        // which truncates the file. On pre-Q we truncate the file directly.
+        try {
+            Context ctx = VPNApplication.getInstance();
+            if (ctx == null) return;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                Uri uri = sDownloadKighmuUri; // reuse cached; do NOT query
+                        // (the file may have been emptied, but the entry still
+                        // exists — querying could re-create it unnecessarily)
+                if (uri == null) {
+                    uri = downloadKighmuUri(ctx); // lazily create on first use
+                }
+                if (uri != null) {
+                    try (OutputStream out = ctx.getContentResolver()
+                            .openOutputStream(uri, "wt")) { // wt = truncate
+                        // empty write = truncation only
+                    }
+                }
+            } else {
+                File downloadDir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS);
+                if (downloadDir != null) {
+                    File f2 = new File(downloadDir, "kighmu.txt");
+                    if (f2.exists()) {
+                        new FileOutputStream(f2, false).close();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            android.util.Log.w("Tasmol", "clearKighmu(Download): " + e);
         }
     }
     /** Tunnel list (id/name/type) via the Go parser (reliable, offline). */

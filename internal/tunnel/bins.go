@@ -76,10 +76,15 @@ func directLog(format string, args ...interface{}) {
 // Tracef appends a timestamped line to the tunnel activity log.
 func Tracef(format string, args ...interface{}) {
 	if LogFunc != nil {
+		// Primary sink (sanitizes secrets + timestamps).
 		LogFunc(format, args...)
+		return
 	}
-	// Always mirror to the direct file sink when present, so child-process
-	// output and internal traces reach kighmu.txt even if LogFunc is nil.
+	// Fallback: write straight to the diagnostic file when LogFunc is nil
+	// (e.g. the Go side was wired but the path unwritable). Without this,
+	// the whole Go detail (child stdout/stderr via PipeLinesToLog, utunnel
+	// traces, xray diagnostics) is silently dropped and kighmu.txt stays
+	// empty — the exact symptom reported.
 	if DirectLog != nil {
 		DirectLog(fmt.Sprintf(format, args...))
 	}

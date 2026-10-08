@@ -133,7 +133,7 @@ type Controller struct {
 	frontPort  int
 	rrIDs      []string
 
-tunFd      int
+	tunFd      int
 	mtu        int
 	configPath string
 	activeID   string
@@ -181,7 +181,7 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 	if !ok {
 		// Last resort: app-private filesDir/logs — always writable.
 		home, herr := os.UserHomeDir()
-		if herr == nil {
+		if herr != nil || home == "" {
 			home = "."
 		}
 		fallback := filepath.Join(home, ".tasmol", "logs")
