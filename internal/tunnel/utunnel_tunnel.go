@@ -156,6 +156,14 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	ip := t.resolveServerIP()
 	server := fmt.Sprintf("%s:%d", ip, port)
 
+	// ── Traces détaillées de configuration (débogage riche) ──────────────
+	Tracef("[utunnel] config host=%q port=%d resolvedIP=%q (hostname=%q)",
+		host, port, ip, host)
+	Tracef("[utunnel] binDir=%q bin=%q exists=%v", BinDir, bin, func() bool {
+		_, e := os.Stat(bin); return e == nil
+	}())
+	Tracef("[utunnel] tmpDir=%q keyPath=%s", TmpDir, fmt.Sprintf("%s/utunnel-%s.key", TmpDir, t.config.ID))
+
 	key, derived := resolveClientKey(secret)
 	Tracef("[utunnel] clé client: %s (%d octets) dérivée=%v",
 		map[bool]string{true: "SHA256", false: "directe"}[derived], len(key)/2, derived)
@@ -165,18 +173,22 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	if err != nil {
 		t.status = StatusError
 		t.setError(err.Error())
+		Errorf("utunnel", "PickLiveSocksAddr: %v", err)
 		return err
 	}
 	if err := waitPortFreeCtx(ctx, socksPort, 4*time.Second); err != nil {
 		t.status = StatusError
 		t.setError(err.Error())
+		Errorf("utunnel", "port SOCKS %d occupé: %v", socksPort, err)
 		return err
 	}
+	Tracef("[utunnel] socks=%s port=%d", socksAddr, socksPort)
 
 	hop := advInt(t.config.Advanced, "utunnel_hop", DefaultUtunnelHopInterval)
 	if hop < 0 {
 		hop = 0
 	}
+	Tracef("[utunnel] hop=%ds (rotation port source, 0=jamais)", hop)
 
 	// Clé écrite dans un fichier temporaire 0600 : jamais dans les
 	// arguments de processus (visibles via /proc/<pid>/cmdline).
@@ -206,6 +218,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 		"HOME="+TmpDir,
 		"TMPDIR="+TmpDir,
 	)
+	Tracef("[utunnel] cmdline=%s", strings.Join(cmd.Args, " "))
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		t.cleanupFiles()
@@ -236,13 +249,18 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 
 	// Readiness : le handshake (X25519+PSK) doit aboutir et le SOCKS local
 	// répondre (15 s comme hysteria).
+	Tracef("[utunnel] waitSOCKS %s (handshake + readiness, timeout 15s)", socksAddr)
+	startWait := time.Now()
 	if err := waitForTCPctx(ctx, socksAddr, 15*time.Second); err != nil {
 		t.killLocked()
 		t.status = StatusError
 		t.setError(fmt.Sprintf("utunnel socks not ready (handshake/PSK ?): %v", err))
 		Errorf("utunnel", "SOCKS %s not ready (handshake ou PSK invalide ?): %v", socksAddr, err)
+		Tracef("[utunnel] readiness FAILED after %v — cause: handshake1 non authentifié (PSK) OU handshake2 perdu OU DNAT de plage absent",
+			time.Since(startWait))
 		return fmt.Errorf("utunnel socks not ready: %w", err)
 	}
+	Tracef("[utunnel] SOCKS ready after %v", time.Since(startWait))
 	SetLiveSocksAddr(t.config.ID, socksAddr)
 
 	t.startTime = time.Now()
@@ -258,8 +276,10 @@ func (t *UtunnelTunnel) watchProcess(cmd *exec.Cmd) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.cmd != cmd {
+		Tracef("[utunnel] watchProcess: stale cmd (arrêt propre), skip")
 		return // arrêt propre (Stop a déjà nettoyé)
 	}
+	Tracef("[utunnel] process exited (pid=%d) err=%v status=%v", cmd.Process.Pid, err, t.status)
 	if t.status == StatusRunning || t.status == StatusStarting {
 		t.status = StatusError
 		t.setError(fmt.Sprintf("utunnel exited: %v", err))
@@ -269,6 +289,7 @@ func (t *UtunnelTunnel) watchProcess(cmd *exec.Cmd) {
 
 func (t *UtunnelTunnel) cleanupFiles() {
 	if t.keyPath != "" {
+		Tracef("[utunnel] cleanup keyPath=%s", t.keyPath)
 		_ = os.Remove(t.keyPath)
 		t.keyPath = ""
 	}
@@ -276,6 +297,7 @@ func (t *UtunnelTunnel) cleanupFiles() {
 
 func (t *UtunnelTunnel) killLocked() {
 	if t.cmd != nil && t.cmd.Process != nil {
+		Tracef("[utunnel] kill pid=%d", t.cmd.Process.Pid)
 		_ = t.cmd.Process.Kill()
 		_, _ = t.cmd.Process.Wait()
 	}
@@ -294,6 +316,7 @@ func (t *UtunnelTunnel) Stop(ctx context.Context) error {
 		return nil
 	}
 	t.status = StatusStopping
+	Tracef("[utunnel] Stop() status=%s", t.status)
 	Infof("utunnel", "arrêt du client")
 	if t.cancel != nil {
 		t.cancel()
@@ -301,6 +324,7 @@ func (t *UtunnelTunnel) Stop(ctx context.Context) error {
 	ClearLiveSocksAddr(t.config.ID)
 	t.killLocked()
 	t.status = StatusStopped
+	Tracef("[utunnel] STOPPED")
 	return nil
 }
 

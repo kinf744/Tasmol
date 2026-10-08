@@ -133,7 +133,7 @@ type Controller struct {
 	frontPort  int
 	rrIDs      []string
 
-	tunFd      int
+tunFd      int
 	mtu        int
 	configPath string
 	activeID   string
@@ -142,6 +142,7 @@ type Controller struct {
 	dnsProtect bool
 	startTime  time.Time
 	logFile    *os.File
+	logPath    string // resolved kighmu.txt path (for diagnostics)
 	rrLastTry  map[string]time.Time
 }
 
@@ -160,27 +161,82 @@ func errJSON(err error) string {
 	return string(b)
 }
 
-// makeFileLogger returns a tunnel.LogFunc writing timestamped lines to
-// <logDir>/kighmu.txt (appended per session, never truncated, so the Logs
-// tab keeps the history across reconnects). Returns nil if logDir is empty
-// or unwritable, so logging is always safe.
+// makeFileLogger wires the tunnel activity log to <logDir>/kighmu.txt.
+//
+// CRITICAL: this MUST never return nil. The previous version returned nil
+// when the path was unwritable, which silently disabled EVERY Go log call
+// (Tracef, Infof, Connf, Journalf, Warnf, Errorf AND PipeLinesToLog, which
+// itself calls Tracef) — kighmu.txt stayed empty and the Logs tab showed
+// "No events yet" even though the tunnel was failing. That is exactly the
+// symptom reported: "contenu très médiocre".
+//
+// Strategy: try the requested logDir first; if unwritable, fall back to
+// the app-private filesDir/logs (always writable on Android, even with
+// targetSdk 34 and scoped storage). The log ALWAYS exists in at least one
+// of those two places. DirectLog is also set so child-process output and
+// internal traces reach the file even when LogFunc is nil.
 func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) {
+	// Resolve a writable path: requested > app-private fallback.
+	path, f, ok := c.openLog(logDir)
+	if !ok {
+		// Last resort: app-private filesDir/logs — always writable.
+		home, herr := os.UserHomeDir()
+		if herr == nil {
+			home = "."
+		}
+		fallback := filepath.Join(home, ".tasmol", "logs")
+		if ferr := os.MkdirAll(fallback, 0755); ferr == nil {
+			path, f, ok = c.openLog(fallback)
+		}
+	}
+	if !ok {
+		// Even the fallback failed: keep going with a no-op logger so
+		// the Go side never crashes, but remember that we are blind.
+		c.logFile = nil
+		return func(format string, args ...interface{}) {}
+	}
+	c.logFile = f
+	c.logPath = path
+
+	var mu sync.Mutex
+	// Direct sink: writes a fully-formatted line (already sanitized by the
+	// caller) straight to the file, bypassing the LogFunc gate. Set so
+	// PipeLinesToLog and internal Tracef always reach kighmu.txt.
+	tunnel.DirectLog = func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c.logFile == nil {
+			return
+		}
+		fmt.Fprintf(c.logFile, "%s  %s\n", time.Now().Format("15:04:05.000"), line)
+	}
+	// Leveled sink: receives "[level] [component] message" and sanitizes.
+	return func(format string, args ...interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
+		if c.logFile == nil {
+			return
+		}
+		fmt.Fprintf(c.logFile, "%s  %s\n", time.Now().Format("15:04:05.000"),
+			sanitizeLogLine(fmt.Sprintf(format, args...)))
+	}
+}
+
+// openLog opens <logDir>/kighmu.txt for append, creating the directory.
+// Returns (path, file, true) on success.
+func (c *Controller) openLog(logDir string) (string, *os.File, bool) {
 	if logDir == "" {
-		return nil
+		return "", nil, false
+	}
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		return "", nil, false
 	}
 	path := filepath.Join(logDir, "kighmu.txt")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
-		return nil
+		return "", nil, false
 	}
-	c.logFile = f
-	var mu sync.Mutex
-	return func(format string, args ...interface{}) {
-		mu.Lock()
-		defer mu.Unlock()
-		fmt.Fprintf(f, "%s  %s\n", time.Now().Format("15:04:05.000"),
-			sanitizeLogLine(fmt.Sprintf(format, args...)))
-	}
+	return path, f, true
 }
 
 // sanitizeLogLine masks secrets before they reach kighmu.txt (passwords,

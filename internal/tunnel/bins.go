@@ -57,23 +57,50 @@ var TmpDir string
 // real time. nil = logging disabled.
 var LogFunc func(format string, args ...interface{})
 
-// Tracef appends a timestamped line to the tunnel activity log.
-func Tracef(format string, args ...interface{}) {
-	if LogFunc == nil {
+// DirectLog is a low-level sink that writes a fully-formatted, timestamped
+// line straight to the diagnostic file, bypassing the LogFunc gate. It is
+// set by vpnlib.makeFileLogger and is NEVER nil on Android: the Go side
+// cannot rely on LogFunc being non-nil (it silently disables itself when
+// the path is unwritable), but child-process stdout/stderr (PipeLinesToLog)
+// and internal traces must still reach kighmu.txt for diagnosis.
+// nil = no direct sink (desktop mode without a log dir).
+var DirectLog func(line string)
+
+func directLog(format string, args ...interface{}) {
+	if DirectLog == nil {
 		return
 	}
-	LogFunc(format, args...)
+	DirectLog(fmt.Sprintf(format, args...))
+}
+
+// Tracef appends a timestamped line to the tunnel activity log.
+func Tracef(format string, args ...interface{}) {
+	if LogFunc != nil {
+		LogFunc(format, args...)
+	}
+	// Always mirror to the direct file sink when present, so child-process
+	// output and internal traces reach kighmu.txt even if LogFunc is nil.
+	if DirectLog != nil {
+		DirectLog(fmt.Sprintf(format, args...))
+	}
 }
 
 // Leveled journal: every line carries [level] [component] so the UI colors
 // milestones, warnings and errors (info/connection/warning/error).
 // Secrets are masked at write time by the file logger.
 func logLine(level, component, format string, args ...interface{}) {
-	if LogFunc == nil {
+	msg := fmt.Sprintf(format, args...)
+	comp := strings.ReplaceAll(strings.ReplaceAll(component, "[", ""), "]", "")
+	line := "[" + level + "] [" + comp + "] " + msg
+	if LogFunc != nil {
+		LogFunc("%s", line)
 		return
 	}
-	comp := strings.ReplaceAll(strings.ReplaceAll(component, "[", ""), "]", "")
-	LogFunc("[" + level + "] [" + comp + "] " + fmt.Sprintf(format, args...))
+	// Fallback: write straight to the diagnostic file when LogFunc is
+	// nil (e.g. the Go side was wired but the path unwritable). Without
+	// this, every Infof/Connf/Journalf/Warnf/Errorf is silently dropped
+	// and kighmu.txt stays empty — the exact symptom reported.
+	directLog("%s", line)
 }
 
 // Infof logs a routine journal line.
