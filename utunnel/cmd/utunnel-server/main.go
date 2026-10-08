@@ -148,6 +148,28 @@ func main() {
 
 	count := func() int { mu.RLock(); defer mu.RUnlock(); return len(sessions) }
 
+	// Trafic périodique par session (toutes les 30 s) : diagnostics
+	// "downlink calé à 0B" — montre si le trafic passe réellement dans
+	// chaque direction (in = reçu du client, out = envoyé au client).
+	go func() {
+		for range time.Tick(30 * time.Second) {
+			mu.RLock()
+			type row struct {
+				name   string
+				rx, tx int64
+			}
+			rows := make([]row, 0, len(sessions))
+			for _, s := range sessions {
+				rx, tx := s.Stats()
+				rows = append(rows, row{s.RemoteString(), rx, tx})
+			}
+			mu.RUnlock()
+			for _, r := range rows {
+				log.Printf("trafic %s : in=%d B out=%d B", r.name, r.rx, r.tx)
+			}
+		}
+	}()
+
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {

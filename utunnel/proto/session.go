@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -55,6 +56,12 @@ type Session struct {
 	dead     bool
 	die      chan struct{}
 	closed   chan struct{} // fermé quand mort
+
+	// trafic : octets de données (payload mux) par sens. Diagnostics
+	// "downlink calé à 0B" : le log périodique du serveur et du client
+	// montre si le trafic passe réellement dans chaque direction.
+	bytesIn  atomic.Int64 // payload reçu du pair (client: downlink)
+	bytesOut atomic.Int64 // payload envoyé au pair (client: uplink)
 
 	// émission
 	txSeq    uint32
@@ -195,6 +202,24 @@ func (s *Session) WireToken() [tokenLen]byte {
 	return w
 }
 
+// Stats retourne les octets de trafic par sens (payload fiable + UDP) :
+// (rxBytes, txBytes). Côté client, rxBytes = downlink (réponses du serveur),
+// txBytes = uplink (données envoyées). Diagnostics "downlink calé à 0B" :
+// le log périodique du serveur et du client montre la direction morte.
+func (s *Session) Stats() (int64, int64) {
+	return s.bytesIn.Load(), s.bytesOut.Load()
+}
+
+// RemoteString retourne le dernier pair vu (thread-safe), pour les logs.
+func (s *Session) RemoteString() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.remote == nil {
+		return "?"
+	}
+	return s.remote.String()
+}
+
 // mkSession initialisé à partir de clés déjà dérivées (sens C2S/S2C selon rôle).
 // Ne lance PAS reader() : le client l'ajoute, le serveur démuxe globalement.
 func mkSession(conn *net.UDPConn, remote *net.UDPAddr, keys *SessionKeys, serverSide bool) *Session {
@@ -266,7 +291,11 @@ func maxF(a, b float64) float64 {
 
 // SendType envoie un payload fiable (TypeData = frames mux).
 func (s *Session) sendData(payload []byte) error {
-	return s.queue(TypeData, payload)
+	if err := s.queue(TypeData, payload); err != nil {
+		return err
+	}
+	s.bytesOut.Add(int64(len(payload)))
+	return nil
 }
 
 func (s *Session) queue(typ uint8, payload []byte) error {
@@ -437,10 +466,12 @@ func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 			s.mu.Lock()
 			s.ackPend = true
 			s.mu.Unlock()
+			s.bytesIn.Add(int64(len(payload)))
 			s.mux.deliver(payload)
 		}
 	case TypeUDPData:
 		if s.onUDPPacket != nil {
+			s.bytesIn.Add(int64(len(payload)))
 			s.onUDPPacket(payload)
 		}
 	case TypePureAck:

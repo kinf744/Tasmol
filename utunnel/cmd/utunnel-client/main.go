@@ -58,6 +58,16 @@ func main() {
 	}
 	log.Printf("tunnel établi vers %s", sess.RemoteAddr())
 
+	// Trafic périodique (toutes les 15 s) : diagnostics "downlink calé à
+	// 0B" dans kighmu.txt — montre si les réponses du serveur arrivent
+	// réellement (rx = downlink, tx = uplink).
+	go func() {
+		for range time.Tick(15 * time.Second) {
+			rx, tx := sess.Stats()
+			log.Printf("trafic: rx=%d B (downlink) tx=%d B (uplink)", rx, tx)
+		}
+	}()
+
 	lsn, err := net.Listen("tcp", *socksAddr)
 	if err != nil {
 		log.Fatal(err)

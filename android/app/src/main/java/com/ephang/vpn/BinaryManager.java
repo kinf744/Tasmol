@@ -447,9 +447,11 @@ public class BinaryManager {
                     try {
                         mirrorTick();
                     } catch (Throwable th) {
-                        // One broken tick must NEVER kill the mirror — log
-                        // and continue; the next tick sees the file state.
-                        Log.w(TAG, "kighmu-mirror tick failed", th);
+                        // One broken tick must NEVER kill the mirror — and
+                        // the cause must be VISIBLE to the user (logcat is
+                        // invisible on the phone). Log into the private
+                        // journal, throttled.
+                        mirrorDiag("tick failed: " + th);
                     }
                     try {
                         Thread.sleep(700);
@@ -465,7 +467,10 @@ public class BinaryManager {
         t.start();
     }
 
-    /** One mirror tick: copy new bytes of the private journal to Download. */
+    /** One mirror tick: copy new bytes of the private journal to Download.
+     *  Synchronized on the SAME lock as appendKighmuRaw, so a Java write +
+     *  the tick can never interleave half a row (Go writes are atomic per
+     *  O_APPEND write, which interleaves safely). */
     private static void mirrorTick() {
         Context ctx = VPNApplication.getInstance();
         if (ctx == null) {
@@ -482,25 +487,26 @@ public class BinaryManager {
         }
         long srcLen = src.exists() ? src.length() : -1L;
         if (srcLen < 0) {
-            // Private file gone (app reinstall / clear): drop Download copy
-            // as well so the analysis never mixes stale sessions.
-            deleteDownloadKighmu(ctx);
+            // Private file gone (app reinstall / clear): reset the mirror.
+            resetDownloadKighmu(ctx, false);
             sMirrorOffset = -2L;
             return;
         }
         if (sMirrorOffset == -2L) {
-            // First tick: drop any stale Download copy from a previous app
-            // version, then mirror the existing content from byte 0. Without
-            // the reset, the old per-line MediaStore "insert-per-line"
-            // leftovers would stay glued ahead of the new rich content.
-            deleteDownloadKighmu(ctx);
+            // First tick: TRUNCATE (never delete) the stale Download copy
+            // from a previous app version, then mirror the existing content
+            // from byte 0. Deleting would force a fresh MediaStore insert
+            // while the ContentResolver output-FD cache may still point at
+            // the deleted entry — silent "wa" failures. Truncating keeps
+            // ONE entry and reuses it.
+            resetDownloadKighmu(ctx, true);
             sMirrorOffset = 0;
         }
         if (srcLen < sMirrorOffset) {
             // Truncated externally (e.g. clearKighmu): restart from 0 and
-            // wipe the lingering Download copy to keep both files in sync.
+            // truncate the Download copy to keep both files in sync.
             sMirrorOffset = 0;
-            deleteDownloadKighmu(ctx);
+            resetDownloadKighmu(ctx, true);
             return;
         }
         if (srcLen == sMirrorOffset) {
@@ -508,45 +514,80 @@ public class BinaryManager {
         }
         long from = sMirrorOffset;
         long remaining = srcLen - from;
-        // Read in bounded chunks and pass to Download append.
-        try (java.io.FileInputStream in = new java.io.FileInputStream(src)) {
-            in.skip(from);
+        // RandomAccessFile.seek is deterministic (FileInputStream.skip can
+        // skip short and its return value must be checked — a short skip
+        // here would copy from the wrong offset and corrupt the Download
+        // copy silently).
+        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(src, "r")) {
+            raf.seek(from);
             byte[] buf = new byte[65536];
             long written = 0;
             int n;
-            while (written < remaining && (n = in.read(buf)) > 0) {
+            while (written < remaining && (n = raf.read(buf)) > 0) {
                 String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
                 appendKighmuToDownload(chunk);
                 written += n;
             }
             sMirrorOffset = from + written;
         } catch (Exception e) {
+            // NOT advanced: the next tick retries the exact same bytes.
             Log.w(TAG, "kighmu-mirror read: " + e);
         }
     }
 
-    /** Delete the Download/kighmu.txt entry (if known). Next append lazily
-     *  recreates it. Keeps the Download folder clean after a clear. */
-    private static synchronized void deleteDownloadKighmu(Context ctx) {
+    /** Truncate (never delete) the Download/kighmu.txt entry so the single
+     *  MediaStore entry survives and the ContentResolver FD cache stays
+     *  valid. When createIfMissing is set, a missing entry is inserted. */
+    private static synchronized void resetDownloadKighmu(Context ctx,
+                                                         boolean createIfMissing) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             File downloadDir = Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_DOWNLOADS);
             if (downloadDir != null) {
-                new File(downloadDir, "kighmu.txt").delete();
+                File f = new File(downloadDir, "kighmu.txt");
+                try {
+                    if (f.exists()) {
+                        new FileOutputStream(f, false).close();
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "resetDownloadKighmu(preQ): " + e);
+                }
                 return;
             }
         }
         Uri uri = sDownloadKighmuUri;
+        if (uri == null && createIfMissing) {
+            uri = downloadKighmuUri(ctx);
+        }
         if (uri == null) {
             return;
         }
-        try {
-            ctx.getContentResolver().delete(uri, null, null);
+        try (OutputStream out = ctx.getContentResolver()
+                .openOutputStream(uri, "wt")) {
+            // empty write = truncation only
         } catch (Exception e) {
-            Log.w(TAG, "deleteDownloadKighmu: " + e);
+            Log.w(TAG, "resetDownloadKighmu: " + e);
         }
-        sDownloadKighmuUri = null;
     }
+
+    /** Mirror failure diagnostics, written into the private journal (visible
+     *  in the app LOGS tab) and throttled to one row per 30 s so a broken
+     *  MediaStore never floods the journal. */
+    private static void mirrorDiag(String cause) {
+        long now = System.currentTimeMillis();
+        if (now - sLastMirrorDiag < 30_000L) {
+            return;
+        }
+        sLastMirrorDiag = now;
+        try {
+            appendKighmu("[warning] [mirror] copie Download/kighmu.txt en échec: "
+                    + cause + " (le journal privé filesDir/logs/kighmu.txt reste "
+                    + "la source complète — mode Verbose)");
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private static volatile long sLastMirrorDiag = 0L;
 
     /** Stamp bon marché du journal (taille ^ mtime) : 0 si absent. Les écrans
      *  l'utilisent pour sauter les re-rendus quand rien n'a changé. */
