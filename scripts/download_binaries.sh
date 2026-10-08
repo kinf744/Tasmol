@@ -67,13 +67,29 @@ if ! install_from_repo zivpn; then
 fi
 
 # 4b. Hysteria client (armv7, bundle dépôt)
-echo "[4b/5] Hysteria (client)..."
+echo "[4b/6] Hysteria (client)..."
 if ! install_from_repo hysteria; then
     echo "  hysteria absent du bundle repo (bin/armv7/hysteria)"
 fi
 
+# 4c. Utunnel UDP client (armv7, bundle dépôt)
+echo "[4c/6] Utunnel (client)..."
+if ! install_from_repo utunnel; then
+    echo "  utunnel absent du bundle repo (bin/armv7/utunnel)"
+    # Fallback: download from GitHub release
+    cd "$TMP_DIR"
+    wget -q "https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel/utunnel-client-armv7" -O utunnel 2>/dev/null || true
+    if [ -f utunnel ]; then
+        chmod +x utunnel
+        cp utunnel "$BIN_DIR/utunnel"
+        echo "  [url] utunnel -> $BIN_DIR/utunnel"
+    else
+        echo "  WARNING: could not download utunnel"
+    fi
+fi
+
 # 5. SlowDNS (dnstt-client, armv7)
-echo "[4/4] SlowDNS (dnstt-client)..."
+echo "[5/6] SlowDNS (dnstt-client)..."
 if ! install_from_repo slowdns; then
     echo "  No prebuilt armv7 slowdns in repo."
     echo "  It is built by CI from OutlineFoundation/dnstt into bin/armv7/slowdns."
@@ -94,9 +110,10 @@ fi
 # Verification
 echo ""
 echo "=== Verification ==="
-file "$BIN_DIR/xray" "$BIN_DIR/zivpn" "$BIN_DIR/slowdns" "$BIN_DIR/hysteria" 2>/dev/null || true
+file "$BIN_DIR/xray" "$BIN_DIR/zivpn" "$BIN_DIR/slowdns" "$BIN_DIR/hysteria" "$BIN_DIR/utunnel" 2>/dev/null || true
 command -v ssh && ssh -V 2>&1 | head -1 || echo "ssh: MISSING from PATH"
 "$BIN_DIR/xray" version 2>&1 | head -2 || true
+"$BIN_DIR/utunnel" --help 2>&1 | head -3 || true
 echo ""
 echo "=== Done. Binaries in $BIN_DIR ==="
 echo "Point App.BinDir to this directory (or $HOME/bin) in config.yaml."
