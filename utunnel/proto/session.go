@@ -321,6 +321,19 @@ func (s *Session) queue(typ uint8, payload []byte) error {
 }
 
 // flush émet selon fenêtre/pacing. Appelé par le ticker et au RX d'ACK.
+// forceRetransmit marque tous les segments en vol comme « à retransmettre
+// immédiatement » : leur sentAt est reculé pour que le prochain flush()
+// (appelé juste après handle()) les réémette sans attendre le RTO.
+// Appelé à la réception d'un ping (port hopping : fenêtre de transition).
+func (s *Session) forceRetransmit() {
+	now := time.Now()
+	for _, seg := range s.unacked {
+		if seg.xmit > 0 {
+			seg.sentAt = now.Add(-10 * time.Minute) // dépasse tout RTO
+		}
+	}
+}
+
 func (s *Session) flush() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -527,6 +540,14 @@ func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 		// un pong (flags=1) — le pong ne déclenche pas de réponse (boucle).
 		if flags == 0 {
 			s.sendUDPRaw(TypePureAck, 1, nil)
+			// Ping = le client est vivant : ses segments en vol ont pu
+			// être perdus dans la fenêtre de transition du port hopping
+			// (le conntrack re-écrit le mapping à chaque hop) — sans
+			// retransmission immédiate ils attendaient le RTO (300 ms+)
+			// et le trafic repartait un segment PAR HOP (log kighmu :
+			// "DATA sid1 sseq=0/1/2" un seul par hop, out serveur figé).
+			// On force la retransmission de TOUT l'en vol dès le ping.
+			s.forceRetransmit()
 		}
 	}
 	s.flush()
