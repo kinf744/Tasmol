@@ -724,7 +724,18 @@ func (s *Session) ticker() {
 			}
 			lastLossCheck = time.Now()
 		case <-ka.C:
-			s.sendUDPRaw(TypePureAck, 0, nil)
+			// Résistance aux pertes CGNAT (capture tcpdump : ~95% des
+			// paquets "spontanés" perdus, seul l'échange immédiat passe) :
+			// 3 pings espacés de 150 ms par tick — le mapping change à
+			// chaque paquet sortant, au moins un ping part sur le mapping
+			// frais et déclenche la retransmission serveur + le pong.
+			// Dans une goroutine : ne pas bloquer la boucle flush (10ms).
+			go func() {
+				for i := 0; i < 3; i++ {
+					s.sendUDPRaw(TypePureAck, 0, nil)
+					time.Sleep(150 * time.Millisecond)
+				}
+			}()
 		case <-to.C:
 			s.mu.Lock()
 			idle := time.Since(s.lastRX)
