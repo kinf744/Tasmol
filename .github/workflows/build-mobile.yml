@@ -169,7 +169,13 @@ jobs:
             -o "$GITHUB_WORKSPACE/bin/armv7/utunnel" ./cmd/utunnel-client
           file "$GITHUB_WORKSPACE/bin/armv7/utunnel"
           echo "--- le client doit connaître -hop-range ---"
-          "$GITHUB_WORKSPACE/bin/armv7/utunnel" -h 2>&1 | grep -q "hop-range" \
+          # Le check -h tourne sur x86_64 : le binaire ARM ne peut pas
+          # s'exécuter sur le runner sans qemu (exec format error
+          # silencieux -> le garde-fou échouait alors que le binaire ARM
+          # était correct). On build l'amd64 pour la vérification native.
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags='-s -w' -o /tmp/utunnel-check ./cmd/utunnel-client
+          /tmp/utunnel-check -h 2>&1 | grep -q "hop-range" \
             || { echo '::error::utunnel client sans -hop-range'; exit 1; }
 
       - name: Stage official binaries into jniLibs
