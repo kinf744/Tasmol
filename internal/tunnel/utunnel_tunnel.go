@@ -157,8 +157,19 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 
 	bin := LookupBin(BinDir, BinUtunnel)
 	ip := t.resolveServerIP()
-	server := fmt.Sprintf("%s:%d", ip, port)
-
+	// Adresse multi-port (format officiel Hysteria 2, même convention que
+	// la config zivpn/Hysteria "server": "204.152.219.23:42000-45999") :
+	// IP:plage quand la plage DNAT est connue — le client utunnel la
+	// parse, dial un port ALÉATOIRE de la plage pour la connexion
+	// initiale et hoppe la DESTINATION dans la plage (socket source
+	// stable). Sinon IP:port (port réel d'écoute).
+	plageCfg := strings.TrimSpace(t.config.Server.PortRange)
+	var server string
+	if plageCfg != "" && strings.Contains(plageCfg, "-") {
+		server = fmt.Sprintf("%s:%s", ip, plageCfg)
+	} else {
+		server = fmt.Sprintf("%s:%d", ip, port)
+	}
 	// ── Traces détaillées de configuration (débogage riche) ──────────────
 	// La plage DNAT serveur (port_range) est un élément de diagnostic clé :
 	// "dial: aucune réponse du serveur" survient exactement quand la plage
@@ -166,12 +177,11 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	// la plage clients est DNAT-ée). On l'affiche TOUJOURS, et
 	// "(absente)" explicitement quand elle manque pour rendre la cause
 	// immédiatement visible dans kighmu.txt.
-	plage := strings.TrimSpace(t.config.Server.PortRange)
-	if plage == "" {
-		plage = "(absente — DNAT serveur requis ?)"
+	if plageCfg == "" {
+		plageCfg = "(absente — DNAT serveur requis ?)"
 	}
 	Tracef("[utunnel] config host=%q port=%d plage=%q resolvedIP=%q (hostname=%q)",
-		host, port, plage, ip, host)
+		host, port, plageCfg, ip, host)
 	Tracef("[utunnel] binDir=%q bin=%q exists=%v", BinDir, bin, func() bool {
 		_, e := os.Stat(bin)
 		return e == nil
@@ -209,8 +219,8 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	// downlink derrière un CGNAT (réponses non routées vers le nouveau
 	// mapping) : désactivée, remplacée par le hop destination.
 	hopRange := ""
-	if strings.Contains(plage, "-") {
-		hopRange = plage
+	if strings.Contains(plageCfg, "-") {
+		hopRange = plageCfg
 	}
 	Tracef("[utunnel] hop=destination plage=%q intervalle=%ds (port SOURCE stable, 0=jamais)", hopRange, hop)
 
@@ -225,7 +235,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	}
 	t.keyPath = keyPath
 
-	Journalf("utunnel", "udp %s (plage %s, socks %s, hop-dst %ds)", server, plage, socksAddr, hop)
+	Journalf("utunnel", "udp %s (plage %s, socks %s, hop-dst %ds)", server, plageCfg, socksAddr, hop)
 	Tracef("[utunnel] binaire=%q pid à venir, tmp=%s", bin, TmpDir)
 
 	// UTUNNEL_TRACE=1 : le binaire journalise les premiers frames mux
