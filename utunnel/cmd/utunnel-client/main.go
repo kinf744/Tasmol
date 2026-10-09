@@ -37,7 +37,7 @@ var (
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
 	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
 	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
-	hopMin     = flag.Int("hop-min", 30, "intervalle minimal entre deux hops (secondes) — valeur officielle Hysteria")
+	hopMin     = flag.Int("hop-min", 10, "intervalle minimal entre deux hops (secondes)")
 )
 
 var connectStart time.Time
@@ -73,7 +73,7 @@ func main() {
 		hop = *maxHops
 	}
 	if hop == 0 && *hopRange != "" {
-		hop = *hopMin // port hopping destination (Hysteria) : défaut 30 s
+		hop = *hopMin // port hopping destination (Hysteria) : défaut 10 s
 	}
 
 	sess, err := dialTunnel(*serverAddr, psk, hop, *hopRange)

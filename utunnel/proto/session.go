@@ -51,11 +51,12 @@ type Session struct {
 	rxKey  [32]byte
 	token  [tokenLen]byte
 
-	mu       sync.Mutex
-	isServer bool
-	dead     bool
-	die      chan struct{}
-	closed   chan struct{} // fermé quand mort
+	mu           sync.Mutex
+	isServer     bool
+	dead         bool
+	die          chan struct{}
+	closed       chan struct{}      // fermé quand mort
+	onPairChange func(*net.UDPAddr) // purge conntrack de l'ancien pair (hop-dst)
 
 	// trafic : octets de données (payload mux) par sens. Diagnostics
 	// "downlink calé à 0B" : le log périodique du serveur et du client
@@ -217,6 +218,13 @@ func (s *Session) Stats() (int64, int64) {
 // diagnostics dans kighmu.txt.
 func (s *Session) PacketStats() (int64, int64) {
 	return s.pktsIn.Load(), s.pktsBad.Load()
+}
+
+// SetPairChangeHandler enregistre le callback appelé quand le pair change
+// (le serveur suit le port-hopping destination de l'app). Le serveur purge
+// l'ancienne entrée conntrack pour éliminer l'ambiguïté du retour.
+func (s *Session) SetPairChangeHandler(fn func(*net.UDPAddr)) {
+	s.onPairChange = fn
 }
 
 // RemoteString retourne le dernier pair vu (thread-safe), pour les logs.
@@ -512,9 +520,13 @@ func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 	}
 	s.pktsIn.Add(1)
 	s.mu.Lock()
+	prevRemote := s.remote
 	s.remote = from // suit le port-hopping
 	s.lastRX = time.Now()
 	s.mu.Unlock()
+	if prevRemote != nil && !prevRemote.IP.Equal(from.IP) {
+		s.onPairChange(prevRemote)
+	}
 
 	// Traitement des ACKs émis par le pair
 	s.processAck(ack, bits)

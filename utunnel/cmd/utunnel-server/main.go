@@ -16,6 +16,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strings"
 	"sync"
@@ -220,6 +221,18 @@ func main() {
 					sessions[k] = s
 					mu.Unlock()
 					log.Printf("session +%s (total=%d)", from, count())
+					// Purge conntrack : quand le pair du client change
+					// (port hopping destination — l'app hoppe le port de
+					// la plage DNAT), l'ancienne entrée conntrack reste
+					// (timeout 120 s) et AMBIGUÏFIE le retour : la réponse
+					// du serveur match une entrée ALÉATOIRE et repart
+					// depuis un port destination aléatoire que le CGNAT
+					// port-dependent droppe (downlink calé à 0B). On purge
+					// l'ancienne entrée dès le changement de pair.
+					s.SetPairChangeHandler(func(old *net.UDPAddr) {
+						log.Printf("pair %s -> %s (purge conntrack)", old, from)
+						purgeConntrack(old)
+					})
 					go runSessionMux(s, func() {
 						mu.Lock()
 						delete(sessions, k)
@@ -237,6 +250,27 @@ func lookup16(m map[[16]byte]*proto.Session, wire8 []byte) (*proto.Session, bool
 	copy(k[:], wire8)
 	s, ok := m[k]
 	return s, ok
+}
+
+// purgeConntrack supprime les entrées conntrack UDP d'une ancienne adresse
+// pair (port hopping destination : l'ancien mapping CGNAT). Sans purge,
+// l'entrée vivait jusqu'au timeout conntrack (30-120 s) et la réponse du
+// serveur pouvait matcher l'entrée obsolète — repartant depuis un port
+// destination que le CGNAT droppe (downlink calé à 0B).
+func purgeConntrack(old *net.UDPAddr) {
+	if old == nil {
+		return
+	}
+	c, err := exec.LookPath("conntrack")
+	if err != nil {
+		return // outil absent : pas de purge, le RTO/pings récupèrent
+	}
+	cmd := exec.Command(c, "-D", "-p", "udp",
+		"--reply-src", old.IP.String(),
+		"--reply-port-src", fmt.Sprintf("%d", old.Port),
+	)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	_ = cmd.Run()
 }
 
 // runSessionMux accepte les streams entrants et les pontille.
