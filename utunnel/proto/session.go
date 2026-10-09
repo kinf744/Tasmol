@@ -226,6 +226,13 @@ func (s *Session) PacketStats() (int64, int64) {
 	return s.pktsIn.Load(), s.pktsBad.Load()
 }
 
+// Dead retourne vrai si la session est morte (usage surveillance client).
+func (s *Session) Dead() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.dead
+}
+
 // SetPairChangeHandler enregistre le callback appelé quand le pair change
 // (le serveur suit le port-hopping destination de l'app). Le serveur purge
 // l'ancienne entrée conntrack pour éliminer l'ambiguïté du retour.

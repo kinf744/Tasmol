@@ -38,6 +38,7 @@ var (
 	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
 	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
 	hopMin     = flag.Int("hop-min", 10, "intervalle minimal entre deux hops (secondes)")
+	hopAuto    = flag.Bool("hop-auto", false, "mode adaptatif : PAS de hop au départ (un seul mapping conntrack, pas d'ambiguïté) ; le hop s'active automatiquement si le downlink stalle")
 )
 
 var connectStart time.Time
@@ -72,15 +73,55 @@ func main() {
 	if *maxHops > 0 {
 		hop = *maxHops
 	}
-	if hop == 0 && *hopRange != "" {
-		hop = *hopMin // port hopping destination (Hysteria) : défaut 10 s
+	if hop == 0 && *hopRange != "" && !*hopAuto {
+		// Mode fixe : le hop destination tourne d'emblée (l'ancien
+		// comportement). En mode adaptatif (-hop-auto), PAS de hop au
+		// départ — le stall-détection l'active si nécessaire.
+		hop = *hopMin
 	}
 
-	sess, err := dialTunnel(*serverAddr, psk, hop, *hopRange)
+	sess, err := dialTunnel(*serverAddr, psk, hop, *hopRange, *hopAuto)
 	if err != nil {
 		log.Fatalf("établissement tunnel impossible : %v", err)
 	}
 	log.Printf("tunnel établi vers %s", sess.RemoteAddr())
+
+	// ── Récupération adaptative (anti-CGNAT, anti-DPI) ──────────────────
+	// Deux modes statiques échouent sur les réseaux mobiles agressifs :
+	//   - SANS hop : un seul mapping conntrack (pas d'ambiguïté de
+	//     retour), MAIS le DPI/opérateur bloque le flux persistant après
+	//     ~15 s (rx figé, "downlink calé à 0B" rapporté) ;
+	//   - AVEC hop destination : le DPI est contourné, MAIS chaque hop
+	//     crée un nouveau mapping conntrack et le retour match une
+	//     entrée aléatoire (le CGNAT port-dependent droppe).
+	// Stratégie adaptative (-hop-auto) : démarrer SANS hop (le mapping
+	// unique passe tant que le DPI n'a pas identifié le flux), et si le
+	// downlink stalle >30 s pendant que l'uplink coule, activer le port
+	// hopping destination automatiquement.
+	if *hopAuto && *hopRange != "" {
+		go func() {
+			var lastRx int64
+			var stalled int
+			for range time.Tick(15 * time.Second) {
+				if sess.Dead() {
+					return
+				}
+				rx, tx := sess.Stats()
+				if tx > 0 && rx == lastRx {
+					stalled++
+					if stalled >= 2 && hopping.Load() == 0 {
+						log.Printf("downlink stalle %ds (rx fige %d B, tx %d B) — activation port hopping destination",
+							stalled*15, rx, tx)
+						go hopDstLoop(*serverAddr, *hopRange, *hopMin, sess)
+						return
+					}
+				} else {
+					stalled = 0
+				}
+				lastRx = rx
+			}
+		}()
+	}
 
 	// Trafic périodique (toutes les 15 s) : diagnostics "downlink calé à
 	// 0B" dans kighmu.txt — montre si les réponses du serveur arrivent
@@ -166,15 +207,23 @@ func loadPSKFromString(s string) ([]byte, error) {
 // stable — un seul mapping CGNAT, les réponses du serveur reviennent
 // toujours. L'ancienne rotation du port SOURCE (hop-port-every) casse le
 // downlink derrière un CGNAT et n'est plus utilisée par l'app.
-func dialTunnel(addr string, psk []byte, hopSec int, hopRange string) (*proto.Session, error) {
+// En mode ADAPTATIF (hopAuto), PAS de hop au départ (un seul mapping
+// conntrack, pas d'ambiguïté) — le stall-détection du main() active le
+// hopDstLoop si le downlink stalle.
+func dialTunnel(addr string, psk []byte, hopSec int, hopRange string, hopAuto bool) (*proto.Session, error) {
 	for {
 		sess, err := dialOnce(addr, psk)
 		if err == nil {
-			if hopRange != "" && hopSec > 0 {
+			if hopRange != "" && hopSec > 0 && !hopAuto {
+				// Mode fixe : le hop destination tourne d'emblée.
 				go hopDstLoop(addr, hopRange, hopSec, sess)
-			} else if hopSec > 0 {
+			} else if hopSec > 0 && hopRange == "" && !hopAuto {
+				// Rotation socket source (compatibilité, sans plage).
 				go hopLoop(addr, psk, hopSec, sess)
 			}
+			// Mode adaptatif (hopAuto) : PAS de hop au départ — le
+			// stall-détection du main() active hopDstLoop si le
+			// downlink stalle (rx figé pendant que tx coule).
 			return sess, nil
 		}
 		// Cause lisible : timeout = AUCUNE réponse du serveur (port fermé,

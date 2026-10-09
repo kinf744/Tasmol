@@ -245,6 +245,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 		"-key-file", keyPath,
 		"-socks", socksAddr,
 		"-hop-range", hopRange,
+		"-hop-auto",
 		"-hop-port-every", "0",
 	)
 	cmd.Dir = TmpDir
