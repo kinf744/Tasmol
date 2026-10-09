@@ -3,6 +3,14 @@
 # Adapter UT_IFACE / UT_RANGE au déploiement (iface principale, plage
 # distincte des autres tunnels : stivaros-zivpn utilise 34000-49999).
 # 'destroy' recrée la table à zéro : aucun doublon de règles.
+#
+# SNAT (postrouting) : les réponses du serveur partent depuis (IP, plage)
+# — le MÊME port destination que le client a dialé. Les CGNAT des réseaux
+# mobiles appliquent un filtrage port-dependent strict : le mapping ne
+# laisse passer les entrants que depuis la destination exacte du premier
+# paquet. Sans SNAT, les réponses partent depuis :5669 et sont droppées
+# par le CGNAT — downlink calé à 0B (les stats serveur "trafic in=X
+# out=Y" montrent l'envoi, jamais reçu par le client).
 destroy table inet utunnel
 table inet utunnel {
     chain input {
@@ -13,5 +21,9 @@ table inet utunnel {
     chain prerouting {
         type nat hook prerouting priority -100;
         iifname "eth0" udp dport 34000-49999 dnat to :5669
+    }
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        oifname "eth0" udp sport 5669 snat to :50000
     }
 }

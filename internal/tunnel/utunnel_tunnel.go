@@ -202,7 +202,17 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	if hop < 0 {
 		hop = 0
 	}
-	Tracef("[utunnel] hop=%ds (rotation port source, 0=jamais)", hop)
+	// Port hopping DESTINATION à la Hysteria (doc officielle v2) : la
+	// DESTINATION hoppe dans la plage DNAT (port_range), la socket SOURCE
+	// reste stable — un seul mapping CGNAT, les réponses du serveur
+	// reviennent toujours. L'ancienne rotation du port SOURCE cassait le
+	// downlink derrière un CGNAT (réponses non routées vers le nouveau
+	// mapping) : désactivée, remplacée par le hop destination.
+	hopRange := ""
+	if strings.Contains(plage, "-") {
+		hopRange = plage
+	}
+	Tracef("[utunnel] hop=destination plage=%q intervalle=%ds (port SOURCE stable, 0=jamais)", hopRange, hop)
 
 	// Clé écrite dans un fichier temporaire 0600 : jamais dans les
 	// arguments de processus (visibles via /proc/<pid>/cmdline).
@@ -215,7 +225,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	}
 	t.keyPath = keyPath
 
-	Journalf("utunnel", "udp %s (plage %s, socks %s, hop %ds)", server, plage, socksAddr, hop)
+	Journalf("utunnel", "udp %s (plage %s, socks %s, hop-dst %ds)", server, plage, socksAddr, hop)
 	Tracef("[utunnel] binaire=%q pid à venir, tmp=%s", bin, TmpDir)
 
 	// UTUNNEL_TRACE=1 : le binaire journalise les premiers frames mux
@@ -224,7 +234,8 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 		"-server", server,
 		"-key-file", keyPath,
 		"-socks", socksAddr,
-		"-hop-port-every", fmt.Sprintf("%d", hop),
+		"-hop-range", hopRange,
+		"-hop-port-every", "0",
 	)
 	cmd.Dir = TmpDir
 	cmd.Env = append(os.Environ(),

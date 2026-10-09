@@ -416,9 +416,28 @@ func (s *Session) curConn() *net.UDPConn {
 	return s.conn
 }
 
-// SwapConn remplace la socket UDP sous-jacente (rotation du port source).
-// Le lecteur en cours repart sur la nouvelle socket ; la session et ses
-// clés sont préservées — le serveur suit l'adresse du pair à chaque paquet.
+// Retarget change UNIQUEMENT la destination (s.remote) en gardant la
+// même socket source. C'est le mécanisme de port hopping de la doc
+// officielle Hysteria 2 : "the client will randomly select one of the
+// specified ports for the initial connection and will periodically
+// switch to a different port... the hopping process is transparent to
+// the upper layers and should not cause any data loss/disconnection."
+//
+// Le port SOURCE reste stable : un seul mapping CGNAT, les réponses du
+// serveur reviennent toujours vers la même socket. Le port DESTINATION
+// hoppe dans la plage DNAT : l'opérateur qui bloque/trie un flux UDP
+// persistant sur un port donné voit un flux différent à chaque hop.
+// L'ancien SwapConn (nouvelle socket source) cassait le downlink derrière
+// un CGNAT : les réponses n'étaient plus routées vers le nouveau mapping.
+func (s *Session) Retarget(addr *net.UDPAddr) {
+	s.mu.Lock()
+	s.remote = addr
+	s.mu.Unlock()
+}
+
+// SwapConn remplace la socket UDP sous-jacente (rotation du port source,
+// conservée pour compatibilité — le port hopping par défaut est désormais
+// Retarget, qui préserve la socket source et le mapping CGNAT).
 func (s *Session) SwapConn(c *net.UDPConn) {
 	s.mu.Lock()
 	old := s.conn

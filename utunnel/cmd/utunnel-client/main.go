@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	mrand "math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -34,7 +35,9 @@ var (
 	pskHex     = flag.String("key", "", "PSK hex (32 octets) — ou fichier via -key-file")
 	pskFile    = flag.String("key-file", "", "fichier contenant la clé")
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
-	maxHops    = flag.Int("hop-port-every", 0, "rotation socket source toutes les N secondes (0 = jamais)")
+	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
+	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
+	hopMin     = flag.Int("hop-min", 10, "intervalle minimal entre deux hops (secondes)")
 )
 
 var connectStart time.Time
@@ -52,8 +55,11 @@ func main() {
 	if *maxHops > 0 {
 		hop = *maxHops
 	}
+	if hop == 0 && *hopRange != "" {
+		hop = *hopMin // port hopping destination (Hysteria) : défaut 10 s
+	}
 
-	sess, err := dialTunnel(*serverAddr, psk, hop)
+	sess, err := dialTunnel(*serverAddr, psk, hop, *hopRange)
 	if err != nil {
 		log.Fatalf("établissement tunnel impossible : %v", err)
 	}
@@ -137,12 +143,19 @@ func loadPSKFromString(s string) ([]byte, error) {
 	return sum[:], nil
 }
 
-// dialTunnel : handshake + rotation périodique du port source.
-func dialTunnel(addr string, psk []byte, hopSec int) (*proto.Session, error) {
+// dialTunnel : handshake + rotation périodique.
+// Le port hopping PAR DÉFAUT suit la doc officielle Hysteria 2 : la
+// DESTINATION hoppe dans la plage DNAT (hopRange), la socket SOURCE reste
+// stable — un seul mapping CGNAT, les réponses du serveur reviennent
+// toujours. L'ancienne rotation du port SOURCE (hop-port-every) casse le
+// downlink derrière un CGNAT et n'est plus utilisée par l'app.
+func dialTunnel(addr string, psk []byte, hopSec int, hopRange string) (*proto.Session, error) {
 	for {
 		sess, err := dialOnce(addr, psk)
 		if err == nil {
-			if hopSec > 0 {
+			if hopRange != "" && hopSec > 0 {
+				go hopDstLoop(addr, hopRange, hopSec, sess)
+			} else if hopSec > 0 {
 				go hopLoop(addr, psk, hopSec, sess)
 			}
 			return sess, nil
@@ -154,6 +167,70 @@ func dialTunnel(addr string, psk []byte, hopSec int) (*proto.Session, error) {
 		log.Printf("dial %s: aucune réponse du serveur (%v) — vérifiez le port, le DNAT de plage et que le serveur tourne — nouvelle tentative dans 2s", addr, err)
 		time.Sleep(2 * time.Second)
 	}
+}
+
+// hopDstLoop : port hopping DESTINATION à la Hysteria (doc officielle) :
+// toutes les hopSec secondes, la destination passe à un port ALÉATOIRE de
+// la plage DNAT (Retarget — la même socket source, donc le mapping CGNAT
+// et les réponses du serveur restent stables). L'opérateur qui bloque ou
+// trie un flux UDP persistant sur un port donné voit un flux différent à
+// chaque hop. Côté serveur, le DNAT redirige toute la plage vers :5669 et
+// la session suit le pair (le port SOURCE est stable — aucun re-handshake).
+func hopDstLoop(addr string, hopRange string, sec int, cur *proto.Session) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return
+	}
+	lo, hi, err := parsePortRange(hopRange)
+	if err != nil || lo <= 0 || hi < lo {
+		log.Printf("hop-range invalide %q (%v) — pas de rotation", hopRange, err)
+		return
+	}
+	last := -1
+	for {
+		// Intervalle légèrement aléatoire (doc Hysteria : rend le motif
+		// de rotation moins prévisible), borné [sec, sec+5).
+		jitter := time.Duration(sec+mrand.Intn(5)) * time.Second
+		time.Sleep(jitter)
+		port := lo + mrand.Intn(hi-lo+1)
+		if port == last {
+			port = lo + (port-lo+1)%(hi-lo+1) // jamais deux fois le même
+		}
+		last = port
+		na, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
+		if err != nil {
+			continue
+		}
+		cur.Retarget(na)
+		// Résistance aux pertes : 3 pings espacés — le serveur répond au
+		// premier qui arrive (le port SOURCE est stable, la réponse revient).
+		for i := 0; i < 3; i++ {
+			cur.SendKeepalive()
+			log.Printf("hop-dst: destination %s:%d (ping %d/3)", host, port, i+1)
+			time.Sleep(300 * time.Millisecond)
+		}
+	}
+}
+
+// parsePortRange parse "50000-59999" ou "50000" -> (min, max).
+func parsePortRange(s string) (int, int, error) {
+	s = strings.TrimSpace(s)
+	if i := strings.IndexByte(s, '-'); i > 0 {
+		lo, err := strconv.Atoi(strings.TrimSpace(s[:i]))
+		if err != nil {
+			return 0, 0, err
+		}
+		hi, err := strconv.Atoi(strings.TrimSpace(s[i+1:]))
+		if err != nil {
+			return 0, 0, err
+		}
+		return lo, hi, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, 0, err
+	}
+	return v, v, nil
 }
 
 var hopping atomic.Int32
