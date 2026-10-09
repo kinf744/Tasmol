@@ -153,6 +153,25 @@ jobs:
           mkdir -p /tmp/aarx && unzip -o -q android/app/libs/vpnlib.aar classes.jar -d /tmp/aarx
           javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho
 
+      - name: Build utunnel client from source (always current)
+        run: |
+          # Le binaire utunnel committé dans bin/armv7/ peut être PÉRIMÉ :
+          # l'app (utunnel_tunnel.go) passe des flags (-hop-range, port
+          # hopping Hysteria) que seuls les binaires reconstruits depuis
+          # la source connaissent — un binaire ancien meurt avec
+          # "flag provided but not defined: -hop-range" et le tunnel ne
+          # démarre jamais. On rebuild ICI depuis la source du dépôt :
+          # le bundle embarqué suit TOUJOURS le code (build uniquement
+          # sur GitHub Actions).
+          cd utunnel
+          export GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0
+          go build -trimpath -ldflags='-s -w' \
+            -o "$GITHUB_WORKSPACE/bin/armv7/utunnel" ./cmd/utunnel-client
+          file "$GITHUB_WORKSPACE/bin/armv7/utunnel"
+          echo "--- le client doit connaître -hop-range ---"
+          "$GITHUB_WORKSPACE/bin/armv7/utunnel" -h 2>&1 | grep -q "hop-range" \
+            || { echo '::error::utunnel client sans -hop-range'; exit 1; }
+
       - name: Stage official binaries into jniLibs
         run: |
           ls -lh bin/armv7/

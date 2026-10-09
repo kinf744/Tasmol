@@ -47,6 +47,23 @@ func main() {
 	if *serverAddr == "" {
 		log.Fatal("--server requis")
 	}
+	// Format multi-port (doc officielle Hysteria 2) : "IP:20000-50000"
+	// (une plage) ou "IP:1234,5678" (ports) — même convention que la
+	// config zivpn/Hysteria ("server": "204.152.219.23:42000-45999").
+	// La plage devient la source du port hopping destination, et la
+	// connexion initiale part d'un port ALÉATOIRE de la plage.
+	host, portPart, err := net.SplitHostPort(*serverAddr)
+	if err == nil && strings.ContainsAny(portPart, "-,") {
+		if *hopRange == "" {
+			*hopRange = portPart
+		}
+		if lo, hi, perr := parsePortRange(portPart); perr == nil && hi >= lo {
+			port := lo + mrand.Intn(hi-lo+1)
+			*serverAddr = net.JoinHostPort(host, strconv.Itoa(port))
+			log.Printf("serveur multi-port %s: plage %s — connexion initiale sur %s (aléatoire)",
+				host, portPart, *serverAddr)
+		}
+	}
 	psk, err := loadPSK()
 	if err != nil {
 		log.Fatal(err)
