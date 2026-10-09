@@ -524,7 +524,12 @@ func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 	s.remote = from // suit le port-hopping
 	s.lastRX = time.Now()
 	s.mu.Unlock()
-	if prevRemote != nil && !prevRemote.IP.Equal(from.IP) {
+	if prevRemote != nil && prevRemote.String() != from.String() {
+		// Le port hopping DESTINATION de l'app : l'IP du client reste
+		// STABLE (une socket), mais le port externe CGNAT change par
+		// destination (mapping port-dependent) — seul l'adresse
+		// COMPLÈTE (IP+port) détecte le changement de mapping. L'ancien
+		// trigger (IP seul) ne tirait JAMAIS la purge.
 		s.onPairChange(prevRemote)
 	}
 

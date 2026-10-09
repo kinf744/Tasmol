@@ -252,11 +252,11 @@ func lookup16(m map[[16]byte]*proto.Session, wire8 []byte) (*proto.Session, bool
 	return s, ok
 }
 
-// purgeConntrack supprime les entrées conntrack UDP d'une ancienne adresse
-// pair (port hopping destination : l'ancien mapping CGNAT). Sans purge,
-// l'entrée vivait jusqu'au timeout conntrack (30-120 s) et la réponse du
-// serveur pouvait matcher l'entrée obsolète — repartant depuis un port
-// destination que le CGNAT droppe (downlink calé à 0B).
+// purgeConntrack supprime l'entrée conntrack d'une ancienne adresse pair
+// (port hopping destination : l'ancien mapping CGNAT). L'identifiant
+// unique de l'entrée est son orig-src (= la réponse-dst) : l'adresse
+// externe CGNAT du client. --reply-src serait le port serveur (5669,
+// identique pour TOUTES les entrées) — la purge n'aurait rien ciblé.
 func purgeConntrack(old *net.UDPAddr) {
 	if old == nil {
 		return
@@ -266,8 +266,8 @@ func purgeConntrack(old *net.UDPAddr) {
 		return // outil absent : pas de purge, le RTO/pings récupèrent
 	}
 	cmd := exec.Command(c, "-D", "-p", "udp",
-		"--reply-src", old.IP.String(),
-		"--reply-port-src", fmt.Sprintf("%d", old.Port),
+		"--orig-src", old.IP.String(),
+		"--orig-port-src", fmt.Sprintf("%d", old.Port),
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	_ = cmd.Run()
