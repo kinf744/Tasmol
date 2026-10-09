@@ -19,7 +19,13 @@ import (
 //   - RTO adaptatif Jacobson/Karels (min 100 ms) ;
 //   - contrôle de congestion AIMD doux + slow-start (cwnd) ;
 //   - pacing : émissions espacées de cwnd/srtt pour lisser la rafale ;
-//   - keepalive toutes les 10 s, session morte après 45 s sans paire.
+// keepalive : fréquence AGRESSIVE (1 s) — sur les réseaux mobiles où
+// le CGNAT ne maintient le mapping que brièvement (un nouveau mapping
+// par paquet sortant), seuls les échanges IMMÉDIATS passent de façon
+// fiable (capture tcpdump : ~95% des paquets "spontanés" perdus, les
+// ping/pong fiables). Chaque ping déclenche côté serveur la
+// retransmission immédiate de l'en vol (forceRetransmit) + le pong —
+// les données sont récupérées en continu. Coût : ~60 B/s, négligeable.
 //
 // La session émet des *frames de stream* fiables (cf. mux.go) et des
 // datagrammes TypeUDPData non fiables (relais UDP brut).
@@ -28,8 +34,8 @@ const (
 	sessWindow  = 512  // tailles fenêtre & reused (paquet seq space)
 	sndBufCap   = 1024 // segments en vol max
 	rcvWindow   = 1024
-	keepalive   = 10 * time.Second
-	sessTimeout = 45 * time.Second
+	keepalive   = 1 * time.Second
+	sessTimeout = 30 * time.Second
 	minRTO      = 80 * time.Millisecond
 	initRTO     = 300 * time.Millisecond
 	maxMTU      = 1400
