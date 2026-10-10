@@ -60,6 +60,13 @@ func encodePacket(key *[32]byte, token *[tokenLen]byte, typ uint8, flags uint8, 
 	binary.BigEndian.PutUint32(hdr[8:], ack)
 	binary.BigEndian.PutUint32(hdr[12:], ackBits)
 
+	mask := headerMask(key)
+	// QUIC MIMIC : wire[0] = 0x40 (le flag des en-têtes courts QUIC) —
+	// le token effectif[0] = 0x40^mask[0], utilisé pour l'AAD ET le wire
+	// (cohérence encode/décode garantie).
+	tokEff := *token
+	tokEff[0] = 0x40 ^ mask[0]
+
 	var nonce [nonceLen]byte
 	rand.Read(nonce[:])
 
@@ -67,20 +74,14 @@ func encodePacket(key *[32]byte, token *[tokenLen]byte, typ uint8, flags uint8, 
 	plain = append(plain, hdr[:]...)
 	plain = append(plain, payload...)
 
-	inner := aeadSeal(key, nonce[:], plain, token[:])
+	inner := aeadSeal(key, nonce[:], plain, tokEff[:])
 	out := make([]byte, 0, tokenLen+nonceLen+len(inner))
-	out = append(out, token[:]...)
+	out = append(out, 0x40) // QUIC short-header flag (forcé)
+	for i := 1; i < tokenLen; i++ {
+		out = append(out, tokEff[i]^mask[i])
+	}
 	out = append(out, nonce[:]...)
 	out = append(out, inner...)
-
-	// Obfuscation : masque déterministe sur token+nonce dérivé du nonce…
-	// impossible (déterministe requis côté réception) — on utilise donc un
-	// masque dérivé de la clé sur les 8 premiers octets uniquement, et on
-	// laisse le nonce clair (il est aléatoire, donc non-reconnaissable).
-	mask := headerMask(key)
-	for i := 0; i < tokenLen; i++ {
-		out[i] ^= mask[i]
-	}
 	return out
 }
 
@@ -92,7 +93,11 @@ func decodePacket(key *[32]byte, raw []byte) (typ, flags uint8, window uint16, s
 	}
 	var token [tokenLen]byte
 	mask := headerMask(key)
-	for i := 0; i < tokenLen; i++ {
+	// QUIC MIMIC : wire[0] = 0x40 forcé (le flag QUIC) → token[0] =
+	// 0x40^mask[0] (la même valeur effective des deux côtés — l'AAD
+	// construit dans encodePacket avec tokEff[0] = 0x40^mask[0]).
+	token[0] = 0x40 ^ mask[0]
+	for i := 1; i < tokenLen; i++ {
 		token[i] = raw[i] ^ mask[i]
 	}
 	nonce := raw[tokenLen : tokenLen+nonceLen]

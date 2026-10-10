@@ -211,6 +211,7 @@ func (s *Session) WireToken() [tokenLen]byte {
 	for i := 0; i < tokenLen; i++ {
 		w[i] = s.rxKey[i] ^ mask[i]
 	}
+	w[0] = 0x40 // QUIC MIMIC : le flag forcé (cohérent avec encodePacket)
 	return w
 }
 
