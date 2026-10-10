@@ -773,6 +773,18 @@ func (s *Session) sendUDPRaw(typ uint8, flags uint8, payload []byte) {
 	if s.dead {
 		return
 	}
+	// PADDING ALÉATOIRE (anti-fingerprinting DPI) : les paquets de session
+	// avaient des longueurs CONSTANTES (64 B, 80 B en boucle — capture
+	// tcpdump) et le DPI/opérateur fingerprintait puis BLOQUAIT le flux
+	// entier après le handshake (715 paquets envoyés, AUCUN reçu).
+	// Le padding (8-64 B aléatoires en fin de payload) rend chaque
+	// longueur unique. Le récepteur l'ignore : decodePacket retourne le
+	// payload brut, et le mux parse les frames séquentiellement — le
+	// trailing garbage après la dernière frame n'est jamais lu.
+	var pad [64]byte
+	rand.Read(pad[:]) // crypto/rand : jamais en erreur sur Linux
+	maxPad := 8 + int(pad[0])%57
+	payload = append(append([]byte(nil), payload...), pad[64-maxPad:]...)
 	ack, bits := s.rxAckState()
 	wnd := uint16(s.recvWindowAvail())
 	pkt := encodePacket(&s.txKey, &s.token, typ, flags, wnd, s.txSeq, ack, bits, payload)
