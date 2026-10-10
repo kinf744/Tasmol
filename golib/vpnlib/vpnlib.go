@@ -1315,7 +1315,13 @@ func (c *dnsOverTCPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 }
 
 func (c *dnsOverTCPConn) relay(query []byte) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Timeouts 30 s (alignés sur le Mux.Open 30 s) : sur les réseaux où
+	// l'opérateur bloque un flux UDP après 1-2 paquets, l'OK du CONNECT
+	// n'est récupéré qu'au hop suivant (10-15 s) — un timeout de 10 s
+	// expirait AVANT la récupération et le DNS échouait en boucle
+	// ("CONNECT: connection refused" répété, pas de résolution, pas de
+	// trafic web).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	conn, err := c.dial.DialContext(ctx, &t2meta.Metadata{
@@ -1328,7 +1334,7 @@ func (c *dnsOverTCPConn) relay(query []byte) {
 		return
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(10 * time.Second))
+	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
 
 	var hdr [2]byte
 	binary.BigEndian.PutUint16(hdr[:], uint16(len(query)))

@@ -106,7 +106,7 @@ func (m *Mux) Open(target string) (*Stream, error) {
 			m.removeStream(sid)
 			return nil, err
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		m.removeStream(sid)
 		return nil, errors.New("timeout ouverture stream")
 	}
@@ -131,7 +131,7 @@ func (m *Mux) OpenUDP() (*Stream, error) {
 			m.removeStream(sid)
 			return nil, err
 		}
-	case <-time.After(15 * time.Second):
+	case <-time.After(30 * time.Second):
 		m.removeStream(sid)
 		return nil, errors.New("timeout ouverture stream UDP")
 	}

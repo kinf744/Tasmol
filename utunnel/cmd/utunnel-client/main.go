@@ -37,7 +37,7 @@ var (
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
 	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
 	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
-	hopMin     = flag.Int("hop-min", 10, "intervalle minimal entre deux hops (secondes)")
+	hopMin     = flag.Int("hop-min", 3, "intervalle entre deux hops (secondes) — les flux courts vivent : l'opérateur bloque un flux UDP après 1-2 paquets inspectés, chaque hop = un flux neuf qui repasse")
 	hopAuto    = flag.Bool("hop-auto", false, "mode adaptatif : PAS de hop au départ (un seul mapping conntrack, pas d'ambiguïté) ; le hop s'active automatiquement si le downlink stalle")
 )
 
