@@ -144,8 +144,11 @@ func NewSession(conn *net.UDPConn, remote *net.UDPAddr, psk []byte, isServer boo
 		return nil, err
 	}
 	h1raw := BuildHandshake1(psk, &pub, time.Now().Unix())
-	// padding aléatoire anti-détection de longueur fixe
-	pad := make([]byte, 8+randByte()%48)
+	// PADDING QUIC (RFC 9000 §14.1) : 1200+ octets MINIMUM — les
+	// opérateurs traitent ces tailles comme du trafic légitime (le
+	// zivpn/QUIC passe, nos petits paquets 56 B étaient bloqués comme du
+	// flood). Le parseur handshake ignore le trailing garbage.
+	pad := make([]byte, 1300)
 	rand.Read(pad)
 	h1 := append(h1raw, pad...)
 
@@ -773,18 +776,25 @@ func (s *Session) sendUDPRaw(typ uint8, flags uint8, payload []byte) {
 	if s.dead {
 		return
 	}
-	// PADDING ALÉATOIRE (anti-fingerprinting DPI) : les paquets de session
-	// avaient des longueurs CONSTANTES (64 B, 80 B en boucle — capture
-	// tcpdump) et le DPI/opérateur fingerprintait puis BLOQUAIT le flux
-	// entier après le handshake (715 paquets envoyés, AUCUN reçu).
-	// Le padding (8-64 B aléatoires en fin de payload) rend chaque
-	// longueur unique. Le récepteur l'ignore : decodePacket retourne le
-	// payload brut, et le mux parse les frames séquentiellement — le
-	// trailing garbage après la dernière frame n'est jamais lu.
-	var pad [64]byte
-	rand.Read(pad[:]) // crypto/rand : jamais en erreur sur Linux
-	maxPad := 8 + int(pad[0])%57
-	payload = append(append([]byte(nil), payload...), pad[64-maxPad:]...)
+	// PADDING QUIC (anti-blocage opérateur, SANS dépendance) : la spec
+	// QUIC (RFC 9000 §14.1) impose des paquets Initial de 1200 octets
+	// MINIMUM — les opérateurs (DPI/CGNAT) traitent ces tailles comme du
+	// trafic légitime. Nos paquets (56-130 B) étaient classés "petits
+	// paquets UDP vers ports hauts" = flood/scan, et le flux entier
+	// bloqué après 1-2 paquets (715 paquets serveur envoyés, AUCUN reçu ;
+	// le zivpn/QUIC avec ses paquets 1200+ B passe sur le même réseau).
+	// Fix : chaque paquet est paddé à 1200-1330 B aléatoires — les
+	// mêmes tailles que QUIC. Le récepteur ignore le trailing garbage :
+	// decodePacket retourne le payload brut, le mux parse les frames
+	// séquentiellement (trailing garbage jamais lu).
+	var pad [1330]byte
+	rand.Read(pad[:])                                            // crypto/rand : jamais en erreur sur Linux
+	minPad := 1200 - (8 + nonceLen + 16 + hdrLen + len(payload)) // jusqu'à ~1200 total
+	if minPad < 8 {
+		minPad = 8
+	}
+	nPad := minPad + int(pad[0])%130
+	payload = append(append([]byte(nil), payload...), pad[:nPad]...)
 	ack, bits := s.rxAckState()
 	wnd := uint16(s.recvWindowAvail())
 	pkt := encodePacket(&s.txKey, &s.token, typ, flags, wnd, s.txSeq, ack, bits, payload)
@@ -828,6 +838,11 @@ func respondHandshakeH2(conn *net.UDPConn, from *net.UDPAddr, psk []byte, client
 	keys := deriveKeys(&shared, psk)
 	confirm := HandshakeConfirm(&keys.C2S, clientEph)
 	h2 := BuildHandshake2(&pub, confirm)
+	// PADDING QUIC (RFC 9000 §14.1) : 1200+ octets MINIMUM — la réponse
+	// serveur est paddée comme un paquet QUIC Initial légitime.
+	var pad2 [1300]byte
+	rand.Read(pad2[:])
+	h2 = append(h2, pad2[:]...)
 	if _, err := conn.WriteToUDP(h2, from); err != nil {
 		return nil, nil, err
 	}

@@ -101,8 +101,10 @@ func ParseHandshake1(psk, raw []byte, now int64) (ephPub [32]byte, err error) {
 		err = ErrBadAuth
 		return
 	}
-	// padding anti-longueur fixe
-	if len(raw) > PreKeyLen+64 {
+	// padding QUIC (RFC 9000 §14.1) : le handshake1 est paddé à 1300 B
+	// (1200+ MINIMUM — les opérateurs traitent ces tailles comme du
+	// trafic légitime). Le padding aléatoire n'est jamais lu.
+	if len(raw) > PreKeyLen+1400 {
 		err = ErrBadPacket
 		return
 	}

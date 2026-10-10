@@ -202,7 +202,7 @@ func main() {
 		// nombre total de sessions — anti-flood). Les réémissions du même
 		// h1 sont dédupliquées par le registre (réémission h2, aucune
 		// nouvelle session).
-		if n >= proto.PreKeyLen && n <= proto.PreKeyLen+64 {
+		if n >= proto.PreKeyLen && n <= proto.PreKeyLen+1400 {
 			if count() >= *maxSess {
 				continue
 			}
