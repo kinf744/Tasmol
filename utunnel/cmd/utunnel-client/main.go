@@ -96,13 +96,18 @@ func main() {
 	//     entrée aléatoire (le CGNAT port-dependent droppe).
 	// Stratégie adaptative (-hop-auto) : démarrer SANS hop (le mapping
 	// unique passe tant que le DPI n'a pas identifié le flux), et si le
-	// downlink stalle >30 s pendant que l'uplink coule, activer le port
+	// downlink stalle >20 s pendant que l'uplink coule, activer le port
 	// hopping destination automatiquement.
+	// CRITIQUE : le tick (10 s) et le seuil (2) doivent rester INFÉRIEURS
+	// au sessTimeout (30 s) — sinon la session meurt (le client tue sa
+	// session sur le downlink figé) AVANT que le hop ne s'active et la
+	// récupération n'arrive jamais (log 01:00-01:01 : rx figé 16 B,
+	// session morte à 30 s, AUCUNE activation).
 	if *hopAuto && *hopRange != "" {
 		go func() {
 			var lastRx int64
 			var stalled int
-			for range time.Tick(15 * time.Second) {
+			for range time.Tick(10 * time.Second) {
 				if sess.Dead() {
 					return
 				}
@@ -111,7 +116,7 @@ func main() {
 					stalled++
 					if stalled >= 2 && hopping.Load() == 0 {
 						log.Printf("downlink stalle %ds (rx fige %d B, tx %d B) — activation port hopping destination",
-							stalled*15, rx, tx)
+							stalled*10, rx, tx)
 						go hopDstLoop(*serverAddr, *hopRange, *hopMin, sess)
 						return
 					}
@@ -150,12 +155,38 @@ func main() {
 		os.Exit(0)
 	}()
 
+	// Session partagée (atomic) : le re-dial automatique la remplace pour
+	// les nouvelles connexions SOCKS — les connexions en cours gardent
+	// leur session morte (fermée naturellement).
+	var sessPtr atomic.Pointer[proto.Session]
+	sessPtr.Store(sess)
+
+	// Re-dial automatique : si la session meurt (le downlink figé a tué
+	// le keepalive — "downlink calé à 0B" répété), relancer un dial AVEC
+	// le hop destination ACTIVÉ (le DPI a bloqué le mapping unique : la
+	// récupération exige des flux différents). Le re-dial boucle comme
+	// dialTunnel (2 s entre les essais) jusqu'à un tunnel établi.
+	go func() {
+		for {
+			if sessPtr.Load().Dead() {
+				log.Printf("session morte (downlink figé) — re-dial avec hop destination")
+				if ns, err := dialTunnel(*serverAddr, psk, *hopMin, *hopRange, false); err == nil {
+					sessPtr.Store(ns)
+				} else {
+					time.Sleep(2 * time.Second)
+					continue
+				}
+			}
+			time.Sleep(2 * time.Second)
+		}
+	}()
+
 	for {
 		c, err := lsn.Accept()
 		if err != nil {
 			return
 		}
-		go handleSOCKS(sess, c)
+		go handleSOCKS(sessPtr.Load(), c)
 	}
 }
 
