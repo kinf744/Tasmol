@@ -276,7 +276,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     # Les clés WireGuard : servies dans le champ wg_keys
                     # (JSON string) — l'app les parse dans advanced.wg_*.
                     try:
-                        wgk = cfg.get("wg_keys") or ""
+                        wgk = cfg["wg_keys"] or ""
                         if wgk:
                             wg_obj = json.loads(wgk)
                             entry["wg_secret_key"] = wg_obj.get("wg_secret_key", "")
