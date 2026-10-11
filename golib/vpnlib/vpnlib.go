@@ -1334,21 +1334,27 @@ func (c *dnsOverTCPConn) relay(query []byte) {
 		return
 	}
 	defer conn.Close()
-	_ = conn.SetDeadline(time.Now().Add(30 * time.Second))
+	t0 := time.Now()
+	_ = conn.SetDeadline(t0.Add(30 * time.Second))
 
 	var hdr [2]byte
 	binary.BigEndian.PutUint16(hdr[:], uint16(len(query)))
 	if _, err := conn.Write(append(hdr[:], query...)); err != nil {
+		tunnel.Tracef("[dns] query write failed after %v: %v", time.Since(t0), err)
 		return
 	}
 	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
+		// Le timeout : la réponse n'est JAMAIS arrivée (le mapping CGNAT
+		// mort, le flux bloqué) — la durée exacte dans kighmu.txt.
+		tunnel.Tracef("[dns] query timeout after %v (réponse jamais reçue): %v", time.Since(t0), err)
 		return
 	}
 	resp := make([]byte, int(binary.BigEndian.Uint16(hdr[:])))
 	if _, err := io.ReadFull(conn, resp); err != nil {
-		tunnel.Tracef("[dns] read from %s:53 failed: %v", c.dialIP, err)
+		tunnel.Tracef("[dns] read from %s:53 failed after %v: %v", c.dialIP, time.Since(t0), err)
 		return
 	}
+	tunnel.Tracef("[dns] query ok in %v (%d B)", time.Since(t0), len(resp))
 	select {
 	case c.respCh <- resp:
 	case <-c.closeCh:

@@ -128,15 +128,19 @@ func main() {
 		}()
 	}
 
-	// Trafic périodique (toutes les 15 s) : diagnostics "downlink calé à
-	// 0B" dans kighmu.txt — montre si les réponses du serveur arrivent
-	// réellement (rx = downlink, tx = uplink). pktsIn/pktsBad = vie de la
-	// session vs paquets indéchiffrables (PSK, tamper).
+	// Trafic périodique (toutes les 5 s) : diagnostics kighmu.txt —
+	// rx (downlink), tx (uplink), les paquets décodés/indéchiffrables, les
+	// retransmissions (les pertes réseau), l'en-vol (non acquitté), le RTT
+	// ping/pong (la latence réelle du chemin) et le pair courant (le port
+	// externe CGNAT). Toute direction morte est immédiatement visible.
 	go func() {
-		for range time.Tick(15 * time.Second) {
-			rx, tx := sess.Stats()
-			in, bad := sess.PacketStats()
-			log.Printf("trafic: rx=%d B (downlink) tx=%d B (uplink) pkts=%d bad=%d", rx, tx, in, bad)
+		for range time.Tick(5 * time.Second) {
+			if sess.Dead() {
+				return
+			}
+			st := sess.FullStats()
+			log.Printf("chemin: rx=%d B tx=%d B pkts=%d bad=%d retr=%d envol=%d rtt=%dms pair=%s",
+				st.RxBytes, st.TxBytes, st.PktsIn, st.PktsBad, st.Retrans, st.Inflight, st.RTTms, st.Remote)
 		}
 	}()
 
@@ -418,11 +422,17 @@ func handleSOCKS(sess *proto.Session, c net.Conn) {
 
 	switch cmd {
 	case 1: // CONNECT
+		// Cycle de vie COMPLET dans kighmu.txt : chaque CONNECT est
+		// tracé avec sa durée — les timeouts sont distingués des RST,
+		// et les succès mesurés (la latence d'établissement).
+		t0 := time.Now()
 		st, err := sess.Mux().Open(addr)
 		if err != nil {
+			log.Printf("CONNECT %s ÉCHEC en %dms : %v", addr, time.Since(t0).Milliseconds(), err)
 			socksErr(c, 5)
 			return
 		}
+		log.Printf("CONNECT %s établi en %dms", addr, time.Since(t0).Milliseconds())
 		c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
 		bridge(c, st)
 	case 3: // UDP ASSOCIATE

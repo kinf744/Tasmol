@@ -396,8 +396,9 @@ func TestSessionWithLoss(t *testing.T) {
 				srv.HandleFromServer(from, raw)
 				continue
 			}
-			// Sinon : handshake1 (réémission incluse).
-			if n >= PreKeyLen && n <= PreKeyLen+64 {
+			// Sinon : handshake1 (réémission incluse) — paddé à 1300 B
+			// (le padding QUIC 1200+).
+			if n >= PreKeyLen && n <= PreKeyLen+1400 {
 				reg.Try(sconn, from, raw, [][]byte{testPSK[:]}, nil)
 			}
 		}

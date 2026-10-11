@@ -71,6 +71,9 @@ type Session struct {
 	bytesOut atomic.Int64 // payload envoyé au pair (client: uplink)
 	pktsIn   atomic.Int64 // paquets décodés OK (tout type) — vie de la session
 	pktsBad  atomic.Int64 // paquets indéchiffrables (PSK, tamper, troncature)
+	retrs    atomic.Int64 // retransmissions émises (les pertes du réseau)
+	lastPing atomic.Int64 // unix-nanos du dernier ping envoyé (0 = jamais)
+	lastRTT  atomic.Int64 // RTT du dernier ping/pong (ms ; 0 = jamais)
 
 	// émission
 	txSeq    uint32
@@ -221,6 +224,41 @@ func (s *Session) WireToken() [tokenLen]byte {
 // le log périodique du serveur et du client montre la direction morte.
 func (s *Session) Stats() (int64, int64) {
 	return s.bytesIn.Load(), s.bytesOut.Load()
+}
+
+// SessionStats : l'état complet du chemin — diagnostics kighmu.txt.
+type SessionStats struct {
+	RxBytes  int64  // payload reçu (client: downlink)
+	TxBytes  int64  // payload envoyé (client: uplink)
+	PktsIn   int64  // paquets décodés OK
+	PktsBad  int64  // paquets indéchiffrables
+	Retrans  int64  // retransmissions émises (les pertes réseau)
+	Inflight int    // segments en vol non acquittés
+	RTTms    int64  // latence du dernier ping/pong (0 = jamais mesurée)
+	Remote   string // dernier pair vu (le port externe CGNAT)
+}
+
+// FullStats retourne l'état complet du chemin pour le diagnostic.
+func (s *Session) FullStats() SessionStats {
+	s.mu.Lock()
+	infl := s.inflight
+	rem := "?"
+	if s.remote != nil {
+		rem = s.remote.String()
+	}
+	s.mu.Unlock()
+	rx, tx := s.Stats()
+	in, bad := s.PacketStats()
+	return SessionStats{
+		RxBytes:  rx,
+		TxBytes:  tx,
+		PktsIn:   in,
+		PktsBad:  bad,
+		Retrans:  s.retrs.Load(),
+		Inflight: infl,
+		RTTms:    s.lastRTT.Load(),
+		Remote:   rem,
+	}
 }
 
 // PacketStats retourne (pktsIn, pktsBad) : paquets décodés OK vs
@@ -388,6 +426,9 @@ func (s *Session) flush() {
 
 		if !needRetrans {
 			break
+		}
+		if peek.xmit > 0 {
+			s.retrs.Add(1) // retransmission réseau (pertes) — diagnostic
 		}
 		// Fenêtre de congestion (premiers envois ET retransmissions) et
 		// plafond absolu de la fenêtre d'émission.
@@ -574,15 +615,23 @@ func (s *Session) handle(from *net.UDPAddr, raw []byte) {
 		// un pong (flags=1) — le pong ne déclenche pas de réponse (boucle).
 		if flags == 0 {
 			s.sendUDPRaw(TypePureAck, 1, nil)
-			// Ping = le client est vivant : ses segments en vol ont pu
-			// être perdus dans la fenêtre de transition du port hopping
-			// (le conntrack re-écrit le mapping à chaque hop) — sans
-			// retransmission immédiate ils attendaient le RTO (300 ms+)
-			// et le trafic repartait un segment PAR HOP (log kighmu :
-			// "DATA sid1 sseq=0/1/2" un seul par hop, out serveur figé).
-			// On force la retransmission de TOUT l'en vol dès le ping.
-			s.forceRetransmit()
+			if !s.isServer {
+				// Pong reçu par le client : RTT = maintenant - le dernier
+				// ping (la latence réelle du chemin — diagnostic kighmu).
+				if lp := s.lastPing.Load(); lp > 0 {
+					rtt := (time.Now().UnixNano() - lp) / int64(time.Millisecond)
+					s.lastRTT.Store(rtt)
+				}
+			}
 		}
+		// Ping = le client est vivant : ses segments en vol ont pu
+		// être perdus dans la fenêtre de transition du port hopping
+		// (le conntrack re-écrit le mapping à chaque hop) — sans
+		// retransmission immédiate ils attendaient le RTO (300 ms+)
+		// et le trafic repartait un segment PAR HOP (log kighmu :
+		// "DATA sid1 sseq=0/1/2" un seul par hop, out serveur figé).
+		// On force la retransmission de TOUT l'en vol dès le ping.
+		s.forceRetransmit()
 	}
 	s.flush()
 }
@@ -805,7 +854,10 @@ func (s *Session) sendUDPRaw(typ uint8, flags uint8, payload []byte) {
 
 // SendKeepalive : ping immédiat (après hop de port, pour que le serveur
 // mette à jour l'adresse du pair dès la nouvelle socket).
-func (s *Session) SendKeepalive() { s.sendUDPRaw(TypePureAck, 0, nil) }
+func (s *Session) SendKeepalive() {
+	s.lastPing.Store(time.Now().UnixNano()) // le pong mesurera le RTT
+	s.sendUDPRaw(TypePureAck, 0, nil)
+}
 
 // SendBadUDP / datagramme non fiable (DNS, jeux…).
 func (s *Session) SendDatagram(payload []byte) { s.sendUDPRaw(TypeUDPData, 0, payload) }
