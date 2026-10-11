@@ -394,7 +394,7 @@ public class HomeFragment extends Fragment {
                 continue;
             }
             String mode = c.optString("mode", "");
-            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode) || "wgslowdns".equalsIgnoreCase(mode)) {
                 // Garder uniquement le dernier profil du mode = « … 2 ».
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
@@ -474,7 +474,7 @@ public class HomeFragment extends Fragment {
             // TOUS ses profils DE MEME MODE (jusqu'a 4 — serveur en sert
             // desormais 4 pour WireGuard+SlowDNS) — N dnstt paralleles =
             // agregation de debit. Jamais de mix SSH+V2Ray.
-            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode) || "wgslowdns".equalsIgnoreCase(mode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
