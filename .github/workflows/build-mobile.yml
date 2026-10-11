@@ -156,10 +156,10 @@ jobs:
       - name: Build utunnel client from source (always current)
         run: |
           # Le binaire utunnel committé dans bin/armv7/ peut être PÉRIMÉ :
-          # l'app (utunnel_tunnel.go) passe des flags (-hop-range, port
-          # hopping Hysteria) que seuls les binaires reconstruits depuis
+          # l'app (utunnel_tunnel.go) lance le client QUIC (le transport natif) —
+          # les binaires périmés meurent silencieusement et le tunnel ne
           # la source connaissent — un binaire ancien meurt avec
-          # "flag provided but not defined: -hop-range" et le tunnel ne
+          # démarre pas — on rebuild ICI depuis la source du dépôt.
           # démarre jamais. On rebuild ICI depuis la source du dépôt :
           # le bundle embarqué suit TOUJOURS le code (build uniquement
           # sur GitHub Actions).
@@ -168,15 +168,15 @@ jobs:
           go build -trimpath -ldflags='-s -w' \
             -o "$GITHUB_WORKSPACE/bin/armv7/utunnel" ./cmd/utunnel-client
           file "$GITHUB_WORKSPACE/bin/armv7/utunnel"
-          echo "--- le client doit connaître -hop-range ---"
+          echo "--- le client doit connaître -hop-min (QUIC) ---"
           # Le check -h tourne sur x86_64 : le binaire ARM ne peut pas
           # s'exécuter sur le runner sans qemu (exec format error
           # silencieux -> le garde-fou échouait alors que le binaire ARM
           # était correct). On build l'amd64 pour la vérification native.
           GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
             go build -trimpath -ldflags='-s -w' -o /tmp/utunnel-check ./cmd/utunnel-client
-          /tmp/utunnel-check -h 2>&1 | grep -q "hop-range" \
-            || { echo '::error::utunnel client sans -hop-range'; exit 1; }
+          /tmp/utunnel-check -h 2>&1 | grep -q "hop-min" \
+            || { echo '::error::utunnel client sans -hop-min (QUIC transport)'; exit 1; }
 
       - name: Stage official binaries into jniLibs
         run: |
