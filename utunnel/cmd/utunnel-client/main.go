@@ -37,7 +37,7 @@ var (
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
 	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
 	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
-	hopMin     = flag.Int("hop-min", 3, "intervalle entre deux hops (secondes) — les flux courts vivent : l'opérateur bloque un flux UDP après 1-2 paquets inspectés, chaque hop = un flux neuf qui repasse")
+	hopMin     = flag.Int("hop-min", 10, "intervalle entre deux hops (secondes) — le mapping CGNAT reste stable entre les hops, les réponses du serveur ont le temps d'arriver ; les hops plus courts (1-2 s) faisaient partir chaque réponse vers un mapping déjà remplacé")
 	hopAuto    = flag.Bool("hop-auto", false, "mode adaptatif : PAS de hop au départ (un seul mapping conntrack, pas d'ambiguïté) ; le hop s'active automatiquement si le downlink stalle")
 )
 
@@ -285,9 +285,18 @@ func hopDstLoop(addr string, hopRange string, sec int, cur *proto.Session) {
 	}
 	last := -1
 	for {
+		// STOP SUR SESSION MORTE : au re-dial, l'ancien loop (lié à la
+		// session morte) doit S'ARRÊTER — sinon deux loops hoppeent en
+		// parallèle toutes les 1-2 s et les réponses du serveur partent
+		// toujours vers des mappings CGNAT déjà remplacés (log 22:20-22:21 :
+		// hop-dst 53297 + 51003 intercalés, rx figé).
+		if cur.Dead() {
+			log.Printf("hop-dst: session morte — arrêt de la boucle")
+			return
+		}
 		// Intervalle légèrement aléatoire (doc Hysteria : rend le motif
 		// de rotation moins prévisible), borné [sec, sec+5).
-		jitter := time.Duration(sec+mrand.Intn(5)) * time.Second
+		jitter := time.Duration(sec+mrand.Intn(6)) * time.Second
 		time.Sleep(jitter)
 		port := lo + mrand.Intn(hi-lo+1)
 		if port == last {
