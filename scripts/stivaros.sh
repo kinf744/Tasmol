@@ -61,6 +61,7 @@ readonly UTUNNEL_USERS="$UTUNNEL_HOME/users.list"
 readonly UTUNNEL_NFT="/etc/nftables/utunnel.nft"
 readonly UTUNNEL_PORT=5669
 readonly UTUNNEL_RANGE="50000-59999"
+readonly UTUNNEL_CONFIG="$UTUNNEL_HOME/config.json"
 readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
 
 # SlowDNS (dnstt + dnsdist)
@@ -254,6 +255,62 @@ sql() { sqlite3 -batch "$DB_PATH" "$1"; }
 main_iface() { ip route show default 2>/dev/null | awk '/default/ {print $5; exit}'; }
 
 # ── Détection des tunnels (installé ? actif ?) ─────────────────────────
+# ── WIREGUARD (serveur WG pour le tunnel WireGuard+SlowDNS) ───────────
+readonly WG_PORT=51820
+readonly WG_HOME="/etc/wireguard"
+readonly WG_SERVER_KEY="$WG_HOME/server.key"
+readonly WG_SERVER_PUB="$WG_HOME/server.pub"
+readonly WG_CONFIG="$WG_HOME/wg0.conf"
+readonly WG_CLIENT_IP_BASE="10.66.66"
+
+install_wireguard() {
+    banner; echo -e "${BOLD}Tunnel WireGuard (serveur WG + SlowDNS)${NC}\n"
+
+    if ! command -v wg &>/dev/null; then
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq wireguard wireguard-tools 2>/dev/null \
+            || die "Échec installation WireGuard"
+    fi
+
+    if [[ ! -s "$WG_SERVER_KEY" ]]; then
+        wg genkey > "$WG_SERVER_KEY"
+        chmod 600 "$WG_SERVER_KEY"
+        wg pubkey < "$WG_SERVER_KEY" > "$WG_SERVER_PUB"
+        msg "Clés serveur WG générées : $(cat "$WG_SERVER_PUB")"
+    fi
+
+    local ext_port="$WG_PORT"
+    local ext_iface
+    ext_iface=$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')
+    cat > "$WG_CONFIG" << WGEOF
+[Interface]
+Address = ${WG_CLIENT_IP_BASE}.1/24
+ListenPort = $ext_port
+PrivateKey = $(cat "$WG_SERVER_KEY")
+PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o $ext_iface -j MASQUERADE
+PostDown = iptables -D FORWARD -i wg0 -j ACCEPT 2>/dev/null; iptables -D FORWARD -o wg0 -j ACCEPT 2>/dev/null; iptables -t nat -D POSTROUTING -o $ext_iface -j MASQUERADE 2>/dev/null
+WGEOF
+    chmod 600 "$WG_CONFIG"
+
+    sysctl -w net.ipv4.ip_forward=1 &>/dev/null
+    grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf 2>/dev/null || echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+
+    mkdir -p /etc/systemd/system/wg-quick@wg0.service.d
+    cat > /etc/systemd/system/wg-quick@wg0.service.d/stivaros.conf << WGEOF
+[Unit]
+After=network-online.target
+Wants=network-online.target
+WGEOF
+
+    systemctl daemon-reload
+    systemctl enable --now wg-quick@wg0 2>/dev/null || true
+
+    nft add rule inet utunnel input udp dport "$ext_port" accept 2>/dev/null || true
+    command -v ufw &>/dev/null && ufw allow "$ext_port"/udp 2>/dev/null || true
+
+    msg "WireGuard serveur actif (port UDP $ext_port, réseau ${WG_CLIENT_IP_BASE}.0/24)"
+}
+
 tunnel_installed() {
     case "$1" in
         xray)    [[ -x "$XRAY_BIN" && -f /etc/systemd/system/xray.service ]] ;;
@@ -261,6 +318,7 @@ tunnel_installed() {
         slowdns) [[ -x "$DNSTT_BIN" && -f /etc/systemd/system/slowdns-ns4.service ]] ;;
         v2ray)   [[ -x "$V2RAY_BIN" && -f /etc/systemd/system/v2ray.service ]] ;;
         utunnel) [[ -x "$UTUNNEL_BIN" && -f "/etc/systemd/system/$UTUNNEL_SERVICE" ]] ;;
+        wireguard) command -v wg &>/dev/null && ip link show wg0 &>/dev/null ;;
         ssh)     dpkg -s openssh-server &>/dev/null || command -v sshd &>/dev/null ;;
         *)       return 1 ;;
     esac
@@ -668,6 +726,7 @@ EOF
     rm -f "$tmp"
 
     zivpn_update_passwords
+    utunnel_update_passwords
     systemctl daemon-reload
     systemctl enable --now "$ZIVPN_SERVICE"
     systemctl restart "$ZIVPN_SERVICE"
@@ -692,6 +751,99 @@ zivpn_cleanup_expired() {
     today=$(date +%F); tmp=$(mktemp)
     awk -F'|' -v t="$today" '$3 >= t' "$ZIVPN_USER_FILE" > "$tmp" 2>/dev/null || true
     mv "$tmp" "$ZIVPN_USER_FILE"; chmod 600 "$ZIVPN_USER_FILE"
+}
+
+utunnel_update_passwords() {
+    # Miroir de zivpn_update_passwords, pour le serveur utunnel (QUIC/zivpn
+    # sur :5669). Les auth = les PSK PRÉ-CALCULÉES (SHA256(uuid:secret))
+    # des comptes actifs : l'app les sert telles quelles (champ
+    # utunnel_secret 64 hex) — le match exact côté serveur.
+    local tmp
+    tmp=$(mktemp)
+    STIVAROS_DB="$DB_PATH" UTUNNEL_USERS="$UTUNNEL_USERS" \
+        python3 - "$UTUNNEL_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
+import json, os, sqlite3, sys
+from datetime import date
+
+cfg_path, tmp = sys.argv[1], sys.argv[2]
+with open(cfg_path) as f:
+    cfg = json.load(f)
+
+# PSK utunnel actifs (fichier users.list: uuid|secret|expire)
+ours = set()
+today = date.today().isoformat()
+try:
+    with open(os.environ["UTUNNEL_USERS"]) as f:
+        for line in f:
+            parts = line.strip().split("|")
+            if len(parts) >= 3 and parts[1] and parts[2] >= today:
+                ours.add(parts[1])
+except Exception:
+    pass
+try:
+    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
+    rows = conn.execute("""
+        SELECT v.utunnel_secret FROM vpn_configs v
+        JOIN users u ON v.user_id = u.id
+        WHERE v.mode = 'utunnel' AND v.utunnel_secret != ''
+          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
+    """).fetchall()
+    conn.close()
+    ours |= {r[0] for r in rows if r[0]}
+except Exception:
+    pass
+
+# PSK statiques du serveur custom historique (server.psk) : toujours acceptées.
+try:
+    with open(os.environ.get("UTUNNEL_PSK", "/etc/utunnel/server.psk")) as f:
+        for line in f:
+            psk = line.strip()
+            if psk:
+                ours.add(psk)
+except Exception:
+    pass
+
+existing = cfg.get("auth", {}).get("config", [])
+if not isinstance(existing, list):
+    existing = []
+merged = sorted(set(existing) | ours)
+cfg.setdefault("auth", {})["config"] = merged
+
+# Quota par PSK (comme le zivpn) : les quotas des comptes actifs.
+quota = cfg.get("quota") or {}
+try:
+    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
+    rows = conn.execute("""
+        SELECT v.utunnel_secret, u.quota_mb FROM vpn_configs v
+        JOIN users u ON v.user_id = u.id
+        WHERE v.mode = 'utunnel' AND v.utunnel_secret != ''
+          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
+    """).fetchall()
+    conn.close()
+    for psk, mb in rows:
+        if psk and mb and mb > 0:
+            quota[psk] = f"{(mb + 1023) // 1024}GB"
+except Exception:
+    pass
+cfg["quota"] = quota
+
+with open(tmp, "w") as f:
+    json.dump(cfg, f, indent=2)
+PYEOF
+    if [[ -s "$tmp" ]]; then
+        local cur
+        cur=$(sha256sum "$UTUNNEL_CONFIG" 2>/dev/null | awk '{print $1}')
+        new=$(sha256sum "$tmp" | awk '{print $1}')
+        if [[ "$cur" != "$new" ]]; then
+            mv "$tmp" "$UTUNNEL_CONFIG"
+            chmod 600 "$UTUNNEL_CONFIG"
+            systemctl restart utunnel 2>/dev/null || true
+        else
+            rm -f "$tmp"
+        fi
+    else
+        rm -f "$tmp"
+    fi
 }
 
 zivpn_update_passwords() {
@@ -1788,23 +1940,25 @@ create_user() {
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) UTUNNEL (UDP propriétaire ARQ+XChaCha)"
+    echo -e "   ${CYAN}6${NC}) WireGuard + SlowDNS"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_utunnel=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_utunnel=0 want_wg=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_utunnel=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_utunnel)) -ge 1 ]] \
+    if want 6; then want_wg=1; want_sshdns=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_utunnel + want_wg)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -1817,6 +1971,7 @@ create_user() {
     # slowdns implique ssh + v2ray
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     if (( want_utunnel )); then ensure_tunnel utunnel || ok=0; fi
+    if (( want_wg )); then ensure_tunnel wireguard || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub utunnel_pass utunnel_key
@@ -1903,6 +2058,40 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '150', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
 SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_wg )); then
+    # WireGuard : les clés client générées par compte, le peer ajouté au
+    # serveur WG. Les profils passent les clés via les champs advanced
+    # (wg_secret_key, wg_peer_public_key, wg_address, etc.) lus par
+    # BuildWireGuardOutbound côté app.
+    local wg_client_priv wg_client_pub wg_client_psk wg_client_ip
+    wg_client_priv=$(wg genkey)
+    wg_client_pub=$(echo "$wg_client_priv" | wg pubkey)
+    wg_client_psk=$(wg genpsk 2>/dev/null || wg genkey)
+    wg_client_ip="$WG_CLIENT_IP_BASE.$((10 + RANDOM % 200))"
+    # Le peer côté serveur WG.
+    wg set wg0 peer "$wg_client_pub" allowed-ips "$wg_client_ip/32" 2>/dev/null || true
+    cat << SQL
+-- Quatre profils WireGuard+SlowDNS (le round-robin ×4 de l'app).
+-- Le serveur public WG + les clés client dans les advanced.* (les champs
+-- wg_* lus par BuildWireGuardOutbound). Le port WG est le port UDP $WG_PORT.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
+SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
+       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
+FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
+SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
+       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
+FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
+SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
+       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
+FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
+SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
+       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
+FROM users WHERE uuid='$uuid';
 SQL
     fi
     } | sqlite3 -batch "$DB_PATH"
@@ -2288,7 +2477,7 @@ quotas_menu() {
             local phone
             phone=$(sqlite3 -batch "$DB_PATH" "SELECT phone FROM users WHERE id=$id;")
             ssh_account_delete_lock "${phone#+}" 2>/dev/null || true
-            xray_sync_uuids; v2ray_sync_users; zivpn_update_passwords
+            xray_sync_uuids; v2ray_sync_users; zivpn_update_passwords; utunnel_update_passwords
             msg "Compte #$id débloqué, compteur remis à zéro"
             ;;
     esac
@@ -2362,8 +2551,9 @@ tunnel_menu() {
             4) install_v2ray || true ;;
             5) install_slowdns || true ;;
             6) install_utunnel || true ;;
-            7) for t in xray zivpn ssh v2ray slowdns utunnel; do ensure_tunnel "$t" || true; done; pause ;;
-            8) tunnels_status || true ;;
+            7) install_wireguard || true ;;
+            8) for t in xray zivpn ssh v2ray slowdns utunnel wireguard; do ensure_tunnel "$t" || true; done; pause ;;
+            9) tunnels_status || true ;;
             9)
                 local t=""
                 read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns/utunnel): " t || true
@@ -2509,9 +2699,47 @@ install_utunnel() {
     [[ -f "$UTUNNEL_USERS" ]] || : > "$UTUNNEL_USERS"
     chmod 600 "$UTUNNEL_USERS"
 
+    # ── Serveur QUIC (binaire zivpn) — le transport PROUVÉ ──────────────
+    # Le transport custom (ARQ+XChaCha) est remplacé par le serveur zivpn
+    # (QUIC/quic-go) : le même binaire que le tunnel ZIVPN, PROUVÉ sur les
+    # réseaux mobiles hostiles (le DPI bloquait l'ARQ custom après 1-2
+    # paquets — 715 paquets envoyés, aucun reçu). L'identité utunnel est
+    # PRÉSERVÉE : sa plage (50000-59999 -> :5669), sa PSK, SON obfs
+    # Salamander dédié ("ut9xhqb`c", distinct du zivpn), sa base users.
+    # Les auth = les PSK PRÉ-CALCULÉES (SHA256(uuid:secret)) des comptes
+    # actifs — l'app les sert telles quelles (champ utunnel_secret 64 hex).
+    # Certs TLS auto-signés (le serveur zivpn exige cert/key même si le
+    # client tourne en insecure).
+    if [[ ! -s "$UTUNNEL_HOME/zivpn.crt" ]]; then
+        local udomain; udomain=$(ask_domain 2>/dev/null || echo "$(hostname)")
+        self_signed "$UTUNNEL_HOME/zivpn.key" "$UTUNNEL_HOME/zivpn.crt" "$udomain"
+    fi
+    local stats_token
+    stats_token=$(generate_secret)
+    cat > "$UTUNNEL_CONFIG" << EOF
+{
+  "listen": ":$UTUNNEL_PORT",
+  "cert": "$UTUNNEL_HOME/zivpn.crt",
+  "key": "$UTUNNEL_HOME/zivpn.key",
+  "obfs": "ut9\`\`hqb\`c",
+  "recv_window_conn": 15728640,
+  "recv_window_client": 67108864,
+  "disable_mtu_discovery": false,
+  "max_conn_client": 4096,
+  "exclude_port": [53, 5300, 4466, 36712, 5667, 5668, 20000],
+  "quotaStateFile": "$UTUNNEL_HOME/quota-state.json",
+  "statsAPI": { "listen": "127.0.0.1:10095", "token": "$stats_token" },
+  "quota": {},
+  "auth": { "mode": "passwords", "config": [] }
+}
+EOF
+    chmod 600 "$UTUNNEL_CONFIG"
+
+    # Le heredoc est déquoté (EOF, pas 'EOF') pour injecter le chemin nft;
+    # la ligne contient « $UTUNNEL_RANGE » encodée comme chaîne littérale.
     cat > "/etc/systemd/system/$UTUNNEL_SERVICE" << EOF
 [Unit]
-Description=Stivaros utunnel (UDP ARQ+XChaCha, plage ${UTUNNEL_RANGE})
+Description=Stivaros utunnel UDP Server (QUIC/zivpn transport, plage ${UTUNNEL_RANGE})
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=0
@@ -2521,10 +2749,11 @@ Type=simple
 # Recharge la table DNAT (50000-59999 -> 5669) à chaque (re)démarrage :
 # les tables nft ne survivent pas au reboot.
 ExecStartPre=/bin/sh -c 'nft -f /etc/nftables/utunnel.nft 2>/dev/null || true'
-ExecStart=$UTUNNEL_BIN -listen :$UTUNNEL_PORT -key-file $UTUNNEL_PSK -users-file $UTUNNEL_USERS -max-sessions 4096
+ExecStart=/usr/local/bin/zivpn server -c $UTUNNEL_CONFIG
+WorkingDirectory=$UTUNNEL_HOME
 Restart=always
 RestartSec=5
-AmbientCapabilities=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
 LimitNOFILE=1048576
 
 [Install]
@@ -2735,6 +2964,7 @@ main() {
         --tunnels)   tunnel_menu || true ;;
         --zivpn)     install_zivpn || true ;;
         --utunnel)   install_utunnel || true ;;
+        --wireguard) install_wireguard || true ;;
         --sync-only)
             # Appelé par le moteur de quota après un blocage.
             xray_sync_uuids 2>/dev/null || true
