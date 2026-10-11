@@ -136,7 +136,7 @@ func (h *segHeap) Pop() any {
 // rendaient le handshake non fiable. Le MÊME h1 (même ephémère) est réémis :
 // le serveur déduplique par ephémère et retransmet le même handshake2.
 const (
-	hsAttempts  = 8
+	hsAttempts  = 20
 	hsRetryWait = 2 * time.Second
 )
 
