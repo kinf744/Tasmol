@@ -208,23 +208,13 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	}
 	Tracef("[utunnel] socks=%s port=%d", socksAddr, socksPort)
 
-	hop := advInt(t.config.Advanced, "utunnel_hop", DefaultUtunnelHopInterval)
-	if hop < 0 {
-		hop = 0
-	}
-	// Port hopping DESTINATION à la Hysteria (doc officielle v2) : la
-	// DESTINATION hoppe dans la plage DNAT (port_range), la socket SOURCE
-	// reste stable — un seul mapping CGNAT, les réponses du serveur
-	// reviennent toujours. L'ancienne rotation du port SOURCE cassait le
-	// downlink derrière un CGNAT (réponses non routées vers le nouveau
-	// mapping) : désactivée, remplacée par le hop destination.
-	hopRange := ""
-	if strings.Contains(plageCfg, "-") {
-		hopRange = plageCfg
-	}
-	Tracef("[utunnel] hop=destination plage=%q intervalle=%ds (port SOURCE stable, 0=jamais)", hopRange, hop)
+	// Transport QUIC (quic-go) : le port hopping DESTINATION est natif
+	// (le client zivpn hoppe dans la plage "IP:50000-59999" — la spec
+	// Hysteria : le premier port aléatoire, les hops ensuite). Les flags
+	// custom (-hop-range/-hop-auto/-hop-port-every) n'existent plus.
+	Tracef("[utunnel] hop=destination (natif QUIC dans la plage)")
 
-	// Clé écrite dans un fichier temporaire 0600 : jamais dans les
+	// PSK écrite dans un fichier temporaire 0600 : jamais dans les
 	// arguments de processus (visibles via /proc/<pid>/cmdline).
 	keyPath := fmt.Sprintf("%s/utunnel-%s.key", TmpDir, t.config.ID)
 	if err := os.WriteFile(keyPath, []byte(key), 0600); err != nil {
@@ -235,22 +225,16 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	}
 	t.keyPath = keyPath
 
-	Journalf("utunnel", "udp %s (plage %s, socks %s, hop-dst %ds)", server, plageCfg, socksAddr, hop)
+	Journalf("utunnel", "udp %s (plage %s, QUIC, socks %s)", server, plageCfg, socksAddr)
 	Tracef("[utunnel] binaire=%q pid à venir, tmp=%s", bin, TmpDir)
 
-	// UTUNNEL_TRACE=1 : le binaire journalise les premiers frames mux
-	// (op/sid/seq) — diagnostic des liens très perturbés, dans kighmu.txt.
 	cmd := exec.CommandContext(ctx, bin,
 		"-server", server,
 		"-key-file", keyPath,
 		"-socks", socksAddr,
-		"-hop-range", hopRange,
-		"-hop-auto",
-		"-hop-port-every", "0",
 	)
 	cmd.Dir = TmpDir
 	cmd.Env = append(os.Environ(),
-		"UTUNNEL_TRACE=1",
 		"HOME="+TmpDir,
 		"TMPDIR="+TmpDir,
 	)
@@ -302,7 +286,7 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 	t.startTime = time.Now()
 	t.status = StatusRunning
 	Tracef("[utunnel] RUNNING name=%q socks=%s", t.config.Name, socksAddr)
-	Connf("utunnel", "connecté %s (UDP, ARQ+XChaCha)", server)
+	Connf("utunnel", "connecté %s (UDP, QUIC)", server)
 	return nil
 }
 
