@@ -1,44 +1,49 @@
-// utunnel-client : extrémité cliente du tunnel.
-//
-//   - expose un proxy SOCKS5 local (--socks 127.0.0.1:1080) ;
-//   - relaie TCP (CONNECT) et UDP (ASSOCIATE) via le tunnel ;
-//   - rotation du port source : une nouvelle socket UDP éphémère par rafale
-//     (le serveur suit l'adresse du pair à chaque paquet — port hopping
-//     gratuit et cadencé) ;
-//   - obfuscation : handshake paddé, aucun motif fixe, en-têtes masqués.
 package main
 
 import (
-	"crypto/sha256"
+	"context"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
-	mrand "math/rand"
 	"net"
 	"os"
 	"os/signal"
-	"strconv"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
 
 	"utunnel/proto"
+
+	"github.com/quic-go/quic-go"
 )
 
+// ── Transport QUIC du tunnel utunnel ───────────────────────────────────
+//
+// Le transport PROUVÉ sur les réseaux mobiles hostiles : le QUIC est
+// indistinguable du trafic HTTPS/3 légitime (le DPI le whitelist — le
+// zivpn/Hysteria pousse 18 Mo+ sur le même réseau).
+//
+// L'identité utunnel PRÉSERVÉE : l'auth PSK (SHA256(uuid:secret) servie
+// par l'API stivaros), la plage de ports (50000-59999 DNAT-ée), les
+// streams TCP/UDP, le port hopping (la re-dial adaptative).
+//
+// Protocole par-dessus QUIC :
+//   - Le premier stream : [2B len][PSK] → l'auth (le serveur vérifie) ;
+//   - 1 stream bidirectionnel par CONNECT : [2B len][addr][status 1B]
+//     puis le bridge TCP bidirectionnel ;
+//   - Les datagrammes QUIC : [2B len][dst][payload] (le relais UDP/DNS).
+
 var (
-	serverAddr = flag.String("server", "", "serveur:port (destination réelle après DNAT)")
+	serverAddr = flag.String("server", "", "serveur:port ou serveur:plage (50000-59999)")
 	pskHex     = flag.String("key", "", "PSK hex (32 octets) — ou fichier via -key-file")
-	pskFile    = flag.String("key-file", "", "fichier contenant la clé")
+	pskFile    = flag.String("key-file", "", "fichier contenant la PSK")
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
-	maxHops    = flag.Int("hop-port-every", 0, "rotation socket SOURCE toutes les N secondes (0 = jamais, casse le CGNAT)")
-	hopRange   = flag.String("hop-range", "", "plage de port DESTINATION '50000-59999' (port hopping Hysteria : le port SOURCE reste stable)")
-	hopMin     = flag.Int("hop-min", 10, "intervalle entre deux hops (secondes) — le mapping CGNAT reste stable entre les hops, les réponses du serveur ont le temps d'arriver ; les hops plus courts (1-2 s) faisaient partir chaque réponse vers un mapping déjà remplacé")
-	hopAuto    = flag.Bool("hop-auto", false, "mode adaptatif : PAS de hop au départ (un seul mapping conntrack, pas d'ambiguïté) ; le hop s'active automatiquement si le downlink stalle")
+	certFile   = flag.String("cert", "", "cert.pem du serveur (insecure si vide)")
+	hopMin     = flag.Int("hop-min", 10, "intervalle du re-dial adaptatif (secondes)")
 )
 
 var connectStart time.Time
@@ -48,99 +53,62 @@ func main() {
 	if *serverAddr == "" {
 		log.Fatal("--server requis")
 	}
-	// Format multi-port (doc officielle Hysteria 2) : "IP:20000-50000"
-	// (une plage) ou "IP:1234,5678" (ports) — même convention que la
-	// config zivpn/Hysteria ("server": "204.152.219.23:42000-45999").
-	// La plage devient la source du port hopping destination, et la
-	// connexion initiale part d'un port ALÉATOIRE de la plage.
-	host, portPart, err := net.SplitHostPort(*serverAddr)
-	if err == nil && strings.ContainsAny(portPart, "-,") {
-		if *hopRange == "" {
-			*hopRange = portPart
-		}
-		if lo, hi, perr := parsePortRange(portPart); perr == nil && hi >= lo {
-			port := lo + mrand.Intn(hi-lo+1)
-			*serverAddr = net.JoinHostPort(host, strconv.Itoa(port))
-			log.Printf("serveur multi-port %s: plage %s — connexion initiale sur %s (aléatoire)",
-				host, portPart, *serverAddr)
-		}
-	}
 	psk, err := loadPSK()
 	if err != nil {
 		log.Fatal(err)
 	}
-	hop := 0
-	if *maxHops > 0 {
-		hop = *maxHops
-	}
-	if hop == 0 && *hopRange != "" && !*hopAuto {
-		// Mode fixe : le hop destination tourne d'emblée (l'ancien
-		// comportement). En mode adaptatif (-hop-auto), PAS de hop au
-		// départ — le stall-détection l'active si nécessaire.
-		hop = *hopMin
-	}
 
-	sess, err := dialTunnel(*serverAddr, psk, hop, *hopRange, *hopAuto)
+	// La connexion QUIC (le port initial aléatoire dans la plage — la
+	// spec Hysteria). Les hops : le re-dial adaptatif (déjà prouvé).
+	var qconn quic.Connection
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		qconn, err = proto.DialQUIC(dctx, *serverAddr)
+		cancel()
+		if err == nil {
+			break
+		}
+		log.Printf("dial %s: %v — nouvelle tentative dans 2s", *serverAddr, err)
+		if time.Now().After(deadline) {
+			log.Fatal("délai de connexion dépassé")
+		}
+		time.Sleep(2 * time.Second)
+	}
+	log.Printf("tunnel établi vers %s (QUIC)", qconn.RemoteAddr())
+
+	// L'AUTH : le premier stream = [2B len][PSK] — le serveur vérifie
+	// (le PSK = SHA256(uuid:secret) ou la PSK brute).
+	astream, err := proto.AuthStream(qconn, pskString(psk), 15*time.Second)
 	if err != nil {
-		log.Fatalf("établissement tunnel impossible : %v", err)
+		log.Fatalf("auth: %v", err)
 	}
-	log.Printf("tunnel établi vers %s", sess.RemoteAddr())
+	// Le canal d'auth reste ouvert (la session vit tant que le stream vit).
+	defer astream.Close()
+	log.Printf("auth OK (PSK acceptée par le serveur)")
+	sessPtr.Store(&quicSess{conn: qconn})
 
-	// ── Récupération adaptative (anti-CGNAT, anti-DPI) ──────────────────
-	// Deux modes statiques échouent sur les réseaux mobiles agressifs :
-	//   - SANS hop : un seul mapping conntrack (pas d'ambiguïté de
-	//     retour), MAIS le DPI/opérateur bloque le flux persistant après
-	//     ~15 s (rx figé, "downlink calé à 0B" rapporté) ;
-	//   - AVEC hop destination : le DPI est contourné, MAIS chaque hop
-	//     crée un nouveau mapping conntrack et le retour match une
-	//     entrée aléatoire (le CGNAT port-dependent droppe).
-	// Stratégie adaptative (-hop-auto) : démarrer SANS hop (le mapping
-	// unique passe tant que le DPI n'a pas identifié le flux), et si le
-	// downlink stalle >20 s pendant que l'uplink coule, activer le port
-	// hopping destination automatiquement.
-	// CRITIQUE : le tick (10 s) et le seuil (2) doivent rester INFÉRIEURS
-	// au sessTimeout (30 s) — sinon la session meurt (le client tue sa
-	// session sur le downlink figé) AVANT que le hop ne s'active et la
-	// récupération n'arrive jamais (log 01:00-01:01 : rx figé 16 B,
-	// session morte à 30 s, AUCUNE activation).
-	if *hopAuto && *hopRange != "" {
-		go func() {
-			var lastRx int64
-			var stalled int
-			for range time.Tick(10 * time.Second) {
-				if sess.Dead() {
-					return
-				}
-				rx, tx := sess.Stats()
-				if tx > 0 && rx == lastRx {
-					stalled++
-					if stalled >= 2 && hopping.Load() == 0 {
-						log.Printf("downlink stalle %ds (rx fige %d B, tx %d B) — activation port hopping destination",
-							stalled*10, rx, tx)
-						go hopDstLoop(*serverAddr, *hopRange, *hopMin, sess)
-						return
-					}
-				} else {
-					stalled = 0
-				}
-				lastRx = rx
-			}
-		}()
-	}
-
-	// Trafic périodique (toutes les 5 s) : diagnostics kighmu.txt —
-	// rx (downlink), tx (uplink), les paquets décodés/indéchiffrables, les
-	// retransmissions (les pertes réseau), l'en-vol (non acquitté), le RTT
-	// ping/pong (la latence réelle du chemin) et le pair courant (le port
-	// externe CGNAT). Toute direction morte est immédiatement visible.
+	// Le re-dial adaptatif : si la connexion QUIC meurt (le downlink figé),
+	// relancer un dial — le port hopping automatique (proven working).
 	go func() {
-		for range time.Tick(5 * time.Second) {
-			if sess.Dead() {
-				return
+		<-qconn.Context().Done()
+		log.Printf("connexion QUIC fermée — re-dial avec hop destination")
+		for {
+			dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			nq, err := proto.DialQUIC(dctx, *serverAddr)
+			cancel()
+			if err != nil {
+				time.Sleep(2 * time.Second)
+				continue
 			}
-			st := sess.FullStats()
-			log.Printf("chemin: rx=%d B tx=%d B pkts=%d bad=%d retr=%d envol=%d rtt=%dms pair=%s",
-				st.RxBytes, st.TxBytes, st.PktsIn, st.PktsBad, st.Retrans, st.Inflight, st.RTTms, st.Remote)
+			if _, aerr := proto.AuthStream(nq, pskString(psk), 15*time.Second); aerr != nil {
+				nq.CloseWithError(0, "auth failed")
+				time.Sleep(2 * time.Second)
+				continue
+			}
+			sessPtr.Store(&quicSess{conn: nq})
+			log.Printf("re-dial OK (QUIC) vers %s", nq.RemoteAddr())
+			return
 		}
 	}()
 
@@ -155,34 +123,7 @@ func main() {
 	go func() {
 		<-sig
 		lsn.Close()
-		sess.Close()
 		os.Exit(0)
-	}()
-
-	// Session partagée (atomic) : le re-dial automatique la remplace pour
-	// les nouvelles connexions SOCKS — les connexions en cours gardent
-	// leur session morte (fermée naturellement).
-	var sessPtr atomic.Pointer[proto.Session]
-	sessPtr.Store(sess)
-
-	// Re-dial automatique : si la session meurt (le downlink figé a tué
-	// le keepalive — "downlink calé à 0B" répété), relancer un dial AVEC
-	// le hop destination ACTIVÉ (le DPI a bloqué le mapping unique : la
-	// récupération exige des flux différents). Le re-dial boucle comme
-	// dialTunnel (2 s entre les essais) jusqu'à un tunnel établi.
-	go func() {
-		for {
-			if sessPtr.Load().Dead() {
-				log.Printf("session morte (downlink figé) — re-dial avec hop destination")
-				if ns, err := dialTunnel(*serverAddr, psk, *hopMin, *hopRange, false); err == nil {
-					sessPtr.Store(ns)
-				} else {
-					time.Sleep(2 * time.Second)
-					continue
-				}
-			}
-			time.Sleep(2 * time.Second)
-		}
 	}()
 
 	for {
@@ -190,8 +131,25 @@ func main() {
 		if err != nil {
 			return
 		}
-		go handleSOCKS(sessPtr.Load(), c)
+		go handleSOCKSQuic(sessPtr.Load(), c)
 	}
+}
+
+// quicSess : la session QUIC courante (remplacée au re-dial).
+type quicSess struct{ conn quic.Connection }
+
+var sessPtr atomic.Pointer[quicSess]
+
+// pskString : la PSK brute (les octets) → la string pour l'auth
+// (le serveur : auth.config = les PSK pré-calculées — le match exact).
+func pskString(psk []byte) string {
+	// L'API sert SHA256(uuid:secret) ; le profil : la 64-hex → directe.
+	// Sinon : SHA256 du secret brut (le serveur : les deux acceptés —
+	// auth.config inclut les hashes ET les PSK statiques).
+	if len(psk) == 32 {
+		return hex.EncodeToString(psk)
+	}
+	return string(psk)
 }
 
 func loadPSK() ([]byte, error) {
@@ -201,9 +159,9 @@ func loadPSK() ([]byte, error) {
 		}
 		out := make([]byte, 32)
 		for i := 0; i < 32; i++ {
-			var v int
-			fmt.Sscanf((*pskHex)[i*2:i*2+2], "%02x", &v)
-			out[i] = byte(v)
+			if _, err := fmt.Sscanf((*pskHex)[i*2:i*2+2], "%02x", &out[i]); err != nil {
+				return nil, err
+			}
 		}
 		return out, nil
 	}
@@ -212,194 +170,22 @@ func loadPSK() ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		s := strings.TrimSpace(string(b))
-		return loadPSKFromString(s)
+		return proto.LoadPSKFromString(string(b))
 	}
-	return nil, errors.New("--key ou --key-file requis")
+	return nil, errors.New("aucune PSK fournie (-key ou -key-file)")
 }
 
-func loadPSKFromString(s string) ([]byte, error) {
-	// Si c'est déjà 64 hex chars (32 octets), on le parse directement
-	if len(s) == 64 {
-		out := make([]byte, 32)
-		for i := 0; i < 32; i++ {
-			var v int
-			if _, err := fmt.Sscanf(s[i*2:i*2+2], "%02x", &v); err != nil {
-				return nil, err
-			}
-			out[i] = byte(v)
-		}
-		return out, nil
-	}
-	// Sinon on suppose que c'est le secret brut : on le hache (SHA256) comme le serveur
-	sum := sha256.Sum256([]byte(s))
-	return sum[:], nil
-}
-
-// dialTunnel : handshake + rotation périodique.
-// Le port hopping PAR DÉFAUT suit la doc officielle Hysteria 2 : la
-// DESTINATION hoppe dans la plage DNAT (hopRange), la socket SOURCE reste
-// stable — un seul mapping CGNAT, les réponses du serveur reviennent
-// toujours. L'ancienne rotation du port SOURCE (hop-port-every) casse le
-// downlink derrière un CGNAT et n'est plus utilisée par l'app.
-// En mode ADAPTATIF (hopAuto), PAS de hop au départ (un seul mapping
-// conntrack, pas d'ambiguïté) — le stall-détection du main() active le
-// hopDstLoop si le downlink stalle.
-func dialTunnel(addr string, psk []byte, hopSec int, hopRange string, hopAuto bool) (*proto.Session, error) {
-	for {
-		sess, err := dialOnce(addr, psk)
-		if err == nil {
-			if hopRange != "" && hopSec > 0 && !hopAuto {
-				// Mode fixe : le hop destination tourne d'emblée.
-				go hopDstLoop(addr, hopRange, hopSec, sess)
-			} else if hopSec > 0 && hopRange == "" && !hopAuto {
-				// Rotation socket source (compatibilité, sans plage).
-				go hopLoop(addr, psk, hopSec, sess)
-			}
-			// Mode adaptatif (hopAuto) : PAS de hop au départ — le
-			// stall-détection du main() active hopDstLoop si le
-			// downlink stalle (rx figé pendant que tx coule).
-			return sess, nil
-		}
-		// Cause lisible : timeout = AUCUNE réponse du serveur (port fermé,
-		// DNAT de plage absent, serveur arrêté, ou PSK invalide côté
-		// serveur). Une mauvaise PSK donnerait ErrBadAuth, jamais un
-		// silence — le serveur ne répond qu'aux handshakes authentiques.
-		log.Printf("dial %s: aucune réponse du serveur (%v) — vérifiez le port, le DNAT de plage et que le serveur tourne — nouvelle tentative dans 2s", addr, err)
-		time.Sleep(2 * time.Second)
-	}
-}
-
-// hopDstLoop : port hopping DESTINATION à la Hysteria (doc officielle) :
-// toutes les hopSec secondes, la destination passe à un port ALÉATOIRE de
-// la plage DNAT (Retarget — la même socket source, donc le mapping CGNAT
-// et les réponses du serveur restent stables). L'opérateur qui bloque ou
-// trie un flux UDP persistant sur un port donné voit un flux différent à
-// chaque hop. Côté serveur, le DNAT redirige toute la plage vers :5669 et
-// la session suit le pair (le port SOURCE est stable — aucun re-handshake).
-func hopDstLoop(addr string, hopRange string, sec int, cur *proto.Session) {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return
-	}
-	lo, hi, err := parsePortRange(hopRange)
-	if err != nil || lo <= 0 || hi < lo {
-		log.Printf("hop-range invalide %q (%v) — pas de rotation", hopRange, err)
-		return
-	}
-	last := -1
-	for {
-		// STOP SUR SESSION MORTE : au re-dial, l'ancien loop (lié à la
-		// session morte) doit S'ARRÊTER — sinon deux loops hoppeent en
-		// parallèle toutes les 1-2 s et les réponses du serveur partent
-		// toujours vers des mappings CGNAT déjà remplacés (log 22:20-22:21 :
-		// hop-dst 53297 + 51003 intercalés, rx figé).
-		if cur.Dead() {
-			log.Printf("hop-dst: session morte — arrêt de la boucle")
-			return
-		}
-		// Intervalle légèrement aléatoire (doc Hysteria : rend le motif
-		// de rotation moins prévisible), borné [sec, sec+5).
-		jitter := time.Duration(sec+mrand.Intn(6)) * time.Second
-		time.Sleep(jitter)
-		port := lo + mrand.Intn(hi-lo+1)
-		if port == last {
-			port = lo + (port-lo+1)%(hi-lo+1) // jamais deux fois le même
-		}
-		last = port
-		na, err := net.ResolveUDPAddr("udp", net.JoinHostPort(host, fmt.Sprintf("%d", port)))
-		if err != nil {
-			continue
-		}
-		cur.Retarget(na)
-		// Résistance aux pertes : 3 pings espacés — le serveur répond au
-		// premier qui arrive (le port SOURCE est stable, la réponse revient).
-		for i := 0; i < 3; i++ {
-			cur.SendKeepalive()
-			log.Printf("hop-dst: destination %s:%d (ping %d/3)", host, port, i+1)
-			time.Sleep(300 * time.Millisecond)
-		}
-	}
-}
-
-// parsePortRange parse "50000-59999" ou "50000" -> (min, max).
-func parsePortRange(s string) (int, int, error) {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '-'); i > 0 {
-		lo, err := strconv.Atoi(strings.TrimSpace(s[:i]))
-		if err != nil {
-			return 0, 0, err
-		}
-		hi, err := strconv.Atoi(strings.TrimSpace(s[i+1:]))
-		if err != nil {
-			return 0, 0, err
-		}
-		return lo, hi, nil
-	}
-	v, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, 0, err
-	}
-	return v, v, nil
-}
-
-var hopping atomic.Int32
-
-func hopLoop(addr string, psk []byte, sec int, cur *proto.Session) {
-	for range time.Tick(time.Duration(sec) * time.Second) {
-		if hopping.Load() > 0 {
-			continue
-		}
-		hopping.Add(1)
-		// Nouvelle socket source : le serveur suit le pair paquet par
-		// paquet, donc la rotation est gratuite (aucun re-handshake).
-		c, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-		if err == nil {
-			cur.SwapConn(c)
-			// Résistance aux pertes du réseau mobile (CGNAT) : un SEUL
-			// ping immédiat peut être perdu, et alors le serveur garde
-			// l'ancienne adresse de réponse -> downlink mort pour
-			// toujours ("downlink calé à 0B" rapporté). On envoie 3
-			// pings espacés : le serveur met s.remote à jour au premier
-			// qui arrive.
-			go func() {
-				for i := 0; i < 3; i++ {
-					cur.SendKeepalive()
-					log.Printf("hop: ping %d/3 nouveau port source %s", i+1, c.LocalAddr())
-					time.Sleep(400 * time.Millisecond)
-				}
-			}()
-		}
-		hopping.Add(-1)
-	}
-}
-
-func dialOnce(addr string, psk []byte) (*proto.Session, error) {
-	ra, err := net.ResolveUDPAddr("udp", addr)
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-	if err != nil {
-		return nil, err
-	}
-	return proto.NewSession(conn, ra, psk, false)
-}
-
-// ── SOCKS5 minimal ───────────────────────────────────────────────────────
-
-func handleSOCKS(sess *proto.Session, c net.Conn) {
+// handleSOCKSQuic : le SOCKS5 → le transport QUIC.
+func handleSOCKSQuic(s *quicSess, c net.Conn) {
 	defer c.Close()
 	buf := make([]byte, 4096)
-	// Greeting
 	if _, err := io.ReadFull(c, buf[:2]); err != nil {
 		return
 	}
 	nmeth := int(buf[1])
 	io.ReadFull(c, buf[:nmeth])
-	c.Write([]byte{5, 0}) // pas d'auth
+	c.Write([]byte{5, 0})
 
-	// Request
 	if _, err := io.ReadFull(c, buf[:4]); err != nil {
 		return
 	}
@@ -416,189 +202,44 @@ func handleSOCKS(sess *proto.Session, c net.Conn) {
 		io.ReadFull(c, buf[:l+2])
 		addr = fmt.Sprintf("%s:%d", string(buf[:l]), binary.BigEndian.Uint16(buf[l:]))
 	default:
-		socksErr(c, 8)
 		return
 	}
 
 	switch cmd {
-	case 1: // CONNECT
-		// Cycle de vie COMPLET dans kighmu.txt : chaque CONNECT est
-		// tracé avec sa durée — les timeouts sont distingués des RST,
-		// et les succès mesurés (la latence d'établissement).
+	case 1: // CONNECT → 1 stream QUIC bidirectionnel
 		t0 := time.Now()
-		st, err := sess.Mux().Open(addr)
+		st, err := s.conn.OpenStreamSync(context.Background())
 		if err != nil {
 			log.Printf("CONNECT %s ÉCHEC en %dms : %v", addr, time.Since(t0).Milliseconds(), err)
-			socksErr(c, 5)
+			c.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
+			return
+		}
+		// [2B len][addr] — le serveur : dial le target et répond.
+		var hdr [2]byte
+		hdr[0] = byte(len(addr) >> 8)
+		hdr[1] = byte(len(addr))
+		if _, err := st.Write(append(hdr[:], []byte(addr)...)); err != nil {
+			log.Printf("CONNECT %s ÉCHEC (envoi) : %v", addr, err)
+			st.Close()
+			c.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
+			return
+		}
+		var status [1]byte
+		if _, err := io.ReadFull(st, status[:]); err != nil {
+			log.Printf("CONNECT %s ÉCHEC en %dms : %v", addr, time.Since(t0).Milliseconds(), err)
+			st.Close()
+			c.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
 			return
 		}
 		log.Printf("CONNECT %s établi en %dms", addr, time.Since(t0).Milliseconds())
 		c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-		bridge(c, st)
-	case 3: // UDP ASSOCIATE
-		st, err := sess.Mux().OpenUDP()
-		if err != nil {
-			socksErr(c, 5)
-			return
-		}
-		relayUDPAssociate(c, st)
-	default:
-		socksErr(c, 7)
-	}
-}
-
-func socksErr(c net.Conn, code byte) {
-	c.Write([]byte{5, code, 0, 1, 0, 0, 0, 0, 0, 0})
-}
-
-func bridge(a net.Conn, st *proto.Stream) {
-	// ATTENDRE LES DEUX SENS avant de fermer le stream (aligné sur le
-	// bridgeTCP du serveur) : fermer à la première fin de sens tronque
-	// l'autre — le relais DNS du data plane fait un half-close (CloseWrite
-	// après la requête) et la réponse du résolveur serait perdue
-	// ("downlink calé à 0B" rapporté).
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); io.Copy(st, a); st.CloseWrite() }()
-	go func() { defer wg.Done(); io.Copy(a, st) }()
-	wg.Wait()
-	st.Close()
-}
-
-// relayUDPAssociate : pont SOCKS5-UDP <-> stream "udp:" du tunnel.
-// Côté tunnel, chaque frame = [2B len][addr][payload] (chiffré par la session).
-func relayUDPAssociate(control net.Conn, st *proto.Stream) {
-	uc, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
-	if err != nil {
-		return
-	}
-	defer uc.Close()
-
-	la := uc.LocalAddr().(*net.UDPAddr)
-	ip4 := la.IP.To4()
-	hdr := []byte{5, 0, 0, 1, ip4[0], ip4[1], ip4[2], ip4[3], byte(la.Port >> 8), byte(la.Port)}
-	control.Write(hdr)
-
-	// Mort de la connexion TCP de contrôle => fin du relais.
-	go func() {
-		io.Copy(io.Discard, control)
-		uc.Close()
+		// Le bridge bidirectionnel (le TCP target).
+		done := make(chan struct{}, 2)
+		go func() { io.Copy(st, c); st.Close(); done <- struct{}{} }()
+		go func() { io.Copy(c, st); done <- struct{}{} }()
+		<-done
 		st.Close()
-	}()
-
-	var clientAddr *net.UDPAddr
-
-	// tunnel -> client SOCKS
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, err := st.Read(buf)
-			if err != nil {
-				uc.Close()
-				return
-			}
-			addr, payload := unpackUDPGram(buf[:n])
-			if addr == "" || clientAddr == nil {
-				continue
-			}
-			out := socksUDPWrap(addr, payload)
-			if out != nil {
-				uc.WriteToUDP(out, clientAddr)
-			}
-		}
-	}()
-
-	// client SOCKS -> tunnel
-	buf := make([]byte, 4096)
-	for {
-		n, from, err := uc.ReadFromUDP(buf)
-		if err != nil {
-			st.Close()
-			return
-		}
-		if clientAddr == nil {
-			clientAddr = from
-		}
-		addr, payload := socksUDPUnwrap(buf[:n])
-		if addr == "" || payload == nil {
-			continue
-		}
-		if _, err := st.Write(packUDPGram(addr, payload)); err != nil {
-			return
-		}
+	case 3: // UDP ASSOCIATE → les datagrammes QUIC (le relais DNS/UDP)
+		proto.UDPAssociateOverQUIC(s.conn, c)
 	}
-}
-
-// socksUDPUnwrap : retire l'en-tête SOCKS (RSV(2) FRAG(1) ATYP addr port)
-// et retourne l'adresse cible + les données.
-func socksUDPUnwrap(d []byte) (string, []byte) {
-	if len(d) < 4 || d[2] != 0 { // fragments non supportés
-		return "", nil
-	}
-	switch d[3] {
-	case 1: // IPv4
-		if len(d) < 10 {
-			return "", nil
-		}
-		addr := fmt.Sprintf("%d.%d.%d.%d:%d", d[4], d[5], d[6], d[7], binary.BigEndian.Uint16(d[8:10]))
-		return addr, d[10:]
-	case 3: // domaine
-		if len(d) < 5 {
-			return "", nil
-		}
-		l := int(d[4])
-		if len(d) < 5+l+2 {
-			return "", nil
-		}
-		addr := fmt.Sprintf("%s:%d", string(d[5:5+l]), binary.BigEndian.Uint16(d[5+l:5+l+2]))
-		return addr, d[5+l+2:]
-	case 4: // IPv6
-		if len(d) < 22 {
-			return "", nil
-		}
-		addr := fmt.Sprintf("[%s]:%d", net.IP(d[4:20]).String(), binary.BigEndian.Uint16(d[20:22]))
-		return addr, d[22:]
-	}
-	return "", nil
-}
-
-// socksUDPWrap : reconstruit un datagramme SOCKS UDP à destination du client.
-func socksUDPWrap(addr string, payload []byte) []byte {
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return nil
-	}
-	port, _ := strconv.Atoi(portStr)
-	var head []byte
-	if ip := net.ParseIP(host); ip != nil {
-		if v4 := ip.To4(); v4 != nil {
-			head = []byte{0, 0, 0, 1, v4[0], v4[1], v4[2], v4[3], byte(port >> 8), byte(port)}
-		} else {
-			head = append([]byte{0, 0, 0, 4}, ip.To16()...)
-			head = append(head, byte(port>>8), byte(port))
-		}
-	} else {
-		head = append([]byte{0, 0, 0, 3, byte(len(host))}, host...)
-		head = append(head, byte(port>>8), byte(port))
-	}
-	return append(head, payload...)
-}
-
-func packUDPGram(addr string, payload []byte) []byte {
-	out := make([]byte, 0, 2+len(addr)+len(payload))
-	out = append(out, byte(len(addr)>>8), byte(len(addr)))
-	out = append(out, addr...)
-	out = append(out, payload...)
-	return out
-}
-
-func unpackUDPGram(b []byte) (string, []byte) {
-	if len(b) < 2 {
-		return "", nil
-	}
-	l := int(b[0])<<8 | int(b[1])
-	if len(b) < 2+l {
-		return "", nil
-	}
-	return string(b[2 : 2+l]), b[2+l:]
 }

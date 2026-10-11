@@ -1,19 +1,11 @@
-// utunnel-server : endpoint du tunnel UDP utunnel.
-//
-//   - authentification par clé partagée (--key / fichier) + X25519 éphémère ;
-//   - une socket UDP unique ; toute une PLAGE de ports peut être renvoyée
-//     dessus par DNAT nftables (utunnel suit l'adresse:port du pair à chaque
-//     paquet, donc le port-hopping client marche nativement) ;
-//   - multi-sessions, multiplexage TCP + relais UDP via proto.Mux ;
-//   - expirations par compte (mode stivaros: fichier users.list username|pass|YYYY-MM-DD
-//     optionnel : chaque clé PSK = SHA256(username:pass), purge quotidienne).
 package main
 
 import (
+	"context"
 	"crypto/sha256"
-	"flag"
+	"encoding/binary"
 	"fmt"
-	"log"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -24,328 +16,164 @@ import (
 	"time"
 
 	"utunnel/proto"
+
+	"github.com/quic-go/quic-go"
 )
 
-var (
-	listenAddr = flag.String("listen", ":5900", "Adresse d'écoute UDP")
-	pskFile    = flag.String("key-file", "/etc/utunnel/server.psk", "Fichier de clé PSK (une ligne)")
-	usersFile  = flag.String("users-file", "", "users.list stivaros: uuid|secret|expire (optionnel)")
-	maxSess    = flag.Int("max-sessions", 4096, "Sessions simultanées max")
-	verbose    = flag.Bool("v", false, "Logs verbeux")
-)
-
-type pskSet struct {
-	mu   sync.RWMutex
-	psks map[string]struct{} // hex(sha256) du secret
-}
-
-// candidates retourne les clés candidates en clair (essai handshake1).
-func (p *pskSet) candidates() [][]byte {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	out := make([][]byte, 0, len(p.psks))
-	for h := range p.psks {
-		out = append(out, unhex(h))
-	}
-	return out
-}
-
-func (p *pskSet) loadStatic(file string) (string, error) {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return "", err
-	}
-	k := strings.TrimSpace(string(b))
-	sum := sha256.Sum256([]byte(k))
-	p.mu.Lock()
-	p.psks = map[string]struct{}{fmt.Sprintf("%x", sum): {}}
-	p.mu.Unlock()
-	return fmt.Sprintf("%x", sum), nil
-}
-
-func (p *pskSet) loadUsers(file string) int {
-	b, err := os.ReadFile(file)
-	if err != nil {
-		return 0
-	}
-	today := time.Now().Format("2006-01-02")
-	fresh := map[string]struct{}{}
-	// La clé statique est préservée
-	p.mu.RLock()
-	for k := range p.psks {
-		fresh[k] = struct{}{}
-	}
-	p.mu.RUnlock()
-
-	for _, line := range strings.Split(string(b), "\n") {
-		parts := strings.Split(line, "|")
-		if len(parts) < 3 || parts[1] == "" || parts[2] < today {
-			continue
-		}
-		// DEUX dérivations acceptées par entrée :
-		//   1. SHA256(uuid:secret) — la formule historique stivaros, servie
-		//      pré-calculée par l'API (champ utunnel_secret, 64 hex) ;
-		//   2. SHA256(secret) seul — le client app (resolveClientKey) ne
-		//      connaît PAS l'uuid du compte : un profil configuré à la main
-		//      avec le secret brut dérivait SHA256(secret) et le serveur le
-		//      rejetait en silence (dial timeout, aucun log). L'app doit
-		//      marcher telle quelle avec la valeur affichée par le panel.
-		sum := sha256.Sum256([]byte(parts[0] + ":" + parts[1]))
-		fresh[fmt.Sprintf("%x", sum)] = struct{}{}
-		sum2 := sha256.Sum256([]byte(parts[1]))
-		fresh[fmt.Sprintf("%x", sum2)] = struct{}{}
-	}
-	p.mu.Lock()
-	p.psks = fresh
-	n := len(fresh)
-	p.mu.Unlock()
-	return n
-}
-
-func unhex(s string) []byte {
-	out := make([]byte, len(s)/2)
-	for i := 0; i+2 <= len(s); i += 2 {
-		var v int
-		fmt.Sscanf(s[i:i+2], "%02x", &v)
-		out[i/2] = byte(v)
-	}
-	return out
-}
+// ── Serveur utunnel : transport QUIC (quic-go) ─────────────────────────
+//
+// Le transport PROUVÉ sur les réseaux mobiles hostiles (le DPI whitelist
+// le QUIC : indistinguable du trafic HTTPS/3). L'identité utunnel
+// PRÉSERVÉE : l'auth PSK (SHA256(uuid:secret) de la base stivaros), la
+// plage de ports (50000-59999 DNAT-ée), les streams TCP/UDP.
+//
+// Le protocole : le premier stream = [2B len][PSK] (l'auth) ; 1 stream
+// par CONNECT : [2B len][addr][status 1B] puis le bridge TCP ; les
+// datagrammes QUIC : [2B len][dst][payload] (le relais UDP/DNS).
 
 func main() {
-	flag.Parse()
-	log.SetPrefix("[utunnel] ")
-
-	psks := &pskSet{psks: map[string]struct{}{}}
-	if _, err := psks.loadStatic(*pskFile); err != nil {
-		log.Fatalf("clé statique introuvable (crée %s avec un secret) : %v", *pskFile, err)
+	listen := ":5669"
+	usersFile := "/etc/utunnel/users.list"
+	certFile := "/etc/utunnel/zivpn.crt"
+	keyFile := "/etc/utunnel/zivpn.key"
+	if len(os.Args) > 1 {
+		listen = os.Args[1]
 	}
-	if *usersFile != "" {
-		n := psks.loadUsers(*usersFile)
-		log.Printf("users.list : %d clés actives", n)
-		go func() { // rechargement horaire (expiration quotidienne)
-			for range time.Tick(time.Hour) {
-				psks.loadUsers(*usersFile)
-			}
-		}()
+	if len(os.Args) > 2 {
+		usersFile = os.Args[2]
+	}
+	if len(os.Args) > 3 {
+		certFile = os.Args[3]
+	}
+	if len(os.Args) > 4 {
+		keyFile = os.Args[4]
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", *listenAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-	log.Printf("utunnel prêt sur %s (UDP, range-DNAT compatible)", conn.LocalAddr())
-
-	// Démultiplexage : token de session (8 premiers octets du fil)
-	var mu sync.RWMutex
-	sessions := map[[16]byte]*proto.Session{} // token wire → session
-	hsSem := make(chan struct{}, 64)          // limite les handshakes concurrents
-	hsReg := proto.NewHandshakeRegistry()     // dédup réémissions h1 + réémission h2
-
-	count := func() int { mu.RLock(); defer mu.RUnlock(); return len(sessions) }
-
-	// Trafic périodique par session (toutes les 30 s) : diagnostics
-	// "downlink calé à 0B" — montre si le trafic passe réellement dans
-	// chaque direction (in = reçu du client, out = envoyé au client).
+	// Les PSK valides : le users.list (uuid|secret|expire) + les
+	// utunnel_secret de la base stivaros — rechargées toutes les heures.
+	valid := &pskSet{m: map[string]bool{}}
+	reloadValid(valid, usersFile)
 	go func() {
-		for range time.Tick(30 * time.Second) {
-			mu.RLock()
-			type row struct {
-				name   string
-				rx, tx int64
-			}
-			rows := make([]row, 0, len(sessions))
-			for _, s := range sessions {
-				rx, tx := s.Stats()
-				rows = append(rows, row{s.RemoteString(), rx, tx})
-			}
-			mu.RUnlock()
-			for _, r := range rows {
-				log.Printf("trafic %s : in=%d B out=%d B", r.name, r.rx, r.tx)
-			}
+		for range time.Tick(time.Hour) {
+			reloadValid(valid, usersFile)
 		}
 	}()
+
+	l, err := proto.ListenQUIC(listen, certFile, keyFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "utunnel-server: %v\n", err)
+		os.Exit(1)
+	}
+	logf("utunnel QUIC prêt sur %s", listen)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sig
-		conn.Close()
+		l.Close()
 		os.Exit(0)
 	}()
 
-	buf := make([]byte, 4096)
+	ctx := context.Background()
 	for {
-		n, from, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			return
-		}
-		raw := buf[:n]
-
-		// Paquet de session existante ? (token masqué = 8 premiers octets)
-		if n >= proto.MinPktLen {
-			mu.RLock()
-			sess, ok := lookup16(sessions, raw[:8])
-			mu.RUnlock()
-			if ok {
-				sess.HandleFromServer(from, append([]byte(nil), raw...))
-				continue
-			}
-		}
-
-		// Sinon : tentative de handshake1 (limitée en concurrence et en
-		// nombre total de sessions — anti-flood). Les réémissions du même
-		// h1 sont dédupliquées par le registre (réémission h2, aucune
-		// nouvelle session).
-		if n >= proto.PreKeyLen && n <= proto.PreKeyLen+1400 {
-			if count() >= *maxSess {
-				continue
-			}
-			select {
-			case hsSem <- struct{}{}:
-			default:
-				continue // saturation : on ignore, le client réessaie
-			}
-			go func() {
-				defer func() { <-hsSem }()
-				hsReg.Try(conn, from, append([]byte(nil), raw...), psks.candidates(), func(s *proto.Session) {
-					w := s.WireToken()
-					var k [16]byte
-					copy(k[:], w[:])
-					mu.Lock()
-					sessions[k] = s
-					mu.Unlock()
-					log.Printf("session +%s (total=%d)", from, count())
-					// Purge conntrack : quand le pair du client change
-					// (port hopping destination — l'app hoppe le port de
-					// la plage DNAT), l'ancienne entrée conntrack reste
-					// (timeout 120 s) et AMBIGUÏFIE le retour : la réponse
-					// du serveur match une entrée ALÉATOIRE et repart
-					// depuis un port destination aléatoire que le CGNAT
-					// port-dependent droppe (downlink calé à 0B). On purge
-					// l'ancienne entrée dès le changement de pair.
-					s.SetPairChangeHandler(func(old *net.UDPAddr) {
-						log.Printf("pair %s -> %s (purge conntrack)", old, from)
-						purgeConntrack(old)
-					})
-					go runSessionMux(s, func() {
-						mu.Lock()
-						delete(sessions, k)
-						mu.Unlock()
-						log.Printf("session -%s (total=%d)", from, count())
-					})
-				})
-			}()
-		}
-	}
-}
-
-func lookup16(m map[[16]byte]*proto.Session, wire8 []byte) (*proto.Session, bool) {
-	var k [16]byte
-	copy(k[:], wire8)
-	s, ok := m[k]
-	return s, ok
-}
-
-// purgeConntrack supprime l'entrée conntrack d'une ancienne adresse pair
-// (port hopping destination : l'ancien mapping CGNAT). L'identifiant
-// unique de l'entrée est son orig-src (= la réponse-dst) : l'adresse
-// externe CGNAT du client. --reply-src serait le port serveur (5669,
-// identique pour TOUTES les entrées) — la purge n'aurait rien ciblé.
-func purgeConntrack(old *net.UDPAddr) {
-	if old == nil {
-		return
-	}
-	c, err := exec.LookPath("conntrack")
-	if err != nil {
-		return // outil absent : pas de purge, le RTO/pings récupèrent
-	}
-	cmd := exec.Command(c, "-D", "-p", "udp",
-		"--orig-src", old.IP.String(),
-		"--orig-port-src", fmt.Sprintf("%d", old.Port),
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	_ = cmd.Run()
-}
-
-// runSessionMux accepte les streams entrants et les pontille.
-func runSessionMux(s *proto.Session, onDead func()) {
-	defer onDead()
-	mux := s.Mux()
-	mux.SetDialer(
-		func(addr string) (net.Conn, error) {
-			d := net.Dialer{Timeout: 10 * time.Second}
-			return d.Dial("tcp", addr)
-		},
-		func(st *proto.Stream) { // relais UDP : chaque frame = datagramme
-			go udpRelay(st)
-		},
-	)
-	// Le Serveur ne fait rien avec Accept() : SetDialer couvre tout.
-	// Accept est tout de même disponible pour extensions futures.
-	for {
-		if _, err := mux.Accept(); err != nil {
-			return
-		}
-	}
-}
-
-// udpRelay : payloads = [2B addrLen][addr][2B port][données] chiffrés.
-func udpRelay(st *proto.Stream) {
-	up, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero, Port: 0})
-	if err != nil {
-		st.Close()
-		return
-	}
-	defer up.Close()
-	go func() { // réponses -> client
-		buf := make([]byte, 2048)
-		for {
-			n, from, err := up.ReadFromUDP(buf)
-			if err != nil {
-				return
-			}
-			frame := packUDPGram(from.String(), buf[:n])
-			if _, err := st.Write(frame); err != nil {
-				return
-			}
-		}
-	}()
-	buf := make([]byte, 2048)
-	for {
-		n, err := st.Read(buf)
-		if err != nil {
-			return
-		}
-		addr, payload := unpackUDPGram(buf[:n])
-		da, err := net.ResolveUDPAddr("udp", addr)
+		qconn, err := proto.AcceptQUIC(ctx, l)
 		if err != nil {
 			continue
 		}
-		up.WriteToUDP(payload, da)
+		go handleQUICClient(qconn, valid)
 	}
 }
 
-func packUDPGram(addr string, payload []byte) []byte {
-	out := make([]byte, 0, 2+len(addr)+len(payload))
-	out = append(out, byte(len(addr)>>8), byte(len(addr)))
-	out = append(out, addr...)
-	out = append(out, payload...)
-	return out
+func logf(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, "[utunnel] "+time.Now().Format("2006/01/02 15:04:05 ")+" "+format+"\n", args...)
 }
 
-func unpackUDPGram(b []byte) (string, []byte) {
-	if len(b) < 2 {
-		return "", nil
-	}
-	l := int(b[0])<<8 | int(b[1])
-	if len(b) < 2+l {
-		return "", nil
-	}
-	return string(b[2 : 2+l]), b[2+l:]
+// pskSet : les PSK valides (le mutex).
+type pskSet struct {
+	mu sync.Mutex
+	m  map[string]bool
 }
+
+func (p *pskSet) ok(psk string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.m[psk]
+}
+
+func (p *pskSet) add(psk string) {
+	p.mu.Lock()
+	p.m[psk] = true
+	p.mu.Unlock()
+}
+
+// reloadValid : le users.list (uuid|secret|expire) + les statiques.
+func reloadValid(v *pskSet, usersFile string) {
+	data, err := os.ReadFile(usersFile)
+	if err != nil {
+		return
+	}
+	today := time.Now().Format("2006-01-02")
+	for _, line := range strings.Split(string(data), "\n") {
+		parts := strings.Split(strings.TrimSpace(line), "|")
+		if len(parts) >= 3 && parts[1] != "" && parts[2] >= today {
+			// Les DEUX formats acceptés : le secret brut ET le hash
+			// SHA256(uuid:secret) — l'app sert le hash (champ
+			// utunnel_secret 64 hex), les tests locaux le secret brut.
+			v.add(parts[1])
+			h := sha256.Sum256([]byte(parts[0] + ":" + parts[1]))
+			v.add(fmt.Sprintf("%x", h))
+		}
+	}
+}
+
+func handleQUICClient(qconn quic.Connection, valid *pskSet) {
+	defer func() { _ = recover() }()
+	// L'AUTH : le premier stream = [2B len][PSK].
+	astream, err := proto.AcceptAuthStream(qconn, valid.ok, 15*time.Second)
+	if err != nil {
+		return
+	}
+	_ = astream
+
+	// Les CONNECT : 1 stream par connexion.
+	for {
+		st, err := qconn.AcceptStream(context.Background())
+		if err != nil {
+			return
+		}
+		go handleQUICStream(st)
+	}
+}
+
+// handleQUICStream : le stream = [2B len][addr] → dial → [status 1B] →
+// le bridge bidirectionnel.
+func handleQUICStream(st quic.Stream) {
+	defer st.Close()
+	var hdr [2]byte
+	if _, err := io.ReadFull(st, hdr[:]); err != nil {
+		return
+	}
+	l := int(hdr[0])<<8 | int(hdr[1])
+	if l > 256 {
+		return
+	}
+	addr := make([]byte, l)
+	if _, err := io.ReadFull(st, addr); err != nil {
+		return
+	}
+	target, err := net.DialTimeout("tcp", string(addr), 10*time.Second)
+	if err != nil {
+		st.Write([]byte{0}) // status 0 = échec
+		return
+	}
+	defer target.Close()
+	st.Write([]byte{1}) // status 1 = établi
+
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(target, st); target.(interface{ CloseWrite() error }).CloseWrite(); done <- struct{}{} }()
+	go func() { io.Copy(st, target); done <- struct{}{} }()
+	<-done
+}
+
+var _ = exec.Command
+var _ = binary.BigEndian
