@@ -542,18 +542,8 @@ func BuildWireGuardOutbound(cfg *config.TunnelConfig, addr string, port int) map
 	if len(allowed) == 0 {
 		allowed = []string{"0.0.0.0/0", "::/0"}
 	}
-	// ENDPOINT WG : wg_peer_endpoint des advanced (le VRAI serveur WG
-	// ex. 204.152.219.23:51820) PRIME sur addr:port. Dans la chaîne
-	// SlowDNS, addr:port = 127.0.0.1:fwdPort (le forward dnstt TCP) —
-	// le WG enverrait ses paquets UDP vers un port TCP → perdus.
-	// Le endpoint réel est essentiel : le WG se connecte DIRECTEMENT
-	// au serveur WG via UDP (pas à travers le dnstt).
-	endpoint := fmt.Sprintf("%s:%d", addr, port)
-	if ep := advStr(cfg.Advanced, "wg_peer_endpoint", ""); ep != "" {
-		endpoint = ep
-	}
 	peer := map[string]interface{}{
-		"endpoint":   endpoint,
+		"endpoint":   fmt.Sprintf("%s:%d", addr, port),
 		"publicKey":  advStr(cfg.Advanced, "wg_peer_public_key", ""),
 		"allowedIPs": allowed,
 	}
@@ -934,19 +924,6 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 func SlowDNSOutbound(cfg *config.TunnelConfig, fwdPort int) map[string]interface{} {
 	ob := TunnelOutbound(cfg, "127.0.0.1", fwdPort)
 	rewriteOutboundAddr(ob, "127.0.0.1", fwdPort)
-	// WireGuard : rewriteOutboundAddr vient de pointer peers[].endpoint vers
-	// le forward dnstt (TCP) — les paquets WG (UDP) y seraient perdus.
-	// Ré-applique l'endpoint voulu : le shim local (mode pont WG) ou le vrai
-	// serveur (wg_peer_endpoint), jamais le port TCP du forward.
-	if ob["protocol"] == "wireguard" {
-		if ep := advStr(cfg.Advanced, "wg_peer_endpoint", ""); ep != "" {
-			if s, ok := ob["settings"].(map[string]interface{}); ok {
-				for _, p := range asMapList(s["peers"]) {
-					p["endpoint"] = ep
-				}
-			}
-		}
-	}
 	return ob
 }
 

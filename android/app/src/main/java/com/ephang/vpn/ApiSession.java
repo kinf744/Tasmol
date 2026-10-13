@@ -395,16 +395,6 @@ public final class ApiSession {
                 ranges = "50000-59999";
             }
             server.put("port_range", ranges);
-        } else if ("wgslowdns".equalsIgnoreCase(mode)) {
-            // WireGuard + SlowDNS : l'outbound Xray WireGuard (les clés
-            // wg_* servies par l'API) + le dnstt client pour le DNS.
-            type = "xray_slowdns";
-            String ns = c.optString("nameserver", "");
-            if (!ns.isEmpty()) {
-                server.put("nameserver", ns);
-                server.put("dns_resolver", "8.8.8.8:53");
-            }
-            auth.put("uuid", c.optString("xray_uuid", ""));
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));
@@ -443,25 +433,6 @@ public final class ApiSession {
         // Utunnel: source port rotation (seconds, 0 = never, server default 10).
         if (c.has("utunnel_hop")) {
             advanced.put("utunnel_hop", c.optInt("utunnel_hop", 10));
-        }
-        // WireGuard: les clés wg_* servies par l'API → les advanced.*.
-        if ("wgslowdns".equalsIgnoreCase(mode)) {
-            String[] wgFields = {"wg_secret_key", "wg_peer_public_key",
-                    "wg_pre_shared_key", "wg_address", "wg_peer_endpoint",
-                    "wg_allowed_ips", "wg_remote_dns"};
-            for (String f : wgFields) {
-                String v = c.optString(f, "");
-                if (!v.isEmpty()) {
-                    advanced.put(f, v);
-                }
-            }
-            if (c.has("wg_mtu")) {
-                advanced.put("wg_mtu", c.optInt("wg_mtu", 1420));
-            }
-            if (c.has("wg_keep_alive")) {
-                advanced.put("wg_keep_alive", c.optInt("wg_keep_alive", 25));
-            }
-            advanced.put("wg_no_kernel_tun", c.optBoolean("wg_no_kernel_tun", true));
         }
 
         JSONObject routing = new JSONObject(

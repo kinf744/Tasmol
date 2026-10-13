@@ -30,14 +30,11 @@ type XraySlowDNSTunnel struct {
 	stats       Stats
 	xrayCmd     *exec.Cmd
 	slowdnscmd  *exec.Cmd
-	shimCmd     *exec.Cmd
 	cancel      context.CancelFunc
 	startTime   time.Time
 	configPath  string
-	shimDir     string
 	pickedSocks int
 	pickedFwd   int
-	pickedShim  int
 }
 
 func NewXraySlowDNSTunnel(cfg *config.TunnelConfig) *XraySlowDNSTunnel {
@@ -97,15 +94,8 @@ func (t *XraySlowDNSTunnel) nsDomain() string {
 	return t.config.Server.Hostname
 }
 
-// shimPort renvoie le port du shim WG (UDP → VLESS TCP) pour les profils
-// WireGuard. 0 = shim non démarré (profil non-WG).
-func (t *XraySlowDNSTunnel) shimPort() int { return t.pickedShim }
-
 // generateXrayConfig builds an Xray config whose outbound dials the local
 // dnstt forward (127.0.0.1:fwdPort) instead of the remote server directly.
-// Pour un profil WireGuard, l'endpoint WG devient le shim local
-// (127.0.0.1:shimPort) : le WG envoie ses paquets UDP vers le shim, qui les
-// encapsule via VLESS-UDP dans le forward dnstt TCP (cf. BuildWGShimConfig).
 func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	inbound := map[string]interface{}{
 		"port":     t.socksPort(),
@@ -117,18 +107,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 		},
 	}
 
-	cfg := t.config
-	if IsWireGuard(t.config) && t.shimPort() > 0 {
-		clone := *t.config
-		adv := make(map[string]interface{}, len(t.config.Advanced)+1)
-		for k, v := range t.config.Advanced {
-			adv[k] = v
-		}
-		adv["wg_peer_endpoint"] = fmt.Sprintf("127.0.0.1:%d", t.shimPort())
-		clone.Advanced = adv
-		cfg = &clone
-	}
-	outbound := SlowDNSOutbound(cfg, t.fwdPort())
+	outbound := SlowDNSOutbound(t.config, t.fwdPort())
 
 	strategy := t.config.Routing.DomainStrategy
 	if strategy == "" {
@@ -160,101 +139,6 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	}
 
 	return string(data), nil
-}
-
-// BuildWGShimConfig builds the Xray config that bridges WireGuard UDP into
-// the dnstt TCP forward: a dokodemo-door UDP inbound (fixed target = the
-// WireGuard server port on the server loopback, i.e. cfg.Server.Port)
-// feeding a VLESS outbound pointed at the local dnstt forward. Server side,
-// the VLESS backend relays UDP to 127.0.0.1:<wgPort> (wg0).
-func BuildWGShimConfig(uuid string, fwdPort, shimPort, wgServerPort int) (string, error) {
-	cfg := map[string]interface{}{
-		"log": map[string]interface{}{"loglevel": "warning"},
-		"inbounds": []interface{}{
-			map[string]interface{}{
-				"listen":   "127.0.0.1",
-				"port":     shimPort,
-				"protocol": "dokodemo-door",
-				"tag":      "wgshim-in",
-				"settings": map[string]interface{}{
-					"address":       "127.0.0.1",
-					"port":          wgServerPort,
-					"network":       "udp",
-					"followRedirect": false,
-				},
-			},
-		},
-		"outbounds": []interface{}{
-			map[string]interface{}{
-				"protocol": "vless",
-				"settings": map[string]interface{}{
-					"vnext": []interface{}{
-						map[string]interface{}{
-							"address": "127.0.0.1",
-							"port":    fwdPort,
-							"users": []interface{}{
-								map[string]interface{}{
-									"id":         uuid,
-									"encryption": "none",
-									"level":      0,
-								},
-							},
-						},
-					},
-				},
-				"streamSettings": map[string]interface{}{"network": "tcp", "security": "none"},
-			},
-		},
-	}
-	data, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-// startWGShim lance le processus Xray shim (bridge WG UDP -> VLESS -> dnstt
-// TCP). Le wg_server_port est le port d'écoute de wg0 sur le SERVEUR
-// (cfg.Server.Port, ex. 443) vu depuis son loopback car le relais VLESS
-// côté serveur tourne sur la même machine.
-func (t *XraySlowDNSTunnel) startWGShim(ctx context.Context, shimPort int) (*exec.Cmd, string, error) {
-	content, err := BuildWGShimConfig(t.config.Auth.UUID, t.fwdPort(), shimPort, t.config.Server.Port)
-	if err != nil {
-		return nil, "", err
-	}
-	tmpDir, err := os.MkdirTemp(TmpDir, "xray-wgshim-*")
-	if err != nil {
-		return nil, "", err
-	}
-	confPath := filepath.Join(tmpDir, "config.json")
-	if err := os.WriteFile(confPath, []byte(content), 0600); err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, "", err
-	}
-	cmd := exec.CommandContext(ctx, LookupBin(BinDir, BinXray), "run", "-config", confPath)
-	cmd.Env = append(os.Environ(), androidCAEnv()...)
-	if BinDir != "" {
-		cmd.Env = append(cmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, "", err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, "", err
-	}
-	if err := cmd.Start(); err != nil {
-		os.RemoveAll(tmpDir)
-		return nil, "", err
-	}
-	Tracef("[xray-slowdns] WG shim started pid=%d udp=127.0.0.1:%d -> vless->fwd:%d -> server_udp:%d",
-		cmd.Process.Pid, shimPort, t.fwdPort(), t.config.Server.Port)
-	go PipeLinesToLog(stdout, "[xray-slowdns][shim][out]")
-	go PipeLinesToLog(stderr, "[xray-slowdns][shim][err]")
-	return cmd, tmpDir, nil
 }
 
 func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
@@ -324,41 +208,6 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.slowdnscmd = dnsttCmd
-
-	// Profils WireGuard : pont UDP→TCP — le serveur WG n'atteint pas le
-	// réseau de l'opérateur en UDP direct, donc les paquets WG sont relayés
-	// via VLESS-UDP à travers le forward dnstt (cf. balancer : le front RR
-	// pointe vers le SOCKS du membre pour ces profils).
-	if IsWireGuard(t.config) {
-		if t.config.Auth.UUID == "" {
-			Errorf("xray-slowdns", "wg shim: uuid manquant (bridge VLESS)")
-			t.slowdnscmd.Process.Kill()
-			t.status = StatusError
-			t.setError("uuid requis pour le pont WG (auth.uuid)")
-			return fmt.Errorf("wg slowdns bridge requires auth.uuid")
-		}
-		t.pickedShim = 0
-		shPort, perr := pickFreePort()
-		if perr != nil {
-			Errorf("xray-slowdns", "wg shim port: %v", perr)
-			t.slowdnscmd.Process.Kill()
-			t.status = StatusError
-			t.setError(perr.Error())
-			return perr
-		}
-		shimCmd, shimDir, serr := t.startWGShim(ctx, shPort)
-		if serr != nil {
-			Errorf("xray-slowdns", "wg shim: %v", serr)
-			t.slowdnscmd.Process.Kill()
-			t.status = StatusError
-			t.setError(serr.Error())
-			return serr
-		}
-		t.shimCmd = shimCmd
-		t.shimDir = shimDir
-		t.pickedShim = shPort
-		go t.watchShim(t.shimCmd)
-	}
 
 	configContent, err := t.generateXrayConfig()
 	if err != nil {
@@ -478,16 +327,6 @@ func (t *XraySlowDNSTunnel) Stop(ctx context.Context) error {
 		Tracef("[xray-slowdns] slowdns reaped")
 	}
 
-	if t.shimCmd != nil && t.shimCmd.Process != nil {
-		t.shimCmd.Process.Kill()
-		t.shimCmd.Wait()
-		Tracef("[xray-slowdns] wg shim reaped")
-	}
-	if t.shimDir != "" {
-		os.RemoveAll(t.shimDir)
-		t.shimDir = ""
-	}
-
 	if t.configPath != "" {
 		os.Remove(t.configPath)
 		os.Remove(filepath.Dir(t.configPath))
@@ -495,7 +334,6 @@ func (t *XraySlowDNSTunnel) Stop(ctx context.Context) error {
 
 	t.pickedSocks = 0
 	t.pickedFwd = 0
-	t.pickedShim = 0
 	ClearLiveForward(t.config.ID)
 	ClearLiveSocksAddr(t.config.ID)
 	t.status = StatusStopped
@@ -548,21 +386,4 @@ func (t *XraySlowDNSTunnel) monitorProcesses() {
 func (t *XraySlowDNSTunnel) setError(msg string) {
 	t.stats.LastError = msg
 	t.stats.UpdatedAt = time.Now()
-}
-
-// watchShim : si le shim WG meurt alors que la session tourne, on marque le
-// tunnel en erreur (sans lui, l'endpoint WG 127.0.0.1:shim n'a plus de taker).
-func (t *XraySlowDNSTunnel) watchShim(cmd *exec.Cmd) {
-	err := cmd.Wait()
-	Tracef("[xray-slowdns] wg shim exited: %v", err)
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.status == StatusRunning {
-		t.status = StatusError
-		if err != nil {
-			t.setError(fmt.Sprintf("WG shim: %v", err))
-		} else {
-			t.setError("WG shim exited")
-		}
-	}
 }
