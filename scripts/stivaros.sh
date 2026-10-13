@@ -608,7 +608,7 @@ install_zivpn() {
   "quotaStateFile": "$ZIVPN_HOME/quota-state.json",
   "statsAPI": { "listen": "127.0.0.1:10099", "token": "$stats_token" },
   "quota": {},
-  "auth": { "mode": "passwords", "config": ["zi"] }
+  "auth": { "mode": "passwords", "config": [] }
 }
 EOF
     chmod 600 "$ZIVPN_CONFIG"
