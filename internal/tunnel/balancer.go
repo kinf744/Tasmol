@@ -121,6 +121,21 @@ func balancerOutbound(tc *config.TunnelConfig, tag string) (map[string]interface
 		}
 		ob = TunnelOutbound(tc, tc.Server.Host, port)
 	case config.TunnelXraySlowDNS:
+		if IsWireGuard(tc) {
+			// WG dans la chaîne SlowDNS : le membre détient la chaîne
+			// dnstt + shim pont UDP→TCP (un seul WG actif par profil,
+			// zéro doublon de peer côté serveur) — le front passe par
+			// le SOCKS local du membre.
+			ob = map[string]interface{}{
+				"protocol": "socks",
+				"settings": map[string]interface{}{
+					"servers": []map[string]interface{}{
+						{"address": "127.0.0.1", "port": SocksPortLive(tc)},
+					},
+				},
+			}
+			break
+		}
 		if !HasOutboundJSON(tc) && tc.Auth.UUID == "" {
 			return nil, fmt.Errorf("xray uuid is required (auth.uuid) or paste a link/JSON")
 		}

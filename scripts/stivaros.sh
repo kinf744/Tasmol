@@ -2061,38 +2061,37 @@ SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '',
 SQL
     fi
     if (( want_wg )); then
-    # WireGuard : les clés client générées par compte, le peer ajouté au
-    # serveur WG. Les profils passent les clés via les champs advanced
-    # (wg_secret_key, wg_peer_public_key, wg_address, etc.) lus par
-    # BuildWireGuardOutbound côté app.
-    local wg_client_priv wg_client_pub wg_client_psk wg_client_ip
-    wg_client_priv=$(wg genkey)
-    wg_client_pub=$(echo "$wg_client_priv" | wg pubkey)
-    wg_client_psk=$(wg genpsk 2>/dev/null || wg genkey)
-    wg_client_ip="$WG_CLIENT_IP_BASE.$((10 + RANDOM % 200))"
-    # Le peer côté serveur WG.
-    wg set wg0 peer "$wg_client_pub" allowed-ips "$wg_client_ip/32" 2>/dev/null || true
+    # WireGuard + SlowDNS : le WG est relayé À TRAVERS le tunnel DNS nv4
+    # (dnstt -> VLESS :5403 -> wg0) car l'UDP direct est bloqué sur les
+    # réseaux opérateur DNS-only. Côté app, un shim dokodemo-UDP -> VLESS
+    # encapsule les paquets WG dans le flux TCP du tunnel (xray_slowdns).
+    # CHAQUE profil reçoit une paire de clés + un peer DISTINCT : en mode
+    # round-robin l'app fait tourner N membres en parallèle — partager la
+    # même clé forcerait le serveur à faire du roaming entre les deux
+    # sessions et détruirait le trafic.
+    local ip_cursor wg_client_priv wg_client_pub wg_client_psk wg_client_ip psk_file i
+    ip_cursor=$( wg show wg0 allowed-ips 2>/dev/null | grep -oE "${WG_CLIENT_IP_BASE}\.[0-9]+" | cut -d. -f4 | sort -n | tail -1 )
+    [[ -z "$ip_cursor" ]] && ip_cursor=10
+    for i in 1 2 3 4; do
+        wg_client_priv=$(wg genkey)
+        wg_client_pub=$(printf '%s' "$wg_client_priv" | wg pubkey)
+        wg_client_psk=$(wg genpsk 2>/dev/null || wg genkey)
+        ip_cursor=$((ip_cursor + 1))
+        wg_client_ip="$WG_CLIENT_IP_BASE.$ip_cursor"
+        # wg set attend un CHEMIN de fichier pour preshared-key.
+        psk_file=$(mktemp 2>/dev/null || echo /dev/shm/.wgpsk.$$); printf '%s' "$wg_client_psk" > "$psk_file"
+        chmod 600 "$psk_file" 2>/dev/null || true
+        wg set wg0 peer "$wg_client_pub" preshared-key "$psk_file" allowed-ips "$wg_client_ip/32" 2>/dev/null || true
+        rm -f "$psk_file"
     cat << SQL
--- Quatre profils WireGuard+SlowDNS (le round-robin ×4 de l'app).
--- Le serveur public WG + les clés client dans les advanced.* (les champs
--- wg_* lus par BuildWireGuardOutbound). Le port WG est le port UDP $WG_PORT.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
-SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
-       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
-FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
-SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
-       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
-FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
-SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
-       json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
-FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, wg_keys)
-SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub',
+SELECT id, '$e_srv', $WG_PORT, 'wireguard', 'udp', 0, '$e_srv', '$e_srv', '', 'wgslowdns', '150', '$xray_uuid', '$e_nv4', '$e_pub',
        json_object('wg_secret_key', '$wg_client_priv', 'wg_peer_public_key', '$(cat "$WG_SERVER_PUB")', 'wg_pre_shared_key', '$wg_client_psk', 'wg_address', '$wg_client_ip/32', 'wg_peer_endpoint', '$e_srv:$WG_PORT', 'wg_allowed_ips', '0.0.0.0/0,::/0', 'wg_mtu', 1420, 'wg_keep_alive', 25, 'wg_no_kernel_tun', json('true'), 'wg_remote_dns', '1.1.1.1,8.8.8.8')
 FROM users WHERE uuid='$uuid';
 SQL
+    done
+    # Persiste les nouveaux peers dans wg0.conf (sinon perdus au reboot).
+    wg-quick save wg0 2>/dev/null || true
     fi
     } | sqlite3 -batch "$DB_PATH"
 

@@ -934,6 +934,19 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 func SlowDNSOutbound(cfg *config.TunnelConfig, fwdPort int) map[string]interface{} {
 	ob := TunnelOutbound(cfg, "127.0.0.1", fwdPort)
 	rewriteOutboundAddr(ob, "127.0.0.1", fwdPort)
+	// WireGuard : rewriteOutboundAddr vient de pointer peers[].endpoint vers
+	// le forward dnstt (TCP) — les paquets WG (UDP) y seraient perdus.
+	// Ré-applique l'endpoint voulu : le shim local (mode pont WG) ou le vrai
+	// serveur (wg_peer_endpoint), jamais le port TCP du forward.
+	if ob["protocol"] == "wireguard" {
+		if ep := advStr(cfg.Advanced, "wg_peer_endpoint", ""); ep != "" {
+			if s, ok := ob["settings"].(map[string]interface{}); ok {
+				for _, p := range asMapList(s["peers"]) {
+					p["endpoint"] = ep
+				}
+			}
+		}
+	}
 	return ob
 }
 
