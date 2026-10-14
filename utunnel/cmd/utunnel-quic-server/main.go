@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/quic-go/quic-go"
+	"utunnel/proto"
 )
 
 // ── Serveur utunnel : transport QUIC (quic-go) ─────────────────────────
@@ -35,14 +36,62 @@ var (
 	validM  = map[string]bool{}
 )
 
+// Les options nommées (-cc brutal -down-mbps N) — appliquées au relais.
+var (
+	certFileFlag string
+	keyFileFlag  string
+	downPacer    *proto.Pacer
+)
+
+// Le serveur : les arguments POSITIONNELS historiques (listen, users,
+// cert, key) puis les options nommées (-cc brutal -down-mbps N …).
 func main() {
 	listen := ":5669"
 	usersFile := "/etc/utunnel/users.list"
-	if len(os.Args) > 1 {
-		listen = os.Args[1]
+	positional := []string{}
+	ccMode := "auto"
+	downMbps := 0.0
+	for i := 1; i < len(os.Args); i++ {
+		switch os.Args[i] {
+		case "-cc":
+			if i+1 < len(os.Args) {
+				i++
+				ccMode = os.Args[i]
+			}
+		case "-down-mbps":
+			if i+1 < len(os.Args) {
+				i++
+				fmt.Sscanf(os.Args[i], "%f", &downMbps)
+			}
+		case "-up-mbps":
+			if i+1 < len(os.Args) {
+				i++
+			}
+		default:
+			positional = append(positional, os.Args[i])
+		}
 	}
-	if len(os.Args) > 2 {
-		usersFile = os.Args[2]
+	for i, p := range positional {
+		switch i {
+		case 0:
+			listen = p
+		case 1:
+			usersFile = p
+		case 2:
+			certFileFlag = p
+		case 3:
+			keyFileFlag = p
+		}
+	}
+	if ccMode == "brutal" {
+		downPacer = proto.NewPacer(downMbps)
+		if downPacer == nil {
+			logf("brutal sans -down-mbps : pas de pacing (débit cible requis)")
+		} else {
+			logf("brutal activé : downlink limité à %.0f Mbps", downMbps)
+		}
+	} else if ccMode != "auto" && ccMode != "" {
+		logf("-cc inconnue : %s (auto|brutal) — auto appliqué", ccMode)
 	}
 
 	reloadValid(usersFile)
@@ -55,6 +104,12 @@ func main() {
 	// Le cert auto-signé (généré si absent).
 	certFile := "/etc/utunnel/quic.crt"
 	keyFile := "/etc/utunnel/quic.key"
+	if certFileFlag != "" {
+		certFile = certFileFlag
+	}
+	if keyFileFlag != "" {
+		keyFile = keyFileFlag
+	}
 	if _, err := os.Stat(certFile); os.IsNotExist(err) {
 		genCert(certFile, keyFile)
 	}
@@ -157,8 +212,8 @@ func handleQUICClient(qconn quic.Connection) {
 		logf("auth refusée (PSK inconnue)")
 		st.Close()
 		return
- 	}
- 	// L'ACK d'auth : le client attend [1B status=1] sur le stream d'auth
+	}
+	// L'ACK d'auth : le client attend [1B status=1] sur le stream d'auth
 	// (proto.AuthStream lit l'ack après avoir envoyé la PSK). Sans cet
 	// octet le client restait bloqué 15 s puis échouait — le tunnel
 	// "se connectait" mais le trafic ne passait jamais.
@@ -166,7 +221,7 @@ func handleQUICClient(qconn quic.Connection) {
 		st.Close()
 		return
 	}
- 	logf("auth OK (PSK acceptée)")
+	logf("auth OK (PSK acceptée)")
 
 	// Le stream d'auth reste ouvert (la session vit tant qu'il vit).
 	// Les CONNECT suivants : 1 stream par connexion.
@@ -204,8 +259,9 @@ func handleQUICStream(st quic.Stream) {
 	st.Write([]byte{1}) // status 1 = établi
 
 	done := make(chan struct{}, 2)
+	// Downlink (serveur → client) : pacé en mode brutal (l'émetteur décide).
 	go func() { io.Copy(target, st); target.(*net.TCPConn).CloseWrite(); done <- struct{}{} }()
-	go func() { io.Copy(st, target); done <- struct{}{} }()
+	go func() { io.Copy(&proto.PacedWriter{W: st, P: downPacer}, target); done <- struct{}{} }()
 	<-done
 }
 

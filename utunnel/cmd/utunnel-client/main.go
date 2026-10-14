@@ -44,7 +44,13 @@ var (
 	socksAddr  = flag.String("socks", "127.0.0.1:10080", "écoute SOCKS5 locale")
 	certFile   = flag.String("cert", "", "cert.pem du serveur (insecure si vide)")
 	hopMin     = flag.Int("hop-min", 10, "intervalle du re-dial adaptatif (secondes)")
+	ccMode     = flag.String("cc", "auto", "contrôle de congestion : auto (QUIC natif) | brutal (pacing à débit cible)")
+	upMbps     = flag.Float64("up-mbps", 0, "brutal : débit montant cible en Mbps (0 = auto)")
+	downMbps   = flag.Float64("down-mbps", 0, "brutal : débit descendant cible (informé au serveur, appliqué côté serveur)")
 )
+
+// upPacer : le pacer du mode brutal (nil = pas de pacing).
+var upPacer *proto.Pacer
 
 var connectStart time.Time
 
@@ -52,6 +58,18 @@ func main() {
 	flag.Parse()
 	if *serverAddr == "" {
 		log.Fatal("--server requis")
+	}
+	switch *ccMode {
+	case "", "auto":
+	case "brutal":
+		upPacer = proto.NewPacer(*upMbps)
+		if upPacer == nil {
+			log.Printf("brutal sans -up-mbps : pas de pacing (débit cible requis)")
+		} else {
+			log.Printf("brutal activé : uplink limité à %.0f Mbps", *upMbps)
+		}
+	default:
+		log.Fatalf("-cc inconnue : %s (auto|brutal)", *ccMode)
 	}
 	psk, err := loadPSK()
 	if err != nil {
@@ -233,9 +251,11 @@ func handleSOCKSQuic(s *quicSess, c net.Conn) {
 		}
 		log.Printf("CONNECT %s établi en %dms", addr, time.Since(t0).Milliseconds())
 		c.Write([]byte{5, 0, 0, 1, 0, 0, 0, 0, 0, 0})
-		// Le bridge bidirectionnel (le TCP target).
+		// Le bridge bidirectionnel (le TCP target). L'uplink (client →
+		// serveur) est pacé en mode brutal ; le downlink est pacé côté
+		// serveur (l'émetteur décide).
 		done := make(chan struct{}, 2)
-		go func() { io.Copy(st, c); st.Close(); done <- struct{}{} }()
+		go func() { io.Copy(&proto.PacedWriter{W: st, P: upPacer}, c); st.Close(); done <- struct{}{} }()
 		go func() { io.Copy(c, st); done <- struct{}{} }()
 		<-done
 		st.Close()

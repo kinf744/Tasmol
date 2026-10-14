@@ -362,7 +362,7 @@ func UDPAssociateOverQUIC(q quic.Connection, socks net.Conn) {
 			if _, err := io.ReadFull(socks, pkt); err != nil {
 				return
 			}
-			if len(pkt) < 7 {
+			if len(pkt) < 10 {
 				return
 			}
 			// [atyp][addr][port][payload] (le format SOCKS5 UDP)
@@ -375,10 +375,13 @@ func UDPAssociateOverQUIC(q quic.Connection, socks net.Conn) {
 				payload = pkt[10:]
 			case 3:
 				dl := int(pkt[4])
+				if 5+dl+2 > len(pkt) {
+					return
+				}
 				host := string(pkt[5 : 5+dl])
 				port := int(binary.BigEndian.Uint16(pkt[5+dl:]))
 				ips, err := net.LookupIP(host)
-				if err != nil {
+				if err != nil || len(ips) == 0 {
 					continue
 				}
 				dst = &net.UDPAddr{IP: ips[0], Port: port}

@@ -233,6 +233,19 @@ func (t *UtunnelTunnel) Start(ctx context.Context) error {
 		"-key-file", keyPath,
 		"-socks", socksAddr,
 	)
+	// Le contrôle de congestion optionnel du profil (advanced.*):
+	// utunnel_cc = auto|brutal, utunnel_up / utunnel_down = débits cibles
+	// en Mbps (le brutal paces l'uplink côté client, le downlink côté
+	// serveur — l'émetteur décide). Absents → auto (QUIC natif).
+	if v := advStr(t.config.Advanced, "utunnel_cc", ""); v != "" {
+		cmd.Args = append(cmd.Args, "-cc", v)
+	}
+	if v := advStr(t.config.Advanced, "utunnel_up", ""); v != "" {
+		cmd.Args = append(cmd.Args, "-up-mbps", v)
+	}
+	if v := advStr(t.config.Advanced, "utunnel_down", ""); v != "" {
+		cmd.Args = append(cmd.Args, "-down-mbps", v)
+	}
 	cmd.Dir = TmpDir
 	cmd.Env = append(os.Environ(),
 		"HOME="+TmpDir,
