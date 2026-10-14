@@ -1946,6 +1946,11 @@ create_user() {
     e_srv=$(sqlq "$server_addr"); e_sshuser=$(sqlq "$ssh_user")
     e_ns4=$(sqlq "$ns4"); e_nv4=$(sqlq "$nv4"); e_pub=$(sqlq "$dnstt_pub")
 
+    # sqlite3 avorte le lot à la première erreur SQL sans message visible :
+    # les familles suivantes n'étaient jamais insérées (cf. le compte du
+    # 2026-10-05 dont la paire v2raydns manquait, sans aucune trace).
+    local sql_err
+    sql_err=$(mktemp)
     {
     cat << SQL
 INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id)
@@ -2003,7 +2008,44 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
 SQL
     fi
-    } | sqlite3 -batch "$DB_PATH"
+    } | sqlite3 -batch "$DB_PATH" 2> "$sql_err" || true
+    if [[ -s "$sql_err" ]]; then
+        error "Erreurs SQL pendant la création des configs :"
+        sed 's/^/    /' "$sql_err" >&2
+    fi
+    rm -f "$sql_err"
+
+    # Vérification par famille : compte les lignes réellement insérées et
+    # signale toute famille incomplète (l'utilisateur voit immédiatement
+    # ce qui manque dans l'app au lieu d'un spinner silencieusement vide).
+    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_utunnel=0
+    cnt() { sqlite3 -batch "$DB_PATH" "SELECT COUNT(*) FROM vpn_configs WHERE user_id=(SELECT id FROM users WHERE uuid='$uuid') AND $1;"; }
+    cnt_xray=$(cnt "mode IN ('', 'xray')")
+    cnt_zivpn=$(cnt "mode='zivpn'")
+    cnt_sshdns=$(cnt "mode='sshslowdns'")
+    cnt_v2dns=$(cnt "mode='v2raydns'")
+    cnt_utunnel=$(cnt "mode='utunnel'")
+    local ok_cfgs=1
+    if (( want_xray )) && (( cnt_xray < 3 )); then
+        error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
+        error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_sshdns )) && (( cnt_sshdns < 2 )); then
+        error "SSH+SlowDNS : $cnt_sshdns/2 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_v2dns )) && (( cnt_v2dns < 2 )); then
+        error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_utunnel )) && (( cnt_utunnel < 2 )); then
+        error "UTUNNEL : $cnt_utunnel/2 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( ok_cfgs )); then
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 UTUNNEL:$cnt_utunnel/2)"
+    else
+        warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
+    fi
 
     # Provisionne les identifiants côté tunnels.
     if (( want_sshdns )); then
