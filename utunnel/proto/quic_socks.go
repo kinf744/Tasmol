@@ -6,12 +6,12 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 
 	"crypto/rsa"
 	"crypto/x509/pkix"
@@ -141,6 +141,7 @@ func DialQUIC(ctx context.Context, addr string) (quic.Connection, error) {
 	dctx, cancel := context.WithTimeout(ctx, UTUNNEL_DIAL_TIMEOUT)
 	defer cancel()
 	quicCfg := &quic.Config{
+		EnableDatagrams: true, // le relais UDP (les datagrammes QUIC)
 		MaxIdleTimeout:  30 * time.Second,
 		KeepAlivePeriod: 5 * time.Second, // le ping QUIC natif (indistinguable)
 	}
@@ -159,7 +160,8 @@ func ListenQUIC(addr, certFile, keyFile string) (*quic.EarlyListener, error) {
 		return nil, err
 	}
 	quicCfg := &quic.Config{
-		MaxIdleTimeout: 30 * time.Second,
+		EnableDatagrams: true, // le relais UDP (les datagrammes QUIC)
+		MaxIdleTimeout:  30 * time.Second,
 	}
 	return quic.ListenAddrEarly(addr, tlsCfg, quicCfg)
 }
@@ -343,72 +345,89 @@ func LoadPSKFromString(s string) ([]byte, error) {
 
 // UDPAssociateOverQUIC : le relais UDP (le DNS) via les datagrammes
 // QUIC : [2B len][dst][payload] — le serveur : sendto + la réponse.
-func UDPAssociateOverQUIC(q quic.Connection, socks net.Conn) {
+// UDPAssociateOverQUIC : le SOCKS5 UDP ASSOCIATE standard. L'app (gVisor
+// tun2socks) ouvre une socket UDP vers 127.0.0.1:<port BND> et parle le
+// datagramme SOCKS5 [RSV 2B][FRAG 1B][ATYP][addr][port][payload]. Le
+// client strip le préfixe SOCKS et envoie [2B len][ATYP][addr][port]
+// [payload] en datagramme QUIC ; les réponses du serveur suivent le
+// chemin inverse. up paces l'uplink en mode brutal (nil = pas de pacing).
+func UDPAssociateOverQUIC(q quic.Connection, socks net.Conn, up *Pacer) {
 	defer socks.Close()
-	// Le datagramme du téléphone : dst + payload → le serveur.
-	done := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	// La socket UDP de relais locale (le BND annoncé à l'app).
+	udp, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		return
+	}
+	defer udp.Close()
+	lport := udp.LocalAddr().(*net.UDPAddr).Port
+	resp := []byte{5, 0, 0, 1, 127, 0, 0, 1, byte(lport >> 8), byte(lport)}
+	if _, err := socks.Write(resp); err != nil {
+		return
+	}
+	var appMu sync.Mutex
+	var appAddr *net.UDPAddr
+	// La fermeture du contrôle TCP = la fin de l'association.
 	go func() {
-		defer close(done)
-		var hdr [2]byte
+		io.Copy(io.Discard, socks)
+		cancel()
+	}()
+	// Les requêtes de l'app → les datagrammes QUIC (l'uplink).
+	go func() {
+		buf := make([]byte, 65536)
 		for {
-			if _, err := io.ReadFull(socks, hdr[:]); err != nil {
-				return
-			}
-			l := int(hdr[0])<<8 | int(hdr[1])
-			if l > 2048 {
-				return
-			}
-			pkt := make([]byte, l)
-			if _, err := io.ReadFull(socks, pkt); err != nil {
-				return
-			}
-			if len(pkt) < 10 {
-				return
-			}
-			// [atyp][addr][port][payload] (le format SOCKS5 UDP)
-			var dst *net.UDPAddr
-			var payload []byte
-			switch pkt[3] {
-			case 1:
-				dst = &net.UDPAddr{IP: net.IPv4(pkt[4], pkt[5], pkt[6], pkt[7]),
-					Port: int(binary.BigEndian.Uint16(pkt[8:]))}
-				payload = pkt[10:]
-			case 3:
-				dl := int(pkt[4])
-				if 5+dl+2 > len(pkt) {
-					return
-				}
-				host := string(pkt[5 : 5+dl])
-				port := int(binary.BigEndian.Uint16(pkt[5+dl:]))
-				ips, err := net.LookupIP(host)
-				if err != nil || len(ips) == 0 {
-					continue
-				}
-				dst = &net.UDPAddr{IP: ips[0], Port: port}
-				payload = pkt[7+dl:]
-			default:
-				continue
-			}
-			conn, err := net.DialUDP("udp", nil, dst)
+			n, src, err := udp.ReadFromUDP(buf)
 			if err != nil {
-				continue
+				return
 			}
-			conn.Write(payload)
-			conn.Close()
+			if n < 4+3 || buf[2] != 0 { // RSV 2B + FRAG 1B + ATYP/addr/port
+				continue // FRAG≠0 (réassemblage) non supporté, comme la plupart des proxies
+			}
+			appMu.Lock()
+			appAddr = src
+			appMu.Unlock()
+			inner := buf[3:n] // [ATYP][addr][port][payload]
+			if len(inner) > 1198 {
+				continue // le datagramme QUIC tient dans le PMTU
+			}
+			if up != nil {
+				up.Wait(len(inner) + 2)
+			}
+			var hdr [2]byte
+			hdr[0] = byte(len(inner) >> 8)
+			hdr[1] = byte(len(inner))
+			out := make([]byte, 0, len(inner)+2)
+			out = append(out, hdr[0], hdr[1])
+			out = append(out, inner...)
+			if err := q.SendDatagram(out); err != nil {
+				return
+			}
 		}
 	}()
-	// Les réponses du serveur : [2B len][dst][payload] → le SOCKS.
+	// Les réponses du serveur → l'app (ré-encapsulées en SOCKS5 UDP).
 	for {
-		dg, err := q.ReceiveDatagram(context.Background())
+		dg, err := q.ReceiveDatagram(ctx)
 		if err != nil {
 			return
 		}
-		if len(dg) < 3 {
+		if len(dg) < 4 {
 			continue
 		}
-		var hdr [2]byte
-		hdr[0] = byte(len(dg) >> 8)
-		hdr[1] = byte(len(dg))
-		socks.Write(append(hdr[:], dg...))
+		l := int(dg[0])<<8 | int(dg[1])
+		if l+2 > len(dg) {
+			continue
+		}
+		inner := dg[2 : 2+l]
+		appMu.Lock()
+		dst := appAddr
+		appMu.Unlock()
+		if dst == nil {
+			continue
+		}
+		out := make([]byte, 0, len(inner)+3)
+		out = append(out, 0, 0, 0) // RSV 0, FRAG 0
+		out = append(out, inner...)
+		udp.WriteToUDP(out, dst)
 	}
 }

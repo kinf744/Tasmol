@@ -67,6 +67,8 @@ func main() {
 			if i+1 < len(os.Args) {
 				i++
 			}
+		case "-allow-private":
+			allowPrivate = true
 		default:
 			positional = append(positional, os.Args[i])
 		}
@@ -120,7 +122,8 @@ func main() {
 		MinVersion:   tls.VersionTLS13,
 	}
 	quicCfg := &quic.Config{
-		MaxIdleTimeout: 30 * time.Second,
+		EnableDatagrams: true, // le relais UDP (les datagrammes QUIC)
+		MaxIdleTimeout:  30 * time.Second,
 	}
 
 	l, err := quic.ListenAddrEarly(listen, tlsCfg, quicCfg)
@@ -225,12 +228,180 @@ func handleQUICClient(qconn quic.Connection) {
 
 	// Le stream d'auth reste ouvert (la session vit tant qu'il vit).
 	// Les CONNECT suivants : 1 stream par connexion.
+	go handleQUICDatagrams(qconn)
 	for {
 		cst, err := qconn.AcceptStream(context.Background())
 		if err != nil {
 			return
 		}
 		go handleQUICStream(cst)
+	}
+}
+
+// ── Le relais UDP (les datagrammes QUIC) ────────────────────────────────
+//
+// Format du datagramme : [2B len][ATYP][addr][port][payload] (l'en-tête
+// SOCKS5 UDP sans RSV/FRAG). Le serveur maintient une socket UDP par
+// destination (TTL 2 min, plafond par connexion) et relaie les réponses
+// au client avec le même en-tête. Les cibles loopback/privées/link-local/
+// CGNAT sont refusées (anti-SSRF) sauf -allow-private.
+
+const (
+	udpMaxEntries = 256
+	udpEntryTTL   = 2 * time.Minute
+	udpMaxSize    = 1400
+)
+
+var allowPrivate = false
+
+type udpEntry struct {
+	conn *net.UDPConn
+	last time.Time
+}
+
+func socksAddrToUDP(b []byte) (*net.UDPAddr, string, []byte, bool) {
+	if len(b) < 2 {
+		return nil, "", nil, false
+	}
+	switch b[0] {
+	case 1: // IPv4
+		if len(b) < 7 {
+			return nil, "", nil, false
+		}
+		ip := net.IPv4(b[1], b[2], b[3], b[4])
+		port := int(b[5])<<8 | int(b[6])
+		return &net.UDPAddr{IP: ip, Port: port}, ip.String() + ":" + itoa(port), b[:7], true
+	case 4: // IPv6
+		if len(b) < 19 {
+			return nil, "", nil, false
+		}
+		ip := net.IP(b[1:17])
+		port := int(b[17])<<8 | int(b[18])
+		return &net.UDPAddr{IP: ip, Port: port}, ip.String() + ":" + itoa(port), b[:19], true
+	case 3: // domaine
+		dl := int(b[1])
+		if len(b) < 1+1+dl+2 || dl == 0 {
+			return nil, "", nil, false
+		}
+		host := string(b[2 : 2+dl])
+		port := int(b[2+dl])<<8 | int(b[2+dl+1])
+		ips, err := net.LookupIP(host)
+		if err != nil || len(ips) == 0 {
+			return nil, "", nil, false
+		}
+		return &net.UDPAddr{IP: ips[0], Port: port}, host + ":" + itoa(port), b[:2+dl+2], true
+	default:
+		return nil, "", nil, false
+	}
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var d []byte
+	for n > 0 {
+		d = append([]byte{byte('0' + n%10)}, d...)
+		n /= 10
+	}
+	if neg {
+		return "-" + string(d)
+	}
+	return string(d)
+}
+
+func isBlockedTarget(addr *net.UDPAddr) bool {
+	if allowPrivate {
+		return false
+	}
+	ip := addr.IP
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsUnspecified() || ip.IsMulticast() ||
+		(len(ip.To4()) == 4 && ip.To4()[0] == 100 && ip.To4()[1] >= 64 && ip.To4()[1] < 128)
+}
+
+func handleQUICDatagrams(qconn quic.Connection) {
+	defer func() { _ = recover() }()
+	entries := map[string]*udpEntry{}
+	defer func() {
+		for _, e := range entries {
+			e.conn.Close()
+		}
+	}()
+	sweep := time.NewTicker(30 * time.Second)
+	defer sweep.Stop()
+	for {
+		dg, err := qconn.ReceiveDatagram(context.Background())
+		if err != nil {
+			return
+		}
+		select {
+		case now := <-sweep.C:
+			for k, e := range entries {
+				if now.Sub(e.last) > udpEntryTTL {
+					e.conn.Close()
+					delete(entries, k)
+				}
+			}
+		default:
+		}
+		if len(dg) < 2 {
+			continue
+		}
+		l := int(dg[0])<<8 | int(dg[1])
+		if l+2 > len(dg) {
+			continue
+		}
+		inner := dg[2 : 2+l]
+		dst, key, hdr, ok := socksAddrToUDP(inner)
+		if !ok || dst == nil {
+			continue
+		}
+		if isBlockedTarget(dst) {
+			continue
+		}
+		payload := inner[len(hdr):]
+		e := entries[key]
+		if e == nil {
+			if len(entries) >= udpMaxEntries {
+				continue
+			}
+			rconn, err := net.DialUDP("udp", nil, dst)
+			if err != nil {
+				continue
+			}
+			e = &udpEntry{conn: rconn, last: time.Now()}
+			entries[key] = e
+			go func(e *udpEntry, hdr []byte) {
+				rbuf := make([]byte, 65536)
+				for {
+					n, err := e.conn.Read(rbuf)
+					if err != nil {
+						return
+					}
+					if n > udpMaxSize-2-len(hdr) {
+						n = udpMaxSize - 2 - len(hdr)
+					}
+					out := make([]byte, 0, 2+len(hdr)+n)
+					total := len(hdr) + n
+					out = append(out, byte(total>>8), byte(total))
+					out = append(out, hdr...)
+					out = append(out, rbuf[:n]...)
+					if downPacer != nil {
+						downPacer.Wait(len(out))
+					}
+					if err := qconn.SendDatagram(out); err != nil {
+						return
+					}
+				}
+			}(e, append([]byte{}, hdr...))
+		}
+		e.last = time.Now()
+		e.conn.Write(payload)
 	}
 }
 

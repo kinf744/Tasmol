@@ -260,6 +260,6 @@ func handleSOCKSQuic(s *quicSess, c net.Conn) {
 		<-done
 		st.Close()
 	case 3: // UDP ASSOCIATE → les datagrammes QUIC (le relais DNS/UDP)
-		proto.UDPAssociateOverQUIC(s.conn, c)
+		proto.UDPAssociateOverQUIC(s.conn, c, upPacer)
 	}
 }
