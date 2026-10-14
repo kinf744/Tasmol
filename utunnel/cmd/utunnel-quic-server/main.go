@@ -157,8 +157,16 @@ func handleQUICClient(qconn quic.Connection) {
 		logf("auth refusée (PSK inconnue)")
 		st.Close()
 		return
+ 	}
+ 	// L'ACK d'auth : le client attend [1B status=1] sur le stream d'auth
+	// (proto.AuthStream lit l'ack après avoir envoyé la PSK). Sans cet
+	// octet le client restait bloqué 15 s puis échouait — le tunnel
+	// "se connectait" mais le trafic ne passait jamais.
+	if _, err := st.Write([]byte{1}); err != nil {
+		st.Close()
+		return
 	}
-	logf("auth OK (PSK acceptée)")
+ 	logf("auth OK (PSK acceptée)")
 
 	// Le stream d'auth reste ouvert (la session vit tant qu'il vit).
 	// Les CONNECT suivants : 1 stream par connexion.
