@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	"golang.org/x/crypto/chacha20"
 )
@@ -132,6 +133,19 @@ func openObfs(key obfsKey, b []byte) []byte {
 	return body[6 : 6+realLen]
 }
 
+// Compteurs de diagnostic (lus par le serveur toutes les 30 s).
+var (
+	obfsRxPackets uint64 // paquets UDP reçus
+	obfsRxDropped uint64 // paquets reçus mais indécodables (aucune clé)
+	obfsRxOK      uint64 // paquets décodés
+	obfsTxPackets uint64 // paquets scellés émis
+)
+
+func ObfsStats() (rx, dropped, ok, tx uint64) {
+	return atomic.LoadUint64(&obfsRxPackets), atomic.LoadUint64(&obfsRxDropped),
+		atomic.LoadUint64(&obfsRxOK), atomic.LoadUint64(&obfsTxPackets)
+}
+
 // ObfsPacketConn : un net.PacketConn qui (dés)obfusque à la volée.
 //   - Client : NewClientObfsConn (une clé fixe, dérivée de la PSK) ;
 //   - Serveur : NewServerObfsConn (essai de toutes les candidates par
@@ -165,6 +179,7 @@ func (c *ObfsPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 		}
 		key = &k
 	}
+	atomic.AddUint64(&obfsTxPackets, 1)
 	out := sealObfs(*key, b)
 	return c.PacketConn.WriteTo(out, addr)
 }
@@ -177,14 +192,18 @@ func (c *ObfsPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 			return 0, addr, err
 		}
 		raw = raw[:n]
+		atomic.AddUint64(&obfsRxPackets, 1)
 		if c.clientKey != nil {
 			if data := openObfs(*c.clientKey, raw); data != nil {
+				atomic.AddUint64(&obfsRxOK, 1)
 				return copy(b, data), addr, nil
 			}
+			atomic.AddUint64(&obfsRxDropped, 1)
 			continue
 		}
 		for _, k := range obfsCandidateKeys() {
 			if data := openObfs(k, raw); data != nil {
+				atomic.AddUint64(&obfsRxOK, 1)
 				c.mu.Lock()
 				if len(c.learned) >= obfsLearnCap {
 					c.learned = map[string]obfsKey{}
@@ -194,6 +213,7 @@ func (c *ObfsPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 				return copy(b, data), addr, nil
 			}
 		}
+		atomic.AddUint64(&obfsRxDropped, 1)
 		// Bruit internet ou clé inconnue : silencieusement jeté.
 	}
 }

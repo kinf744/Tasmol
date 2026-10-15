@@ -144,6 +144,14 @@ func main() {
 		os.Exit(1)
 	}
 	logf("utunnel QUIC prêt sur %s", listen)
+	go func() {
+		for range time.Tick(30 * time.Second) {
+			rx, dropped, ok, tx := proto.ObfsStats()
+			if rx > 0 || tx > 0 {
+				logf("obfs stats: reçus=%d décodés=%d jetés=%d émis=%d", rx, ok, dropped, tx)
+			}
+		}
+	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
