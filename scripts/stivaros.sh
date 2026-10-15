@@ -64,8 +64,11 @@ readonly UTUNNEL_PORT=5669
 # 15000-15999 = sous-plage EXCLUSIVE (le catch-all zivpn 6000-19999 est
 # recadré sur 6000-14999 + 16000-19999) ; c'est la classe la plus sûre
 # sur les CGNAT qui filtrent le downlink UDP en plage haute et :443.
-readonly UTUNNEL_RANGE="15000-15999,50000-59999,443"
-readonly UTUNNEL_RANGE_MID="15000-15999"
+# 12000-12999 = sous-plage EXCLUSIVE — preuve terrain: les dials zivpn
+# 12660/12718/12665/14934 passent uplink+downlink sur ce CGNAT, alors
+# que 443 / 50000-59999 / 15000-15999 sont filtrés par classes.
+readonly UTUNNEL_RANGE="12000-12999,50000-59999,443"
+readonly UTUNNEL_RANGE_MID="12000-12999"
 readonly UTUNNEL_RANGE_HIGH="50000-59999"
 readonly UTUNNEL_CONFIG="$UTUNNEL_HOME/config.json"
 readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
