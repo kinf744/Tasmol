@@ -128,7 +128,9 @@ func ResolveInitialAddrQUIC(addr string) string {
 
 // DialQUIC : le client QUIC — la connexion vers le serveur utunnel.
 // addr : "IP:port" ou "IP:plage" (le port initial aléatoire).
-func DialQUIC(ctx context.Context, addr string) (quic.Connection, error) {
+// pskHex : la PSK (64-hex) — dérive aussi la clé d'obfuscation UDP
+// (anti-DPI/CGNAT : les paquets ressortent paddés et indistinguables).
+func DialQUIC(ctx context.Context, addr, pskHex string) (quic.Connection, error) {
 	addr = ResolveInitialAddrQUIC(addr)
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -138,6 +140,10 @@ func DialQUIC(ctx context.Context, addr string) (quic.Connection, error) {
 	if err != nil {
 		return nil, err
 	}
+	var pc net.PacketConn = udpConn
+	if pskHex != "" {
+		pc = NewClientObfsConn(udpConn, deriveObfsKey(pskHex))
+	}
 	dctx, cancel := context.WithTimeout(ctx, UTUNNEL_DIAL_TIMEOUT)
 	defer cancel()
 	quicCfg := &quic.Config{
@@ -145,9 +151,9 @@ func DialQUIC(ctx context.Context, addr string) (quic.Connection, error) {
 		MaxIdleTimeout:  30 * time.Second,
 		KeepAlivePeriod: 5 * time.Second, // le ping QUIC natif (indistinguable)
 	}
-	qconn, err := quic.DialEarly(dctx, udpConn, udpAddr, clientTLSCfg(), quicCfg)
+	qconn, err := quic.DialEarly(dctx, pc, udpAddr, clientTLSCfg(), quicCfg)
 	if err != nil {
-		udpConn.Close()
+		pc.Close()
 		return nil, fmt.Errorf("quic dial: %w", err)
 	}
 	return qconn, nil

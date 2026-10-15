@@ -126,7 +126,19 @@ func main() {
 		MaxIdleTimeout:  30 * time.Second,
 	}
 
-	l, err := quic.ListenAddrEarly(listen, tlsCfg, quicCfg)
+	udpAddr, lerr := net.ResolveUDPAddr("udp", listen)
+	if lerr != nil {
+		fmt.Fprintf(os.Stderr, "[utunnel] listen %s: %v\n", listen, lerr)
+		os.Exit(1)
+	}
+	uconn, uerr := net.ListenUDP("udp", udpAddr)
+	if uerr != nil {
+		fmt.Fprintf(os.Stderr, "[utunnel] listen %s: %v\n", listen, uerr)
+		os.Exit(1)
+	}
+	pc := proto.NewServerObfsConn(uconn) // les candidates arrivent au premier reloadValid
+	tr := &quic.Transport{Conn: pc}
+	l, err := tr.ListenEarly(tlsCfg, quicCfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[utunnel] listen %s: %v\n", listen, err)
 		os.Exit(1)
@@ -184,6 +196,13 @@ func reloadValid(usersFile string) {
 		}
 	}
 	logf("PSKs valides rechargées")
+	// Les candidates d'obfuscation suivent les PSK (le client dérive la
+	// sienne de la PSK que l'API lui sert).
+	cands := make([]string, 0, len(validM))
+	for k := range validM {
+		cands = append(cands, k)
+	}
+	proto.SetObfsCandidates(cands)
 }
 
 func handleQUICClient(qconn quic.Connection) {

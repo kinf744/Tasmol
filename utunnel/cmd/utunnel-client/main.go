@@ -82,7 +82,7 @@ func main() {
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		qconn, err = proto.DialQUIC(dctx, *serverAddr)
+		qconn, err = proto.DialQUIC(dctx, *serverAddr, pskString(psk))
 		cancel()
 		if err == nil {
 			break
@@ -113,7 +113,7 @@ func main() {
 		log.Printf("connexion QUIC fermée — re-dial avec hop destination")
 		for {
 			dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			nq, err := proto.DialQUIC(dctx, *serverAddr)
+			nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk))
 			cancel()
 			if err != nil {
 				time.Sleep(2 * time.Second)
