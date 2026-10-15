@@ -77,6 +77,9 @@ func obfsCandidateKeys() []obfsKey {
 	return append([]obfsKey{}, obfsKeys...)
 }
 
+// ObfsDebugHook : instrumentation temporaire (nil en prod calme).
+var ObfsDebugHook func(dir string, n int, addr net.Addr, first byte)
+
 // sealObfs : réécrit b en paquet obfusqué (pad aléatoire, taille gommée).
 func sealObfs(key obfsKey, b []byte) []byte {
 	if len(b) > obfsMaxTotal-obfsOverhead {
@@ -181,6 +184,9 @@ func (c *ObfsPacketConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 	}
 	atomic.AddUint64(&obfsTxPackets, 1)
 	out := sealObfs(*key, b)
+	if ObfsDebugHook != nil && len(b) > 0 {
+		ObfsDebugHook("tx", len(b), addr, b[0])
+	}
 	return c.PacketConn.WriteTo(out, addr)
 }
 
@@ -204,6 +210,9 @@ func (c *ObfsPacketConn) ReadFrom(b []byte) (int, net.Addr, error) {
 		for _, k := range obfsCandidateKeys() {
 			if data := openObfs(k, raw); data != nil {
 				atomic.AddUint64(&obfsRxOK, 1)
+				if ObfsDebugHook != nil && len(data) > 0 {
+					ObfsDebugHook("rx", len(data), addr, data[0])
+				}
 				c.mu.Lock()
 				if len(c.learned) >= obfsLearnCap {
 					c.learned = map[string]obfsKey{}

@@ -143,6 +143,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "[utunnel] listen %s: %v\n", listen, err)
 		os.Exit(1)
 	}
+	// Diagnostic: chaque paquet décodé par l'obfs — premier octet QUIC
+	// (long header 0x80/0xC0 = Initial/Handshake, 0x40-0x7F = 1-RTT).
+	proto.ObfsDebugHook = func(dir string, n int, addr net.Addr, first byte) {
+		if dir == "rx" {
+			hdr := "??"
+			switch {
+			case first&0x80 != 0:
+				hdr = "long(Initial/Handshake)"
+			case first&0xC0 == 0x40:
+				hdr = "short(1-RTT)"
+			}
+			logf("obfs %s %d octets depuis %s premier=0x%02x (%s)", dir, n, addr, first, hdr)
+		}
+	}
 	logf("utunnel QUIC prêt sur %s", listen)
 	go func() {
 		for range time.Tick(30 * time.Second) {

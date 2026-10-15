@@ -106,32 +106,42 @@ func ParsePortRange(s string) (int, int, error) {
 	return v, v, nil
 }
 
-// ResolveInitialAddrQUIC : "IP:plage" → le port initial ALÉATOIRE de la
-// plage (la spec Hysteria : le premier port aléatoire, les hops ensuite).
-func ResolveInitialAddrQUIC(addr string) string {
+// ResolveInitialAddrQUIC : "IP:port,plage,…" → le port CANDIDAT n°attempt.
+// La liste permet au client de contourner un port que l'opérateur filtre :
+// "443,50000-59999" essaie le 443 (HTTPS/3 légitime), puis un port
+// aléatoire de la plage, puis recommence — l'ordre tourne à chaque essai.
+func ResolveInitialAddrQUIC(addr string, attempt int) string {
 	host, portStr, err := net.SplitHostPort(addr)
 	if err != nil {
 		return addr
 	}
-	if !strings.ContainsAny(portStr, "-,") {
+	var cands []string
+	for _, part := range strings.Split(portStr, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if lo, hi, perr := ParsePortRange(part); perr == nil && hi >= lo {
+			if hi > lo {
+				var b [2]byte
+				_, _ = rand.Read(b[:])
+				part = strconv.Itoa(lo + int(b[0])%(hi-lo+1))
+			}
+			cands = append(cands, part)
+		}
+	}
+	if len(cands) == 0 {
 		return addr
 	}
-	lo, hi, perr := ParsePortRange(portStr)
-	if perr != nil || hi < lo {
-		return addr
-	}
-	var b [2]byte
-	_, _ = rand.Read(b[:])
-	port := lo + int(b[0])%(hi-lo+1)
-	return net.JoinHostPort(host, strconv.Itoa(port))
+	return net.JoinHostPort(host, cands[attempt%len(cands)])
 }
 
 // DialQUIC : le client QUIC — la connexion vers le serveur utunnel.
 // addr : "IP:port" ou "IP:plage" (le port initial aléatoire).
 // pskHex : la PSK (64-hex) — dérive aussi la clé d'obfuscation UDP
 // (anti-DPI/CGNAT : les paquets ressortent paddés et indistinguables).
-func DialQUIC(ctx context.Context, addr, pskHex string) (quic.Connection, error) {
-	addr = ResolveInitialAddrQUIC(addr)
+func DialQUIC(ctx context.Context, addr, pskHex string, attempt int) (quic.Connection, error) {
+	addr = ResolveInitialAddrQUIC(addr, attempt)
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
 		return nil, err

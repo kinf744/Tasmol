@@ -91,7 +91,7 @@ func main() {
 			log.Fatalf("délai de connexion dépassé (%d tentatives)", attempt-1)
 		}
 		dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk))
+		nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), attempt)
 		cancel()
 		if err != nil {
 			log.Printf("dial %s: %v — nouvelle tentative dans 2s", *serverAddr, err)
@@ -119,10 +119,12 @@ func main() {
 	go func() {
 		<-qconn.Context().Done()
 		log.Printf("connexion QUIC fermée — re-dial avec hop destination")
+		redialCount := attempt + 1
 		for {
-			dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk))
+			dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), redialCount)
 			cancel()
+			redialCount++
 			if err != nil {
 				time.Sleep(2 * time.Second)
 				continue
