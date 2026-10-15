@@ -60,7 +60,13 @@ readonly UTUNNEL_PSK="$UTUNNEL_HOME/server.psk"
 readonly UTUNNEL_USERS="$UTUNNEL_HOME/users.list"
 readonly UTUNNEL_NFT="/etc/nftables/utunnel.nft"
 readonly UTUNNEL_PORT=5669
-readonly UTUNNEL_RANGE="50000-59999"
+# La plage SERVIE aux clients : classes en rotation (le client hoppe).
+# 15000-15999 = sous-plage EXCLUSIVE (le catch-all zivpn 6000-19999 est
+# recadré sur 6000-14999 + 16000-19999) ; c'est la classe la plus sûre
+# sur les CGNAT qui filtrent le downlink UDP en plage haute et :443.
+readonly UTUNNEL_RANGE="15000-15999,50000-59999,443"
+readonly UTUNNEL_RANGE_MID="15000-15999"
+readonly UTUNNEL_RANGE_HIGH="50000-59999"
 readonly UTUNNEL_CONFIG="$UTUNNEL_HOME/config.json"
 readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
 
@@ -2847,7 +2853,8 @@ table inet utunnel {
     }
     chain prerouting {
         type nat hook prerouting priority -100;
-        iifname "$iface" udp dport $UTUNNEL_RANGE dnat to :$UTUNNEL_PORT
+        iifname "$iface" udp dport $UTUNNEL_RANGE_HIGH dnat to :$UTUNNEL_PORT
+        iifname "$iface" udp dport $UTUNNEL_RANGE_MID dnat to :$UTUNNEL_PORT
     }
 }
 EOF
