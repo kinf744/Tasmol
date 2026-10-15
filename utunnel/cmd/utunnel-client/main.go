@@ -91,9 +91,8 @@ func main() {
 	deadline := time.Now().Add(60 * time.Second)
 	attempt := 0
 	for {
-		attempt++
-		if time.Now().After(deadline) {
-			log.Fatalf("délai de connexion dépassé (%d tentatives)", attempt-1)
+		if attempt > 0 && time.Now().After(deadline) {
+			log.Fatalf("délai de connexion dépassé (%d tentatives)", attempt)
 		}
 		dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 		nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), attempt)

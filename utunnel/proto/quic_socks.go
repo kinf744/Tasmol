@@ -204,6 +204,11 @@ func AuthStream(q quic.Connection, psk string, timeout time.Duration) (quic.Stre
 		st.Close()
 		return nil, err
 	}
+	// CRITIQUE : le read de l'ack N'HÉRITE d'aucun deadline — sur un
+	// chemin mort il bloque À L'INFINI (le timeout ne couvrait que
+	// OpenStreamSync) et le client n'hoppe jamais vers un autre port.
+	_ = st.SetWriteDeadline(time.Now().Add(timeout))
+	_ = st.SetReadDeadline(time.Now().Add(timeout))
 	var ack [1]byte
 	if _, err := io.ReadFull(st, ack[:]); err != nil {
 		st.Close()
