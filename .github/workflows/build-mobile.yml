@@ -228,7 +228,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tasvpn-android-apk
+          name: tasvpn-android-apk-${{ github.run_number }}
           path: android/app/build/outputs/apk/release/app-release.apk
           retention-days: 30
           if-no-files-found: error
@@ -248,7 +248,7 @@ jobs:
       - name: Download APK artifact
         uses: actions/download-artifact@v4
         with:
-          name: tasvpn-android-apk
+          name: tasvpn-android-apk-${{ github.run_number }}
           path: dist
 
       - name: Create Release (APK)
