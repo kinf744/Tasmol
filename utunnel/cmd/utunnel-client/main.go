@@ -52,10 +52,15 @@ var (
 // upPacer : le pacer du mode brutal (nil = pas de pacing).
 var upPacer *proto.Pacer
 
+// buildCommit : injecté à la compilation (-X main.buildCommit=...) —
+// l'empreinte qui prouve QUEL client tourne dans le journal.
+var buildCommit = "dev"
+
 var connectStart time.Time
 
 func main() {
 	flag.Parse()
+	log.Printf("client utunnel build=%s", buildCommit)
 	if *serverAddr == "" {
 		log.Fatal("--server requis")
 	}

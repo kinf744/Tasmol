@@ -165,7 +165,7 @@ jobs:
           # sur GitHub Actions).
           cd utunnel
           export GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0
-          go build -trimpath -ldflags='-s -w' \
+          go build -trimpath -ldflags="-s -w -X main.buildCommit=${GITHUB_SHA::7}" \
             -o "$GITHUB_WORKSPACE/bin/armv7/utunnel" ./cmd/utunnel-client
           file "$GITHUB_WORKSPACE/bin/armv7/utunnel"
           echo "--- le client doit connaître -hop-min (QUIC) ---"
