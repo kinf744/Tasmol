@@ -77,33 +77,41 @@ func main() {
 	}
 
 	// La connexion QUIC (le port initial aléatoire dans la plage — la
-	// spec Hysteria). Les hops : le re-dial adaptatif (déjà prouvé).
+	// spec Hysteria). Le dial + l'auth forment UNE boucle : un port dont
+	// le chemin est mort (DPI/CGNAT qui tue le flux après le handshake)
+	// est abandonné et un AUTRE port de la plage est essayé — le client
+	// ne meurt plus sur un premier essai malchanceux.
 	var qconn quic.Connection
+	var astream quic.Stream
 	deadline := time.Now().Add(60 * time.Second)
+	attempt := 0
 	for {
-		dctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		qconn, err = proto.DialQUIC(dctx, *serverAddr, pskString(psk))
-		cancel()
-		if err == nil {
-			break
-		}
-		log.Printf("dial %s: %v — nouvelle tentative dans 2s", *serverAddr, err)
+		attempt++
 		if time.Now().After(deadline) {
-			log.Fatal("délai de connexion dépassé")
+			log.Fatalf("délai de connexion dépassé (%d tentatives)", attempt-1)
 		}
-		time.Sleep(2 * time.Second)
-	}
-	log.Printf("tunnel établi vers %s (QUIC)", qconn.RemoteAddr())
-
-	// L'AUTH : le premier stream = [2B len][PSK] — le serveur vérifie
-	// (le PSK = SHA256(uuid:secret) ou la PSK brute).
-	astream, err := proto.AuthStream(qconn, pskString(psk), 15*time.Second)
-	if err != nil {
-		log.Fatalf("auth: %v", err)
+		dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+		nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk))
+		cancel()
+		if err != nil {
+			log.Printf("dial %s: %v — nouvelle tentative dans 2s", *serverAddr, err)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		log.Printf("tunnel établi vers %s (QUIC)", nq.RemoteAddr())
+		ast, aerr := proto.AuthStream(nq, pskString(psk), 6*time.Second)
+		if aerr != nil {
+			nq.CloseWithError(0, "auth timeout")
+			log.Printf("auth non aboutie sur ce port (%v) — hop vers un autre port", aerr)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+		qconn, astream = nq, ast
+		break
 	}
 	// Le canal d'auth reste ouvert (la session vit tant que le stream vit).
 	defer astream.Close()
-	log.Printf("auth OK (PSK acceptée par le serveur)")
+	log.Printf("auth OK (PSK acceptée par le serveur) après %d tentative(s)", attempt)
 	sessPtr.Store(&quicSess{conn: qconn})
 
 	// Le re-dial adaptatif : si la connexion QUIC meurt (le downlink figé),
