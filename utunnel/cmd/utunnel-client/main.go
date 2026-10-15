@@ -81,41 +81,79 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// La connexion QUIC (le port initial aléatoire dans la plage — la
-	// spec Hysteria). Le dial + l'auth forment UNE boucle : un port dont
-	// le chemin est mort (DPI/CGNAT qui tue le flux après le handshake)
-	// est abandonné et un AUTRE port de la plage est essayé — le client
-	// ne meurt plus sur un premier essai malchanceux.
+	// ══ LA CHASSE DE PORTS À LA HYSTERIA (parallèle + rotation) ════════
+	// 6 sockets locaux FRAIS (6 nouveaux mappings CGNAT) dialent et
+	// s'authentifient EN PARALLÈLE, chacun sur une classe de ports
+	// différente. Le premier "auth OK" gagne; les perdants sont fermés.
+	// La connexion gagnante continue de hopper (rotation locale+dest
+	// toutes les 10 s) SANS perdre la session — quic-go migre le chemin.
 	var qconn quic.Connection
 	var astream quic.Stream
-	deadline := time.Now().Add(60 * time.Second)
-	attempt := 0
-	for {
-		if attempt > 0 && time.Now().After(deadline) {
-			log.Fatalf("délai de connexion dépassé (%d tentatives)", attempt)
+	var winnerHop *proto.HopPacketConn
+	deadline := time.Now().Add(45 * time.Second)
+	huntRound := 0
+	for qconn == nil {
+		huntRound++
+		if huntRound > 1 && time.Now().After(deadline) {
+			log.Fatalf("délai de chasse dépassé (%d vagues)", huntRound-1)
 		}
-		dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), attempt)
-		cancel()
-		if err != nil {
-			log.Printf("dial %s: %v — nouvelle tentative dans 2s", *serverAddr, err)
-			time.Sleep(2 * time.Second)
-			continue
+		const K = 6
+		type result struct {
+			conn quic.Connection
+			st   quic.Stream
+			pc   *proto.HopPacketConn
+			port string
 		}
-		log.Printf("tunnel établi vers %s (QUIC)", nq.RemoteAddr())
-		ast, aerr := proto.AuthStream(nq, pskString(psk), 6*time.Second)
-		if aerr != nil {
-			nq.CloseWithError(0, "auth timeout")
-			log.Printf("auth non aboutie sur ce port (%v) — hop vers un autre port", aerr)
-			time.Sleep(1 * time.Second)
-			continue
+		winner := make(chan result, K)
+		for k := 0; k < K; k++ {
+			go func(k, wave int) {
+				attempt := wave*K + k
+				// Le hop conn : rotation locale+dest toutes les 10 s.
+				hopPC := proto.NewHopPacketConn(nil, 10*time.Second, func() (net.PacketConn, error) {
+					pc, _, err := proto.NewClientPacketConn(*serverAddr, pskString(psk), attempt)
+					return pc, err
+				})
+				hopPC.SetServerAddrs(proto.CandidateAddrs(*serverAddr))
+				if err := hopPC.Start(); err != nil {
+					return
+				}
+				dctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				nq, err := proto.DialQUICWithPC(dctx, hopPC, hopPC.CurrentServerAddr().String(), pskString(psk))
+				if err != nil {
+					hopPC.Close()
+					return
+				}
+				ast, aerr := proto.AuthStream(nq, pskString(psk), 2500*time.Millisecond)
+				if aerr != nil {
+					nq.CloseWithError(0, "auth timeout")
+					hopPC.Close()
+					return
+				}
+				select {
+				case winner <- result{nq, ast, hopPC, hopPC.CurrentServerAddr().String()}:
+				default:
+					nq.CloseWithError(0, "dup")
+					hopPC.Close()
+				}
+			}(k, huntRound-1)
 		}
-		qconn, astream = nq, ast
-		break
+		var ok result
+		select {
+		case ok = <-winner:
+			qconn, astream, winnerHop = ok.conn, ok.st, ok.pc
+			log.Printf("chasse: PORT TROUVÉ %s après %d vague(s)", ok.port, huntRound)
+		case <-time.After(4 * time.Second):
+			log.Printf("chasse: vague %d sans gagnant — nouvelle vague", huntRound)
+		}
 	}
-	// Le canal d'auth reste ouvert (la session vit tant que le stream vit).
+	// La rotation du gagnant vit tant que la connexion vit.
+	go func() {
+		<-qconn.Context().Done()
+		winnerHop.Close()
+	}()
 	defer astream.Close()
-	log.Printf("auth OK (PSK acceptée par le serveur) après %d tentative(s)", attempt)
+	log.Printf("auth OK (PSK acceptée par le serveur) — hopping actif")
 	sessPtr.Store(&quicSess{conn: qconn})
 
 	// Le re-dial adaptatif : si la connexion QUIC meurt (le downlink figé),
@@ -123,17 +161,17 @@ func main() {
 	go func() {
 		<-qconn.Context().Done()
 		log.Printf("connexion QUIC fermée — re-dial avec hop destination")
-		redialCount := attempt + 1
+		redialCount := 0
 		for {
-			dctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+			redialCount++
+			dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), redialCount)
 			cancel()
-			redialCount++
 			if err != nil {
-				time.Sleep(2 * time.Second)
+				time.Sleep(1 * time.Second)
 				continue
 			}
-			if _, aerr := proto.AuthStream(nq, pskString(psk), 15*time.Second); aerr != nil {
+			if _, aerr := proto.AuthStream(nq, pskString(psk), 2500*time.Millisecond); aerr != nil {
 				nq.CloseWithError(0, "auth failed")
 				time.Sleep(2 * time.Second)
 				continue

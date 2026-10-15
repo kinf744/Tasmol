@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -136,23 +137,65 @@ func ResolveInitialAddrQUIC(addr string, attempt int) string {
 	return net.JoinHostPort(host, cands[attempt%len(cands)])
 }
 
+// CandidateAddrs : décompose "ip:c1,c2-c3,…" en UN addr aléatoire PAR
+// classe (le random plein-frange — 15000 + rand%1000 pour 15000-15999,
+// pas le b[0] 0-255 qui ne couvrait que les 256 premiers ports).
+func CandidateAddrs(addr string) []net.Addr {
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil
+	}
+	var addrs []net.Addr
+	for _, part := range strings.Split(portStr, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		lo, hi, perr := ParsePortRange(part)
+		if perr != nil || hi < lo {
+			continue
+		}
+		var port int
+		if hi > lo {
+			var b [2]byte
+			_, _ = rand.Read(b[:])
+			port = lo + int(binary.BigEndian.Uint16(b[:]))%(hi-lo+1)
+		} else {
+			port = lo
+		}
+		addrs = append(addrs, &net.UDPAddr{IP: net.ParseIP(host), Port: port})
+	}
+	return addrs
+}
+
+// NewClientPacketConn : un socket local frais, obfusqué, pointant la
+// destination candidate n°attempt. Utilisé seul (une tentative) ou via
+// HopPacketConn (la rotation continue à la Hysteria).
+func NewClientPacketConn(addr, pskHex string, attempt int) (net.PacketConn, string, error) {
+	sAddr := ResolveInitialAddrQUIC(addr, attempt)
+	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero})
+	if err != nil {
+		return nil, "", err
+	}
+	if pskHex != "" {
+		return NewClientObfsConn(udpConn, deriveObfsKey(pskHex)), sAddr, nil
+	}
+	return udpConn, sAddr, nil
+}
+
 // DialQUIC : le client QUIC — la connexion vers le serveur utunnel.
 // addr : "IP:port" ou "IP:plage" (le port initial aléatoire).
 // pskHex : la PSK (64-hex) — dérive aussi la clé d'obfuscation UDP
 // (anti-DPI/CGNAT : les paquets ressortent paddés et indistinguables).
 func DialQUIC(ctx context.Context, addr, pskHex string, attempt int) (quic.Connection, error) {
-	addr = ResolveInitialAddrQUIC(addr, attempt)
-	udpAddr, err := net.ResolveUDPAddr("udp", addr)
+	pc, sAddr, err := NewClientPacketConn(addr, pskHex, attempt)
 	if err != nil {
 		return nil, err
 	}
-	udpConn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero})
+	udpAddr, err := net.ResolveUDPAddr("udp", sAddr)
 	if err != nil {
+		pc.Close()
 		return nil, err
-	}
-	var pc net.PacketConn = udpConn
-	if pskHex != "" {
-		pc = NewClientObfsConn(udpConn, deriveObfsKey(pskHex))
 	}
 	dctx, cancel := context.WithTimeout(ctx, UTUNNEL_DIAL_TIMEOUT)
 	defer cancel()
@@ -161,7 +204,37 @@ func DialQUIC(ctx context.Context, addr, pskHex string, attempt int) (quic.Conne
 		MaxIdleTimeout:  30 * time.Second,
 		KeepAlivePeriod: 5 * time.Second, // le ping QUIC natif (indistinguable)
 	}
+	// DisablePathMTUDiscovery : les sondes DPLPMTUD (paquets surdimensionnés)
+	// peuvent déclencher les filtres des CGNAT — on reste à 1252 B.
+	quicCfg.DisablePathMTUDiscovery = true
 	qconn, err := quic.DialEarly(dctx, pc, udpAddr, clientTLSCfg(), quicCfg)
+	if err != nil {
+		pc.Close()
+		return nil, fmt.Errorf("quic dial: %w", err)
+	}
+	return qconn, nil
+}
+
+// DialQUICWithPC : le dial QUIC sur un PacketConn FOURNI (le hop conn
+// en rotation à la Hysteria) — la connexion migre quand le hop tourne.
+func DialQUICWithPC(ctx context.Context, pc net.PacketConn, sAddr, pskHex string) (quic.Connection, error) {
+	udpAddr, err := net.ResolveUDPAddr("udp", sAddr)
+	if err != nil {
+		pc.Close()
+		return nil, err
+	}
+	quicCfg := &quic.Config{
+		EnableDatagrams: true, // le relais UDP (les datagrammes QUIC)
+		MaxIdleTimeout:  30 * time.Second,
+		KeepAlivePeriod: 5 * time.Second, // le ping QUIC natif (indistinguable)
+		// DisablePathMTUDiscovery : les sondes DPLPMTUD (paquets surdimensionnés)
+		// peuvent déclencher les filtres des CGNAT — on reste à 1252 B.
+		DisablePathMTUDiscovery: true,
+	}
+	// NOTE : PAS de cancel() après le dial — DialEarly lie la connexion
+	// au contexte : l'annuler avant la confirmation du handshake TUERAIT
+	// la connexion (le bug qui bloquait la chasse en silence).
+	qconn, err := quic.DialEarly(ctx, pc, udpAddr, clientTLSCfg(), quicCfg)
 	if err != nil {
 		pc.Close()
 		return nil, fmt.Errorf("quic dial: %w", err)
