@@ -64,12 +64,9 @@ readonly UTUNNEL_PORT=5669
 # 15000-15999 = sous-plage EXCLUSIVE (le catch-all zivpn 6000-19999 est
 # recadré sur 6000-14999 + 16000-19999) ; c'est la classe la plus sûre
 # sur les CGNAT qui filtrent le downlink UDP en plage haute et :443.
-# PLAGE UNIQUE EXCLUSIVE 6000-19999 : la fenêtre PROUVÉE sur les CGNAT
-# de la zone (les hops zivpn qui passaient : 8299-8553, 9296, 10794,
-# 11682, 12660-12718, 14771, 16765-16909, 19471-19477). Le zivpn est
-# DÉSINSTALLÉ : plus de catch-all concurrent ni de flooding de hopping
-# (la répression du downlink UDP du CGNAT). Le DNAT : une SEULE règle.
-readonly UTUNNEL_RANGE="6000-19999"
+# PLAGE 20000-33999 (EXCLUSIVE — entre le zivpn 6000-19999 et le
+# stivaros_zivpn 34000-49999 : zéro conflit de DNAT). :5669.
+readonly UTUNNEL_RANGE="20000-33999"
 readonly UTUNNEL_CONFIG="$UTUNNEL_HOME/config.json"
 readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
 
