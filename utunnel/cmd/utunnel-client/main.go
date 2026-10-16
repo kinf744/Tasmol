@@ -120,9 +120,9 @@ func main() {
 				if err := hopPC.Start(); err != nil {
 					return
 				}
-				dctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				nq, err := proto.DialQUICWithPC(dctx, hopPC, hopPC.CurrentServerAddr().String(), pskString(psk))
+				// Le dial vit avec la connexion (PAS de cancel post-dial :
+				// il tuerait le gagnant) — la borne = HandshakeIdleTimeout.
+				nq, err := proto.DialQUICWithPC(context.Background(), hopPC, hopPC.CurrentServerAddr().String(), pskString(psk))
 				if err != nil {
 					hopPC.Close()
 					return
@@ -167,9 +167,7 @@ func main() {
 		redialCount := 0
 		for {
 			redialCount++
-			dctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			nq, err := proto.DialQUIC(dctx, *serverAddr, pskString(psk), redialCount)
-			cancel()
+			nq, err := proto.DialQUIC(context.Background(), *serverAddr, pskString(psk), redialCount)
 			if err != nil {
 				time.Sleep(1 * time.Second)
 				continue

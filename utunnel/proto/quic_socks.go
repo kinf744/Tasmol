@@ -197,17 +197,26 @@ func DialQUIC(ctx context.Context, addr, pskHex string, attempt int) (quic.Conne
 		pc.Close()
 		return nil, err
 	}
-	dctx, cancel := context.WithTimeout(ctx, UTUNNEL_DIAL_TIMEOUT)
-	defer cancel()
 	quicCfg := &quic.Config{
-		EnableDatagrams: true, // le relais UDP (les datagrammes QUIC)
-		MaxIdleTimeout:  30 * time.Second,
-		KeepAlivePeriod: 5 * time.Second, // le ping QUIC natif (indistinguable)
+		EnableDatagrams:      true, // le relais UDP (les datagrammes QUIC)
+		MaxIdleTimeout:       30 * time.Second,
+		KeepAlivePeriod:      5 * time.Second, // le ping QUIC natif (indistinguable)
+		HandshakeIdleTimeout: 4 * time.Second,
+		// DisablePathMTUDiscovery : les sondes DPLPMTUD (paquets surdimensionnés)
+		// peuvent déclencher les filtres des CGNAT — on reste à 1252 B.
+		DisablePathMTUDiscovery: true,
 	}
-	// DisablePathMTUDiscovery : les sondes DPLPMTUD (paquets surdimensionnés)
-	// peuvent déclencher les filtres des CGNAT — on reste à 1252 B.
-	quicCfg.DisablePathMTUDiscovery = true
-	qconn, err := quic.DialEarly(dctx, pc, udpAddr, clientTLSCfg(), quicCfg)
+	// Transport EXPLICITE : quic.DialEarly(ctx, pc, ...) passe par le
+	// multiplexeur GLOBAL de quic-go (clé = LocalAddr) — avec nos
+	// HopPacketConn en rotation et les vagues de chasse qui se
+	// chevauchent, deux enregistrements entraînaient
+	// « panic: connection already exists » qui tuait tout le client.
+	// Un Transport dédié par connexion contourne le multiplexeur.
+	tr := &quic.Transport{Conn: pc}
+	// NOTE : PAS de cancel() après le dial — DialEarly lie la connexion
+	// au contexte : l'annuler avant la confirmation du handshake TUERAIT
+	// la connexion (le bug qui bloquait la chasse en silence).
+	qconn, err := tr.DialEarly(ctx, udpAddr, clientTLSCfg(), quicCfg)
 	if err != nil {
 		pc.Close()
 		return nil, fmt.Errorf("quic dial: %w", err)
