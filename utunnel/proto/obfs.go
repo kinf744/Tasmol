@@ -35,8 +35,12 @@ import (
 const (
 	obfsMagic    = "UTN1"
 	obfsOverhead = 12 + 2 + 4 // nonce 12 (chacha20) + realLen + magic
-	obfsMaxTotal = 1350
-	obfsLearnCap = 512
+	// obfsFixedTotal : la TAILLE FIXE des paquets sur le câble — le même
+	// profil que les paquets zivpn/hysteria (1447 B) que les CGNAT de la
+	// zone laissent passer (le profil variable 1284-1341 était filtré).
+	obfsFixedTotal = 1447
+	obfsMaxTotal   = 1472
+	obfsLearnCap   = 512
 )
 
 type obfsKey [32]byte
@@ -80,7 +84,10 @@ func obfsCandidateKeys() []obfsKey {
 // ObfsDebugHook : instrumentation temporaire (nil en prod calme).
 var ObfsDebugHook func(dir string, n int, addr net.Addr, first byte)
 
-// sealObfs : réécrit b en paquet obfusqué (pad aléatoire, taille gommée).
+// sealObfs : réécrit b en paquet obfusqué — TAILLE FIXE 1447 octets,
+// le profil EXACT des paquets zivpn/hysteria qui traversent les CGNAT
+// de la zone (le downlink 1284-1341 variable était jeté ; le 1447
+// constant passe). Le contenu reste chiffré + paddé aléatoirement.
 func sealObfs(key obfsKey, b []byte) []byte {
 	if len(b) > obfsMaxTotal-obfsOverhead {
 		// Trop gros pour le PMTU assuré : tronqué (le QUIC s'en remet).
@@ -89,12 +96,9 @@ func sealObfs(key obfsKey, b []byte) []byte {
 	var nonce [12]byte
 	_, _ = rand.Read(nonce[:])
 	realLen := len(b)
-	padSpan := obfsMaxTotal - obfsOverhead - realLen
-	padLen := 16
-	if padSpan > 16 {
-		var r [2]byte
-		_, _ = rand.Read(r[:])
-		padLen = 16 + int(binary.BigEndian.Uint16(r[:]))%(padSpan-16+1)
+	padLen := obfsFixedTotal - obfsOverhead - 4 - realLen
+	if padLen < 0 {
+		padLen = 0
 	}
 	total := realLen + 4 + padLen
 	plain := make([]byte, total)
