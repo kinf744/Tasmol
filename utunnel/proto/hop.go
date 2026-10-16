@@ -48,6 +48,7 @@ type HopPacketConn struct {
 	closeChan chan struct{}
 	closeOnce sync.Once
 	closed    bool
+	hopping   bool
 }
 
 // NewHopPacketConn : serverAddrs = les destinations candidates (une par
@@ -87,8 +88,11 @@ func (c *HopPacketConn) CurrentServerAddr() net.Addr {
 	return c.serverAddrs[c.addrIdx]
 }
 
-// Start : ouvre le premier socket et lance la rotation. Retourne une
-// erreur si le premier socket ne peut pas être créé.
+// Start : ouvre le premier socket SANS lancer la rotation — pendant la
+// chasse, le socket doit rester STABLE (quic-go n'accepte pas la
+// migration pendant le handshake : une rotation à 1,5 s tuait chaque
+// handshake à mi-chemin). La rotation démarre avec StartRotation(),
+// appelée APRÈS l'auth réussie.
 func (c *HopPacketConn) Start() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -98,8 +102,19 @@ func (c *HopPacketConn) Start() error {
 	}
 	c.current = pc
 	go c.recvRoutine(pc)
-	go c.hopRoutine()
 	return nil
+}
+
+// StartRotation : lance le hopRoutine (la rotation locale+dest) —
+// UNIQUEMENT après l'auth réussie.
+func (c *HopPacketConn) StartRotation() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed || c.hopping {
+		return
+	}
+	c.hopping = true
+	go c.hopRoutine()
 }
 
 func (c *HopPacketConn) hopRoutine() {
@@ -114,6 +129,8 @@ func (c *HopPacketConn) hopRoutine() {
 		}
 	}
 }
+
+var _ = hopServerTTL
 
 // hop : NOUVEAU socket local (nouveau mapping CGNAT) + destination
 // suivante de la liste. L'ancien socket reste en écoute hopPrevGrace.

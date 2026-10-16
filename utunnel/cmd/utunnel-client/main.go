@@ -127,7 +127,7 @@ func main() {
 					hopPC.Close()
 					return
 				}
-				ast, aerr := proto.AuthStream(nq, pskString(psk), 1500*time.Millisecond)
+				ast, aerr := proto.AuthStream(nq, pskString(psk), 4*time.Second)
 				if aerr != nil {
 					nq.CloseWithError(0, "auth timeout")
 					hopPC.Close()
@@ -146,11 +146,13 @@ func main() {
 		case ok = <-winner:
 			qconn, astream, winnerHop = ok.conn, ok.st, ok.pc
 			log.Printf("chasse: PORT TROUVÉ %s après %d vague(s)", ok.port, huntRound)
-		case <-time.After(4 * time.Second):
+		case <-time.After(9 * time.Second):
 			log.Printf("chasse: vague %d sans gagnant — nouvelle vague", huntRound)
 		}
 	}
-	// La rotation du gagnant vit tant que la connexion vit.
+	// La rotation du gagnant démarre MAINTENANT (après l'auth ✓) et vit
+	// tant que la connexion vit — le hopping continu à la Hysteria.
+	winnerHop.StartRotation()
 	go func() {
 		<-qconn.Context().Done()
 		winnerHop.Close()
