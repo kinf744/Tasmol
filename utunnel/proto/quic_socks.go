@@ -178,7 +178,7 @@ func NewClientPacketConn(addr, pskHex string, attempt int) (net.PacketConn, stri
 		return nil, "", err
 	}
 	if pskHex != "" {
-		return NewClientObfsConn(udpConn, deriveObfsKey(pskHex)), sAddr, nil
+		return NewClientWeChatConn(udpConn, deriveObfsKey(pskHex)), sAddr, nil
 	}
 	return udpConn, sAddr, nil
 }
