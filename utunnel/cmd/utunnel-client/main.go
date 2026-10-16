@@ -90,7 +90,7 @@ func main() {
 	var qconn quic.Connection
 	var astream quic.Stream
 	var winnerHop *proto.HopPacketConn
-	deadline := time.Now().Add(45 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	huntRound := 0
 	for qconn == nil {
 		huntRound++
@@ -109,7 +109,10 @@ func main() {
 			go func(k, wave int) {
 				attempt := wave*K + k
 				// Le hop conn : rotation locale+dest toutes les 10 s.
-				hopPC := proto.NewHopPacketConn(nil, 10*time.Second, func() (net.PacketConn, error) {
+				// Cadence AGRESSIVE pendant la chasse : 1.5 s par rotation
+				// (nouveau socket local = nouveau mapping CGNAT à chaque
+				// hop — la technique zivpn qui trouve les trous du CGNAT).
+				hopPC := proto.NewHopPacketConn(nil, 1500*time.Millisecond, func() (net.PacketConn, error) {
 					pc, _, err := proto.NewClientPacketConn(*serverAddr, pskString(psk), attempt)
 					return pc, err
 				})
@@ -124,7 +127,7 @@ func main() {
 					hopPC.Close()
 					return
 				}
-				ast, aerr := proto.AuthStream(nq, pskString(psk), 2500*time.Millisecond)
+				ast, aerr := proto.AuthStream(nq, pskString(psk), 1500*time.Millisecond)
 				if aerr != nil {
 					nq.CloseWithError(0, "auth timeout")
 					hopPC.Close()
