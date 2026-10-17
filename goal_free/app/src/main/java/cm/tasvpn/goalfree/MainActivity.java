@@ -198,13 +198,16 @@ public class MainActivity extends Activity {
                 }
             }
             long dt = (System.currentTimeMillis() - t0) / 1000;
-            String header = "== SONDE FREE BASICS (MTN CM) — " + ok + "/" + total
+            final String header = "== SONDE FREE BASICS (MTN CM) — " + ok + "/" + total
                     + " hôtes OK — " + dt + " s ==\n\n";
-            lastResults = header + sb;
-            lastValid = okList.toString();
+            final String body = sb.toString();
+            final String valid = okList.toString();
+            final int okCount = ok;
+            lastResults = header + body;
+            lastValid = valid;
             ui.post(() -> {
-                resultsView.setText(lastResults);
-                progressView.setText("Terminé : " + ok + "/" + total
+                resultsView.setText(header + body);
+                progressView.setText("Terminé : " + okCount + "/" + total
                         + " hôtes OK en " + dt + " s");
                 scanBtn.setEnabled(true);
                 running = false;
