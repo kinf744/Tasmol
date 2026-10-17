@@ -276,8 +276,7 @@ public class MainActivity extends Activity {
             String line = br.readLine();
             boolean inBody = false;
             while (line != null) {
-                full.append(line).append("
-");
+                full.append(line).append("\n");
                 if (inBody && body.length() < 300) {
                     body.append(line.trim()).append(" ");
                 }
@@ -290,13 +289,12 @@ public class MainActivity extends Activity {
             if (full.length() == 0) {
                 return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
             }
-            String[] lines = full.toString().trim().split("
-");
-            String[] parts = lines[0].trim().split("\s+", 3);
+            String[] lines = full.toString().trim().split("\n");
+            String[] parts = lines[0].trim().split("\\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
             String reason = parts.length > 2 ? parts[2] : "";
             if (!"200".equals(code)) {
-                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\s+", " ").trim();
+                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
                 if (snippet.length() > 2) {
                     if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
                     return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
@@ -337,8 +335,7 @@ public class MainActivity extends Activity {
             String line = br.readLine();
             boolean inBody = false;
             while (line != null) {
-                full.append(line).append("
-");
+                full.append(line).append("\n");
                 if (inBody && body.length() < 300) {
                     body.append(line.trim()).append(" ");
                 }
@@ -351,13 +348,12 @@ public class MainActivity extends Activity {
             if (full.length() == 0) {
                 return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
             }
-            String[] lines = full.toString().trim().split("
-");
-            String[] parts = lines[0].trim().split("\s+", 3);
+            String[] lines = full.toString().trim().split("\n");
+            String[] parts = lines[0].trim().split("\\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
             String reason = parts.length > 2 ? parts[2] : "";
             if (!"200".equals(code)) {
-                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\s+", " ").trim();
+                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
                 if (snippet.length() > 2) {
                     if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
                     return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
