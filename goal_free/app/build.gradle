@@ -36,8 +36,8 @@ android {
         }
     }
 
-    // armeabi-v7a uniquement (la cible déclarée)
-    ndk { abiFilters 'armeabi-v7a' }
+    // App 100% Java : pas de NDK requis (l'APK tourne sur armeabi-v7a
+    // nativement — le bytecode Dalvik est indépendant de l'ABI).
 }
 
 dependencies {
