@@ -1,0 +1,45 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'cm.tasvpn.goalfree'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "cm.tasvpn.goalfree"
+        minSdk 21
+        targetSdk 34
+        // versionCode = le numéro de run CI (l'empreinte unique de chaque build)
+        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+        versionName "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "1")
+    }
+
+    signingConfigs {
+        release {
+            // La CI décode TASMOL_KEYSTORE_B64 vers TASMOL_KEYSTORE_PATH
+            // (le même pattern que l'app principale — le keystore partagé)
+            def ksPath = System.getenv("TASMOL_KEYSTORE_PATH")
+            if (ksPath != null) {
+                storeFile file(ksPath)
+                storePassword System.getenv("TASMOL_KEY_PASSWORD")
+                keyAlias System.getenv("TASMOL_KEY_ALIAS")
+                keyPassword System.getenv("TASMOL_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (System.getenv("TASMOL_KEYSTORE_PATH") != null) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    // armeabi-v7a uniquement (la cible déclarée)
+    ndk { abiFilters 'armeabi-v7a' }
+}
+
+dependencies {
+    // ZÉRO dépendance externe : android.jar pur — le build minimal et rapide
+}

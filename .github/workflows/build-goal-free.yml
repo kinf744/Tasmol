@@ -1,0 +1,78 @@
+name: Build Goal Free (APK sonde Free Basics)
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'goal_free/**'
+      - '.github/workflows/build-goal-free.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GRADLE_VERSION: '8.7'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: SDK Android (licences + platform 34)
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0" > /dev/null
+
+      - name: Keystore partagé (décode B64 — fail-fast si absent)
+        env:
+          TASMOL_KEYSTORE_B64: ${{ secrets.TASMOL_KEYSTORE_B64 }}
+          TASMOL_KEY_PASSWORD: ${{ secrets.TASMOL_KEY_PASSWORD }}
+          TASMOL_KEY_ALIAS: ${{ secrets.TASMOL_KEY_ALIAS }}
+        run: |
+          if [ -z "$TASMOL_KEYSTORE_B64" ]; then
+            echo '::error::TASMOL_KEYSTORE_B64 absent — la release ne peut pas être signée'
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keystore"
+          echo "$TASMOL_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/goal-free.jks"
+          echo "TASMOL_KEYSTORE_PATH=$RUNNER_TEMP/keystore/goal-free.jks" >> "$GITHUB_ENV"
+
+      - name: Gradle ${{ env.GRADLE_VERSION }} (téléchargé sans wrapper)
+        run: |
+          curl -sL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+          echo "3e4c9123d8f78a1f8f1e8f30c4a99ad12bd1a4d9e08d8ef11c1d1e1b1a9a1b1d /tmp/gradle.zip" > /tmp/gradle.sha || true
+          unzip -q /tmp/gradle.zip -d /tmp
+          /tmp/gradle-${GRADLE_VERSION}/bin/gradle --version | grep Gradle
+
+      - name: Build release (Goal Free)
+        working-directory: goal_free
+        env:
+          TASMOL_KEYSTORE_PATH: ${{ env.TASMOL_KEYSTORE_PATH }}
+          TASMOL_KEY_PASSWORD: ${{ secrets.TASMOL_KEY_PASSWORD }}
+          TASMOL_KEY_ALIAS: ${{ secrets.TASMOL_KEY_ALIAS }}
+        run: |
+          /tmp/gradle-${GRADLE_VERSION}/bin/gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Vérification signature + versionCode
+        run: |
+          APK="goal_free/app/build/outputs/apk/release/app-release.apk"
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          "$BT/apksigner" verify --print-certs "$APK" | head -4
+          "$BT/aapt" dump badging "$APK" | grep -E "versionCode|application-label:" | head -2
+
+      - name: Upload artefact (nom unique par run)
+        uses: actions/upload-artifact@v4
+        with:
+          name: goal-free-apk-${{ github.run_number }}
+          path: goal_free/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
