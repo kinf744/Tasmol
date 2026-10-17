@@ -2,11 +2,15 @@ package cm.tasvpn.goalfree;
 
 import android.app.Activity;
 import android.content.ClipData;
+import android.graphics.Color;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
 import android.text.method.ScrollingMovementMethod;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -189,9 +193,18 @@ public class MainActivity extends Activity {
             StringBuilder sb = new StringBuilder();
             StringBuilder okList = new StringBuilder();
             int ok = 0;
+            SpannableStringBuilder colored = new SpannableStringBuilder();
+            int hStart = colored.length();
+            colored.append("== SONDE FREE BASICS (MTN CM) ==\n");
+            colored.setSpan(new ForegroundColorSpan(0xFF4CAF50), hStart, colored.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             for (String[] r : results) {
                 String line = r[0] + " " + r[1] + "  " + r[2] + "  (" + r[3] + " ms)";
                 sb.append(line).append("\n");
+                int start = colored.length();
+                colored.append(line).append("\n");
+                colored.setSpan(new ForegroundColorSpan(colorFor(r[0])), start, colored.length(),
+                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
                 if ("200".equals(r[0])) {
                     ok++;
                     okList.append(r[2]).append("\n");
@@ -203,10 +216,11 @@ public class MainActivity extends Activity {
             final String body = sb.toString();
             final String valid = okList.toString();
             final int okCount = ok;
+            final SpannableStringBuilder coloredFinal = colored;
             lastResults = header + body;
             lastValid = valid;
             ui.post(() -> {
-                resultsView.setText(header + body);
+                resultsView.setText(coloredFinal);
                 progressView.setText("Terminé : " + okCount + "/" + total
                         + " hôtes OK en " + dt + " s");
                 scanBtn.setEnabled(true);
@@ -255,16 +269,39 @@ public class MainActivity extends Activity {
             OutputStream os = s.getOutputStream();
             os.write(req.getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
+            StringBuilder full = new StringBuilder();
+            StringBuilder body = new StringBuilder();
             BufferedReader br = new BufferedReader(
                     new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
             String line = br.readLine();
+            boolean inBody = false;
+            while (line != null) {
+                full.append(line).append("
+");
+                if (inBody && body.length() < 300) {
+                    body.append(line.trim()).append(" ");
+                }
+                if (line.trim().isEmpty()) {
+                    inBody = true;
+                }
+                line = br.readLine();
+            }
             long ms = System.currentTimeMillis() - t0;
-            if (line == null || line.trim().isEmpty()) {
+            if (full.length() == 0) {
                 return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
             }
-            String[] parts = line.trim().split("\\s+", 3);
+            String[] lines = full.toString().trim().split("
+");
+            String[] parts = lines[0].trim().split("\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
             String reason = parts.length > 2 ? parts[2] : "";
+            if (!"200".equals(code)) {
+                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\s+", " ").trim();
+                if (snippet.length() > 2) {
+                    if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
+                    return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
+                }
+            }
             return new String[]{code, reason, host, String.valueOf(ms)};
         } catch (Exception e) {
             long ms = System.currentTimeMillis() - t0;
@@ -293,16 +330,39 @@ public class MainActivity extends Activity {
             OutputStream os = s.getOutputStream();
             os.write(req.getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
+            StringBuilder full = new StringBuilder();
+            StringBuilder body = new StringBuilder();
             BufferedReader br = new BufferedReader(
                     new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
             String line = br.readLine();
+            boolean inBody = false;
+            while (line != null) {
+                full.append(line).append("
+");
+                if (inBody && body.length() < 300) {
+                    body.append(line.trim()).append(" ");
+                }
+                if (line.trim().isEmpty()) {
+                    inBody = true;
+                }
+                line = br.readLine();
+            }
             long ms = System.currentTimeMillis() - t0;
-            if (line == null || line.trim().isEmpty()) {
+            if (full.length() == 0) {
                 return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
             }
-            String[] parts = line.trim().split("\\s+", 3);
+            String[] lines = full.toString().trim().split("
+");
+            String[] parts = lines[0].trim().split("\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
             String reason = parts.length > 2 ? parts[2] : "";
+            if (!"200".equals(code)) {
+                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\s+", " ").trim();
+                if (snippet.length() > 2) {
+                    if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
+                    return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
+                }
+            }
             return new String[]{code, reason, host, String.valueOf(ms)};
         } catch (Exception e) {
             long ms = System.currentTimeMillis() - t0;
@@ -313,6 +373,16 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    /** La palette 4 couleurs : vert 200, jaune 502, rouge 403, gris 429. */
+    private static int colorFor(String code) {
+        if ("200".equals(code)) return 0xFF4CAF50;
+        if ("502".equals(code) || "504".equals(code)) return 0xFFFFEB3B;
+        if ("403".equals(code)) return 0xFFF44336;
+        if ("429".equals(code)) return 0xFF90A4AE;
+        if ("ERR".equals(code) || "000".equals(code)) return 0xFFFF8A65;
+        return 0xFFE0E0E0;
     }
 
     private static int parseCode(String s) {
