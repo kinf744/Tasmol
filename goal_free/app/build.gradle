@@ -1,5 +1,10 @@
 apply plugin: 'com.android.application'
 
+// versionCode strictement croissant : le numéro de run CI quand
+// disponible, sinon 1 (le pattern de l'app principale).
+def ciRunNumber = System.getenv('GITHUB_RUN_NUMBER')?.isInteger()
+        ? System.getenv('GITHUB_RUN_NUMBER').toInteger() : 1
+
 android {
     namespace 'cm.tasvpn.goalfree'
     compileSdk 34
@@ -9,8 +14,8 @@ android {
         minSdk 21
         targetSdk 34
         // versionCode = le numéro de run CI (l'empreinte unique de chaque build)
-        versionCode (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
-        versionName "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "1")
+        versionCode ciRunNumber
+        versionName "1.0." + ciRunNumber
     }
 
     signingConfigs {
