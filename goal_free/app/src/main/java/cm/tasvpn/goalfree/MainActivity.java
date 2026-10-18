@@ -281,11 +281,12 @@ public class MainActivity extends Activity {
         final String body = sb.toString();
         final String valid = okList.toString();
         final SpannableStringBuilder coloredFinal = colored;
+        final int okFinal = ok;
         lastResults = header + body;
         lastValid = valid;
         ui.post(() -> {
             resultsView.setText(coloredFinal);
-            progressView.setText("Terminé : " + okCount2(ok, total) + " en " + dt + " s");
+            progressView.setText("Terminé : " + okCount2(okFinal, total) + " en " + dt + " s");
             scanBtn.setEnabled(true);
             tunnelBtn.setEnabled(true);
             running = false;
