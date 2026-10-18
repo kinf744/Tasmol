@@ -137,7 +137,7 @@ public class MainActivity extends Activity {
     /**
      * Ouvre le tunnel CONNECT à travers le proxy Free Basics.
      * Retourne le socket tunnélé (le statut 200) ou null.
-     * Le code du statut est écrit dans codeOut[0].
+     * Le code du statut est écrit dans codeOut (setLength/append).
      */
     private Socket connectTunnel(String host, int port, StringBuilder codeOut) {
         Socket s = new Socket();
