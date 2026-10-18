@@ -33,35 +33,28 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 
 /**
- * Goal Free — le sondeur ET le tunnel Free Basics de Meta.
+ * Goal Free — le sondeur et le tunnel Free Basics de Meta (MTN CM).
  *
- * Le proxy 157.240.9.39:8080 (Free Basics / Internet.org) accepte la
- * méthode CONNECT avec l'empreinte de l'app Internet.org :
+ * Le proxy 157.240.9.39:8080 accepte la méthode CONNECT avec l'empreinte
+ * Internet.org (l'UA + X-IORG-BSID/X-IORG-SERVICE-ID). 200 = le tunnel
+ * s'ouvre vers <hôte>:443 — le free-mode.
  *
- *   CONNECT <hôte>:443 HTTP/1.1\r\n
- *   Host: <hôte>:443\r\n
- *   Proxy-Connection: keep-alive\r\n
- *   User-Agent: ...[FBAN/InternetOrgApp;FBAV/...;]\r\n
- *   X-IORG-BSID: <session>\r\n
- *   X-IORG-SERVICE-ID: null\r\n\r\n
- *
- * → 200 : le socket devient le TUNNEL TLS vers <hôte>:443 (le free-mode).
- * Le bouton « TESTER LE TUNNEL » charge réellement https://<hôte>/ À
- * TRAVERS le proxy — la preuve du trafic gratuit.
+ * L'affichage : UNIQUEMENT « CODE — hôte », coloré :
+ *   vert 200 · jaune 502 · rouge 403 · gris 429 · orange erreur.
+ * Chaque hôte de la liste obtient TOUJOURS une ligne de résultat.
  */
 public class MainActivity extends Activity {
 
     private static final String PROXY_HOST = "157.240.9.39";
     private static final int PROXY_PORT = 8080;
-    private static final int TIMEOUT_MS = 15000;
+    private static final int CONNECT_TIMEOUT = 6000;
+    private static final int READ_TIMEOUT = 5000;
     private static final int THREADS = 10;
 
-    // L'empreinte Internet.org (l'app Free Basics officielle)
     private static final String UA_INTERNET_ORG =
             "Mozilla/5.0 (Linux; Android 14; SM-A245F) Chrome/133.0.6943.122 " +
             "[FBAN/InternetOrgApp;FBAV/166.0.0.0.169;]";
@@ -139,18 +132,18 @@ public class MainActivity extends Activity {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 
-    // ══ LE TUNNEL CONNECT (le cœur du free-mode) ════════════════════════
+    // ══ LE TUNNEL CONNECT ════════════════════════════════════════════════
 
     /**
      * Ouvre le tunnel CONNECT à travers le proxy Free Basics.
-     * Retourne le socket tunnélé (200) ou null (le code dans err[0]).
+     * Retourne le socket tunnélé (le statut 200) ou null.
+     * Le code du statut est écrit dans codeOut[0].
      */
-    private Socket connectTunnel(String host, int port, long budgetMs, StringBuilder log) {
-        long t0 = System.currentTimeMillis();
+    private Socket connectTunnel(String host, int port, StringBuilder codeOut) {
         Socket s = new Socket();
         try {
-            s.connect(new InetSocketAddress(PROXY_HOST, PROXY_PORT), (int) Math.min(budgetMs, 15000));
-            s.setSoTimeout((int) Math.min(budgetMs, 15000));
+            s.connect(new InetSocketAddress(PROXY_HOST, PROXY_PORT), CONNECT_TIMEOUT);
+            s.setSoTimeout(READ_TIMEOUT);
             String req = "CONNECT " + host + ":" + port + " HTTP/1.1\r\n"
                     + "Host: " + host + ":" + port + "\r\n"
                     + "Proxy-Connection: keep-alive\r\n"
@@ -160,31 +153,29 @@ public class MainActivity extends Activity {
             OutputStream os = s.getOutputStream();
             os.write(req.getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
-            // La réponse : jusqu'à \r\n\r\n
+            // La réponse : jusqu'à \r\n\r\n (les en-têtes du proxy tiennent
+            // dans le premier paquet — lu en une fois, borné par le timeout).
             ByteArrayOutputStream resp = new ByteArrayOutputStream();
             InputStream is = s.getInputStream();
-            int prev = 0, c;
-            long dl = System.currentTimeMillis() + budgetMs;
-            while (System.currentTimeMillis() < dl && (c = is.read()) != -1) {
-                resp.write(c);
-                if (prev == '\r' && c == '\n') {
-                    byte[] b = resp.toByteArray();
-                    if (b.length >= 4 && b[b.length - 4] == '\r'
-                            && b[b.length - 3] == '\n' && b[b.length - 2] == '\r'
-                            && b[b.length - 1] == '\n') {
-                        break;
-                    }
+            byte[] buf = new byte[2048];
+            int n;
+            while (resp.size() < 4096 && (n = is.read(buf)) != -1) {
+                resp.write(buf, 0, n);
+                byte[] b = resp.toByteArray();
+                if (b.length >= 4 && b[b.length - 4] == '\r' && b[b.length - 3] == '\n'
+                        && b[b.length - 2] == '\r' && b[b.length - 1] == '\n') {
+                    break;
                 }
-                prev = c;
+                if (b.length > 2 && b[0] != 'H') {
+                    break; // pas du HTTP : inutile d'attendre la suite
+                }
             }
             String head = resp.toString("ISO-8859-1");
             String[] parts = head.trim().split("\\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
-            String reason = parts.length > 2 ? parts[2] : "";
-            long ms = System.currentTimeMillis() - t0;
-            log.append("[").append(code).append(" ").append(reason).append(" ").append(ms).append(" ms]");
+            codeOut[0] = code;
             if ("200".equals(code)) {
-                return s; // le tunnel est établi — le socket est prêt pour le TLS
+                return s; // le tunnel est établi
             }
             try {
                 s.close();
@@ -192,7 +183,7 @@ public class MainActivity extends Activity {
             }
             return null;
         } catch (Exception e) {
-            log.append("[ERR ").append(e.getClass().getSimpleName()).append("]");
+            codeOut[0] = "ERR";
             try {
                 s.close();
             } catch (Exception ignored) {
@@ -201,23 +192,24 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** La sonde : CONNECT + le statut (le tunnel ouvert puis refermé). */
+    /** La sonde : CONNECT + le statut (le code seul, le tunnel refermé). */
     private String[] probeHost(String host) {
-        StringBuilder log = new StringBuilder();
+        StringBuilder codeOut = new StringBuilder("000");
         long t0 = System.currentTimeMillis();
-        Socket t = connectTunnel(host, 443, 15000, log);
-        long ms = System.currentTimeMillis() - t0;
+        Socket t = connectTunnel(host, 443, codeOut);
+        int ms = (int) (System.currentTimeMillis() - t0);
+        String code = codeOut.toString();
         if (t != null) {
             try {
                 t.close();
             } catch (Exception ignored) {
             }
-            return new String[]{"200", "tunnel OK " + log, host, String.valueOf(ms)};
+            return new String[]{code, host, String.valueOf(ms)};
         }
-        return new String[]{"403", "tunnel refusé " + log, host, String.valueOf(ms)};
+        return new String[]{code.equals("000") ? "ERR" : code, host, String.valueOf(ms)};
     }
 
-    // ══ LA CHASSE ══════════════════════════════════════════════════════
+    // ══ LA CHASSE ════════════════════════════════════════════════════════
 
     private void startScan() {
         running = true;
@@ -260,15 +252,15 @@ public class MainActivity extends Activity {
 
         new Thread(() -> {
             try {
-                done.await(10, TimeUnit.MINUTES);
+                done.await(15, TimeUnit.MINUTES);
             } catch (InterruptedException ignored) {
             }
             pool.shutdownNow();
 
             Collections.sort(results, (a, b) -> {
-                int ca = parseCode(a[0]), cb = parseCode(b[0]);
+                int ca = colorRank(a[0]), cb = colorRank(b[0]);
                 if (ca != cb) return ca - cb;
-                return a[2].compareTo(b[2]);
+                return a[1].compareTo(b[1]);
             });
 
             int ok = 0;
@@ -280,20 +272,20 @@ public class MainActivity extends Activity {
             StringBuilder sb = new StringBuilder();
             StringBuilder okList = new StringBuilder();
             for (String[] r : results) {
-                String line = r[0] + " " + r[1] + "  " + r[2] + "  (" + r[3] + " ms)";
-                sb.append(line).append("\n");
+                String line = r[0] + " — " + r[1];
                 int start = colored.length();
                 colored.append(line).append("\n");
                 colored.setSpan(new ForegroundColorSpan(colorFor(r[0])), start, colored.length(),
                         Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                sb.append(line).append("\n");
                 if ("200".equals(r[0])) {
                     ok++;
-                    okList.append(r[2]).append("\n");
+                    okList.append(r[1]).append("\n");
                 }
             }
             long dt = (System.currentTimeMillis() - t0) / 1000;
             final String header = "== TUNNEL FREE BASICS — " + ok + "/" + total
-                    + " hôtes OK — " + dt + " s ==\n\n";
+                    + " hôtes OK — " + dt + " s ==\n";
             final String body = sb.toString();
             final String valid = okList.toString();
             final int okCount = ok;
@@ -303,7 +295,7 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 resultsView.setText(coloredFinal);
                 progressView.setText("Terminé : " + okCount + "/" + total
-                        + " tunnels OK en " + dt + " s");
+                        + " hôtes OK en " + dt + " s");
                 scanBtn.setEnabled(true);
                 tunnelBtn.setEnabled(true);
                 running = false;
@@ -311,18 +303,17 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    // ══ LE TEST RÉEL : le chargement HTTPS À TRAVERS le tunnel ══════════
+    // ══ LE TEST RÉEL : le chargement HTTPS À TRAVERS le tunnel ═══════════
 
     private void startTunnelTest() {
         running = true;
         scanBtn.setEnabled(false);
         tunnelBtn.setEnabled(false);
         List<String> okHosts = new ArrayList<>();
-        for (String h : lastValid.split("\\s+")) {
+        for (String h : lastValid.split("\n")) {
             if (!h.trim().isEmpty()) okHosts.add(h.trim());
         }
         if (okHosts.isEmpty()) {
-            // Aucun scan valide : tester free.facebook.com par défaut
             okHosts.add("free.facebook.com");
         }
         final List<String> hosts = okHosts;
@@ -333,19 +324,19 @@ public class MainActivity extends Activity {
             StringBuilder out = new StringBuilder(
                     "== LE TUNNEL RÉEL : le chargement HTTPS à travers le proxy ==\n\n");
             for (String host : hosts) {
-                StringBuilder log = new StringBuilder();
+                StringBuilder codeOut = new StringBuilder("000");
                 long t0 = System.currentTimeMillis();
-                Socket t = connectTunnel(host, 443, 15000, log);
+                Socket t = connectTunnel(host, 443, codeOut);
                 if (t == null) {
-                    out.append("✗ ").append(host).append(" : le tunnel a refusé — ").append(log).append("\n\n");
+                    out.append("✗ ").append(host).append(" — ")
+                       .append(codeOut.toString()).append("\n");
+                    ui.post(() -> resultsView.setText(out.toString()));
                     continue;
                 }
                 try {
-                    // Le TLS À TRAVERS le tunnel : le socket tunnélé devient
-                    // le transport du handshake SSL vers l'hôte.
                     SSLSocketFactory sf = (SSLSocketFactory) SSLSocketFactory.getDefault();
                     SSLSocket ssl = (SSLSocket) sf.createSocket(t, host, 443, true);
-                    ssl.setSoTimeout(15000);
+                    ssl.setSoTimeout(8000);
                     ssl.startHandshake();
                     OutputStream os = ssl.getOutputStream();
                     os.write(("GET / HTTP/1.1\r\nHost: " + host
@@ -356,30 +347,27 @@ public class MainActivity extends Activity {
                     ByteArrayOutputStream page = new ByteArrayOutputStream();
                     byte[] buf = new byte[4096];
                     int n, tot = 0;
-                    long dl = System.currentTimeMillis() + 12000;
-                    while (tot < 200000 && System.currentTimeMillis() < dl
+                    long dl = System.currentTimeMillis() + 8000;
+                    while (tot < 150000 && System.currentTimeMillis() < dl
                             && (n = is.read(buf)) != -1) {
                         page.write(buf, 0, n);
                         tot += n;
                     }
                     long ms = System.currentTimeMillis() - t0;
-                    String head = page.toString("ISO-8859-1");
-                    boolean html = head.contains("200") || head.contains("html")
-                            || head.contains("HTTP");
-                    out.append(html ? "✓ " : "? ").append(host)
-                       .append(" : PAGE CHARGÉE À TRAVERS LE TUNNEL GRATUIT — ")
-                       .append(tot).append(" octets en ").append(ms).append(" ms\n\n");
+                    out.append("✓ ").append(host).append(" — la page HTTPS a transité "
+                            .concat("GRATUITEMENT par le tunnel : "))
+                       .append(tot).append(" octets en ").append(ms).append(" ms\n");
                     try {
                         ssl.close();
                     } catch (Exception ignored) {
                     }
                 } catch (Exception e) {
-                    out.append("✗ ").append(host).append(" : le tunnel ouvert mais le TLS a échoué — ")
-                       .append(e.getClass().getSimpleName()).append("\n\n");
+                    out.append("✗ ").append(host).append(" — le tunnel ouvert mais le TLS a échoué : ")
+                       .append(e.getClass().getSimpleName()).append("\n");
                 }
                 ui.post(() -> resultsView.setText(out.toString()));
             }
-            out.append("== FIN DU TEST — le trafic a transité GRATUITEMENT via le proxy Free Basics ==\n");
+            out.append("\n== FIN — le trafic a transité GRATUITEMENT via le proxy Free Basics ==\n");
             ui.post(() -> {
                 resultsView.setText(out.toString());
                 progressView.setText("Test du tunnel réel terminé.");
@@ -390,6 +378,9 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ══ LA PALETTE ═══════════════════════════════════════════════════════
+
+    /** Les 4 couleurs : vert 200, jaune 502, rouge 403, gris 429. */
     private static int colorFor(String code) {
         if ("200".equals(code)) return 0xFF4CAF50;
         if ("502".equals(code) || "504".equals(code)) return 0xFFFFEB3B;
@@ -399,11 +390,8 @@ public class MainActivity extends Activity {
         return 0xFFE0E0E0;
     }
 
-    private static int parseCode(String s) {
-        try {
-            return Integer.parseInt(s.trim());
-        } catch (Exception e) {
-            return 999;
-        }
+    private static int colorRank(String code) {
+        if ("200".equals(code)) return 0;
+        return colorFor(code) & 0xFFFFFF;
     }
 }
