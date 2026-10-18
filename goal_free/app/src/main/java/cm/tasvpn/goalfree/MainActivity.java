@@ -173,7 +173,8 @@ public class MainActivity extends Activity {
             String head = resp.toString("ISO-8859-1");
             String[] parts = head.trim().split("\\s+", 3);
             String code = parts.length > 1 ? parts[1] : "000";
-            codeOut[0] = code;
+            codeOut.setLength(0);
+            codeOut.append(code);
             if ("200".equals(code)) {
                 return s; // le tunnel est établi
             }
@@ -183,7 +184,8 @@ public class MainActivity extends Activity {
             }
             return null;
         } catch (Exception e) {
-            codeOut[0] = "ERR";
+            codeOut.setLength(0);
+            codeOut.append("ERR");
             try {
                 s.close();
             } catch (Exception ignored) {
