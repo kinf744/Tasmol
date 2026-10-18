@@ -2,7 +2,6 @@ package cm.tasvpn.goalfree;
 
 import android.app.Activity;
 import android.content.ClipData;
-import android.graphics.Color;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.os.Bundle;
@@ -10,8 +9,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
-import android.text.style.ForegroundColorSpan;
 import android.text.method.ScrollingMovementMethod;
+import android.text.style.ForegroundColorSpan;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -19,8 +18,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -34,67 +33,72 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSocket;
+import javax.net.ssl.SSLSocketFactory;
+
 /**
- * Goal Free — sonne les hôtes Free Basics / Meta via le proxy
- * 157.240.9.39:8080 (le proxy Free Basics de Meta, zero-rated sur MTN CM).
+ * Goal Free — le sondeur ET le tunnel Free Basics de Meta.
  *
- * Principe de la sonde (le mode proxy) : requête HTTP en forme proxy
- * (URI absolue) envoyée AU proxy Meta —
+ * Le proxy 157.240.9.39:8080 (Free Basics / Internet.org) accepte la
+ * méthode CONNECT avec l'empreinte de l'app Internet.org :
  *
- *     GET http://<hôte-candidat>/ HTTP/1.1\r\nHost: <hôte>\r\n...
+ *   CONNECT <hôte>:443 HTTP/1.1\r\n
+ *   Host: <hôte>:443\r\n
+ *   Proxy-Connection: keep-alive\r\n
+ *   User-Agent: ...[FBAN/InternetOrgApp;FBAV/...;]\r\n
+ *   X-IORG-BSID: <session>\r\n
+ *   X-IORG-SERVICE-ID: null\r\n\r\n
  *
- * Le code de statut rendu par le proxy classe l'hôte :
- *   200 OK       → l'hôte est servi par Free Basics (zero-rated ✓)
- *   403          → l'hôte n'est PAS dans le catalogue Free Basics
- *   429          → rate-limit du proxy (l'hôte existe, trop de requêtes)
- *   502/504      → l'origine ne répond pas au proxy
- *   301/302      → redirection (souvent vers login/consentement)
- *   ERR/timeout  → injoignable depuis ce réseau
- *
- * Robustesse ("quasi parfait") : 2 tentatives par hôte, 2 formes de
- * requête (URI absolue + forme Host), timeout 6 s, latence mesurée,
- * tri 200-d'abord, copie des résultats et des hôtes valides.
+ * → 200 : le socket devient le TUNNEL TLS vers <hôte>:443 (le free-mode).
+ * Le bouton « TESTER LE TUNNEL » charge réellement https://<hôte>/ À
+ * TRAVERS le proxy — la preuve du trafic gratuit.
  */
 public class MainActivity extends Activity {
 
     private static final String PROXY_HOST = "157.240.9.39";
     private static final int PROXY_PORT = 8080;
-    private static final int TIMEOUT_MS = 6000;
+    private static final int TIMEOUT_MS = 15000;
     private static final int THREADS = 10;
-    private static final int ATTEMPTS = 2;
 
-    private static final String UA =
-            "Mozilla/5.0 (Linux; Android 10; SM-A105F Build/QP1A.190711.020) " +
-            "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/91.0.4472.120 Mobile Safari/537.36 " +
-            "[FBAN/FB4A;FBAV/400.0.0.32.61;FBBV/335331542;]";
+    // L'empreinte Internet.org (l'app Free Basics officielle)
+    private static final String UA_INTERNET_ORG =
+            "Mozilla/5.0 (Linux; Android 14; SM-A245F) Chrome/133.0.6943.122 " +
+            "[FBAN/InternetOrgApp;FBAV/166.0.0.0.169;]";
+    private static final String X_IORG_BSID =
+            "a08359b0-d7ec-4cb5-97bf-000bdc29ec87";
 
     private static final String DEFAULT_HOSTS =
             "free.facebook.com\n" +
             "m.facebook.com\n" +
+            "web.facebook.com\n" +
+            "connect.facebook.net\n" +
+            "graph.facebook.com\n" +
+            "api.facebook.com\n" +
+            "rupload.facebook.com\n" +
             "d.facebook.com\n" +
             "z-m.facebook.com\n" +
             "mtouch.facebook.com\n" +
             "edge.facebook.com\n" +
             "portal.facebook.com\n" +
             "b-m.facebook.com\n" +
-            "web.facebook.com\n" +
-            "connect.facebook.net\n" +
-            "graph.facebook.com\n" +
-            "api.facebook.com\n" +
-            "rupload.facebook.com\n" +
             "detect.freebasics.com\n" +
             "about.freebasics.com\n" +
             "help.freebasics.com\n" +
             "explore.freebasics.com\n" +
             "free.freebasics.com\n" +
             "static.xx.fbcdn.net\n" +
-            "scontent.xx.fbcdn.net";
+            "scontent.xx.fbcdn.net\n" +
+            "techypals.com\n" +
+            "read.worldreader.org\n" +
+            "www.voaafrique.com\n" +
+            "francais.rt.com";
 
     private EditText hostsEdit;
-    private Spinner modeSpin;
     private TextView resultsView;
     private TextView progressView;
     private Button scanBtn;
+    private Button tunnelBtn;
     private volatile String lastResults = "";
     private volatile String lastValid = "";
     private volatile boolean running = false;
@@ -105,23 +109,23 @@ public class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         hostsEdit = findViewById(R.id.hosts);
-        modeSpin = findViewById(R.id.mode);
         resultsView = findViewById(R.id.results);
         progressView = findViewById(R.id.progress);
         scanBtn = findViewById(R.id.scan);
+        tunnelBtn = findViewById(R.id.tunnel);
         Button copyAll = findViewById(R.id.copyAll);
         Button copyOk = findViewById(R.id.copyOk);
 
         hostsEdit.setText(DEFAULT_HOSTS);
         resultsView.setMovementMethod(new ScrollingMovementMethod());
-        modeSpin.setAdapter(new ArrayAdapter<>(this,
-                android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"Proxy 157.240.9.39:8080", "Direct hôte:80"}));
 
         copyAll.setOnClickListener(v -> copy("Résultats copiés", lastResults));
-        copyOk.setOnClickListener(v -> copy("Hôtes valides (200) copiés", lastValid));
+        copyOk.setOnClickListener(v -> copy("Hôtes 200 (tunnel OK) copiés", lastValid));
         scanBtn.setOnClickListener(v -> {
             if (!running) startScan();
+        });
+        tunnelBtn.setOnClickListener(v -> {
+            if (!running) startTunnelTest();
         });
     }
 
@@ -135,11 +139,90 @@ public class MainActivity extends Activity {
         Toast.makeText(this, msg, Toast.LENGTH_SHORT).show();
     }
 
+    // ══ LE TUNNEL CONNECT (le cœur du free-mode) ════════════════════════
+
+    /**
+     * Ouvre le tunnel CONNECT à travers le proxy Free Basics.
+     * Retourne le socket tunnélé (200) ou null (le code dans err[0]).
+     */
+    private Socket connectTunnel(String host, int port, long budgetMs, StringBuilder log) {
+        long t0 = System.currentTimeMillis();
+        Socket s = new Socket();
+        try {
+            s.connect(new InetSocketAddress(PROXY_HOST, PROXY_PORT), (int) Math.min(budgetMs, 15000));
+            s.setSoTimeout((int) Math.min(budgetMs, 15000));
+            String req = "CONNECT " + host + ":" + port + " HTTP/1.1\r\n"
+                    + "Host: " + host + ":" + port + "\r\n"
+                    + "Proxy-Connection: keep-alive\r\n"
+                    + "User-Agent: " + UA_INTERNET_ORG + "\r\n"
+                    + "X-IORG-BSID: " + X_IORG_BSID + "\r\n"
+                    + "X-IORG-SERVICE-ID: null\r\n\r\n";
+            OutputStream os = s.getOutputStream();
+            os.write(req.getBytes(StandardCharsets.ISO_8859_1));
+            os.flush();
+            // La réponse : jusqu'à \r\n\r\n
+            ByteArrayOutputStream resp = new ByteArrayOutputStream();
+            InputStream is = s.getInputStream();
+            int prev = 0, c;
+            long dl = System.currentTimeMillis() + budgetMs;
+            while (System.currentTimeMillis() < dl && (c = is.read()) != -1) {
+                resp.write(c);
+                if (prev == '\r' && c == '\n') {
+                    byte[] b = resp.toByteArray();
+                    if (b.length >= 4 && b[b.length - 4] == '\r'
+                            && b[b.length - 3] == '\n' && b[b.length - 2] == '\r'
+                            && b[b.length - 1] == '\n') {
+                        break;
+                    }
+                }
+                prev = c;
+            }
+            String head = resp.toString("ISO-8859-1");
+            String[] parts = head.trim().split("\\s+", 3);
+            String code = parts.length > 1 ? parts[1] : "000";
+            String reason = parts.length > 2 ? parts[2] : "";
+            long ms = System.currentTimeMillis() - t0;
+            log.append("[").append(code).append(" ").append(reason).append(" ").append(ms).append(" ms]");
+            if ("200".equals(code)) {
+                return s; // le tunnel est établi — le socket est prêt pour le TLS
+            }
+            try {
+                s.close();
+            } catch (Exception ignored) {
+            }
+            return null;
+        } catch (Exception e) {
+            log.append("[ERR ").append(e.getClass().getSimpleName()).append("]");
+            try {
+                s.close();
+            } catch (Exception ignored) {
+            }
+            return null;
+        }
+    }
+
+    /** La sonde : CONNECT + le statut (le tunnel ouvert puis refermé). */
+    private String[] probeHost(String host) {
+        StringBuilder log = new StringBuilder();
+        long t0 = System.currentTimeMillis();
+        Socket t = connectTunnel(host, 443, 15000, log);
+        long ms = System.currentTimeMillis() - t0;
+        if (t != null) {
+            try {
+                t.close();
+            } catch (Exception ignored) {
+            }
+            return new String[]{"200", "tunnel OK " + log, host, String.valueOf(ms)};
+        }
+        return new String[]{"403", "tunnel refusé " + log, host, String.valueOf(ms)};
+    }
+
     // ══ LA CHASSE ══════════════════════════════════════════════════════
 
     private void startScan() {
         running = true;
         scanBtn.setEnabled(false);
+        tunnelBtn.setEnabled(false);
         lastResults = "";
         lastValid = "";
 
@@ -152,11 +235,11 @@ public class MainActivity extends Activity {
         if (total == 0) {
             running = false;
             scanBtn.setEnabled(true);
+            tunnelBtn.setEnabled(true);
             Toast.makeText(this, "Aucun hôte dans la liste", Toast.LENGTH_SHORT).show();
             return;
         }
-        final int mode = modeSpin.getSelectedItemPosition();
-        progressView.setText("Sonde 0/" + total + " …");
+        progressView.setText("Sonde CONNECT 0/" + total + " …");
         resultsView.setText("");
 
         final long t0 = System.currentTimeMillis();
@@ -164,40 +247,38 @@ public class MainActivity extends Activity {
         final CountDownLatch done = new CountDownLatch(total);
         final AtomicInteger finished = new AtomicInteger();
         final List<String[]> results = Collections.synchronizedList(new ArrayList<String[]>());
-        // String[] = {code, reason, host, latency}
 
         for (final String host : list) {
             pool.execute(() -> {
-                String[] r = probeBest(host, mode);
+                String[] r = probeHost(host);
                 results.add(r);
                 int f = finished.incrementAndGet();
-                ui.post(() -> progressView.setText("Sonde " + f + "/" + total + " …"));
+                ui.post(() -> progressView.setText("Sonde CONNECT " + f + "/" + total + " …"));
                 done.countDown();
             });
         }
 
         new Thread(() -> {
             try {
-                done.await(5, TimeUnit.MINUTES);
+                done.await(10, TimeUnit.MINUTES);
             } catch (InterruptedException ignored) {
             }
             pool.shutdownNow();
 
-            // Tri : 200 d'abord, puis par code croissant, puis par hôte
             Collections.sort(results, (a, b) -> {
                 int ca = parseCode(a[0]), cb = parseCode(b[0]);
                 if (ca != cb) return ca - cb;
                 return a[2].compareTo(b[2]);
             });
 
-            StringBuilder sb = new StringBuilder();
-            StringBuilder okList = new StringBuilder();
             int ok = 0;
             SpannableStringBuilder colored = new SpannableStringBuilder();
             int hStart = colored.length();
-            colored.append("== SONDE FREE BASICS (MTN CM) ==\n");
+            colored.append("== TUNNEL FREE BASICS (CONNECT) ==\n");
             colored.setSpan(new ForegroundColorSpan(0xFF4CAF50), hStart, colored.length(),
                     Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            StringBuilder sb = new StringBuilder();
+            StringBuilder okList = new StringBuilder();
             for (String[] r : results) {
                 String line = r[0] + " " + r[1] + "  " + r[2] + "  (" + r[3] + " ms)";
                 sb.append(line).append("\n");
@@ -211,7 +292,7 @@ public class MainActivity extends Activity {
                 }
             }
             long dt = (System.currentTimeMillis() - t0) / 1000;
-            final String header = "== SONDE FREE BASICS (MTN CM) — " + ok + "/" + total
+            final String header = "== TUNNEL FREE BASICS — " + ok + "/" + total
                     + " hôtes OK — " + dt + " s ==\n\n";
             final String body = sb.toString();
             final String valid = okList.toString();
@@ -222,205 +303,93 @@ public class MainActivity extends Activity {
             ui.post(() -> {
                 resultsView.setText(coloredFinal);
                 progressView.setText("Terminé : " + okCount + "/" + total
-                        + " hôtes OK en " + dt + " s");
+                        + " tunnels OK en " + dt + " s");
                 scanBtn.setEnabled(true);
+                tunnelBtn.setEnabled(true);
                 running = false;
             });
         }).start();
     }
 
-    /** La matrice des formes de requête du proxy Free Basics :
-     *  A) l'URI absolue, B) l'origine+Host, C) X-Forward-Host sur
-     *  free.facebook.com, D) X-Forwarded-Host — la première forme qui
-     *  sort du 400/403 gagne ; la forme gagnante est affichée. */
-    private String[] probeBest(String host, int mode) {
-        String[] best = null;
-        String bestForm = "";
-        if (mode == 1) {
-            for (int i = 0; i < ATTEMPTS; i++) {
-                String[] r = probeDirect(host);
-                if (r != null && "200".equals(r[0])) return r;
-                if (r != null && (best == null || parseCode(r[0]) < parseCode(best[0]))) best = r;
-            }
-            return best != null ? best : new String[]{"ERR", "injoignable", host, "0"};
+    // ══ LE TEST RÉEL : le chargement HTTPS À TRAVERS le tunnel ══════════
+
+    private void startTunnelTest() {
+        running = true;
+        scanBtn.setEnabled(false);
+        tunnelBtn.setEnabled(false);
+        List<String> okHosts = new ArrayList<>();
+        for (String h : lastValid.split("\\s+")) {
+            if (!h.trim().isEmpty()) okHosts.add(h.trim());
         }
-        // Le mode proxy : les 4 formes, la meilleure gagne
-        String[][] tried = new String[4][];
-        for (int f = 0; f < 4; f++) {
-            tried[f] = probeProxyForm(host, f);
-            if (tried[f] != null && "200".equals(tried[f][0])) {
-                return withForm(tried[f], f);
-            }
-            if (tried[f] != null && (best == null || parseCode(tried[f][0]) < parseCode(best[0]))) {
-                best = tried[f];
-                bestForm = String.valueOf(f);
-            }
+        if (okHosts.isEmpty()) {
+            // Aucun scan valide : tester free.facebook.com par défaut
+            okHosts.add("free.facebook.com");
         }
-        if (best == null) {
-            best = new String[]{"ERR", "injoignable", host, "0"};
-        }
-        return withForm(best, Integer.parseInt(bestForm));
+        final List<String> hosts = okHosts;
+        progressView.setText("Test du tunnel réel (le chargement HTTPS)…");
+        resultsView.setText("");
+
+        new Thread(() -> {
+            StringBuilder out = new StringBuilder(
+                    "== LE TUNNEL RÉEL : le chargement HTTPS à travers le proxy ==\n\n");
+            for (String host : hosts) {
+                StringBuilder log = new StringBuilder();
+                long t0 = System.currentTimeMillis();
+                Socket t = connectTunnel(host, 443, 15000, log);
+                if (t == null) {
+                    out.append("✗ ").append(host).append(" : le tunnel a refusé — ").append(log).append("\n\n");
+                    continue;
+                }
+                try {
+                    // Le TLS À TRAVERS le tunnel : le socket tunnélé devient
+                    // le transport du handshake SSL vers l'hôte.
+                    SSLSocketFactory sf = (SSLSocketFactory) SSLSocketFactory.getDefault();
+                    SSLSocket ssl = (SSLSocket) sf.createSocket(t, host, 443, true);
+                    ssl.setSoTimeout(15000);
+                    ssl.startHandshake();
+                    OutputStream os = ssl.getOutputStream();
+                    os.write(("GET / HTTP/1.1\r\nHost: " + host
+                            + "\r\nUser-Agent: " + UA_INTERNET_ORG
+                            + "\r\nConnection: close\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
+                    os.flush();
+                    InputStream is = ssl.getInputStream();
+                    ByteArrayOutputStream page = new ByteArrayOutputStream();
+                    byte[] buf = new byte[4096];
+                    int n, tot = 0;
+                    long dl = System.currentTimeMillis() + 12000;
+                    while (tot < 200000 && System.currentTimeMillis() < dl
+                            && (n = is.read(buf)) != -1) {
+                        page.write(buf, 0, n);
+                        tot += n;
+                    }
+                    long ms = System.currentTimeMillis() - t0;
+                    String head = page.toString("ISO-8859-1");
+                    boolean html = head.contains("200") || head.contains("html")
+                            || head.contains("HTTP");
+                    out.append(html ? "✓ " : "? ").append(host)
+                       .append(" : PAGE CHARGÉE À TRAVERS LE TUNNEL GRATUIT — ")
+                       .append(tot).append(" octets en ").append(ms).append(" ms\n\n");
+                    try {
+                        ssl.close();
+                    } catch (Exception ignored) {
+                    }
+                } catch (Exception e) {
+                    out.append("✗ ").append(host).append(" : le tunnel ouvert mais le TLS a échoué — ")
+                       .append(e.getClass().getSimpleName()).append("\n\n");
+                }
+                ui.post(() -> resultsView.setText(out.toString()));
+            }
+            out.append("== FIN DU TEST — le trafic a transité GRATUITEMENT via le proxy Free Basics ==\n");
+            ui.post(() -> {
+                resultsView.setText(out.toString());
+                progressView.setText("Test du tunnel réel terminé.");
+                scanBtn.setEnabled(true);
+                tunnelBtn.setEnabled(true);
+                running = false;
+            });
+        }).start();
     }
 
-    private String[] withForm(String[] r, int f) {
-        String[] names = {"A:URI", "B:Host", "C:X-Fwd-Host", "D:X-FwdHost2"};
-        String tag = (f >= 0 && f < names.length) ? names[f] : "?";
-        return new String[]{r[0], "[" + tag + "] " + r[1], r[2], r[3]};
-    }
-
-    /** La sonde via le proxy Free Basics 157.240.9.39:8080 — la forme f. */
-    private String[] probeProxyForm(String host, int form) {
-        long t0 = System.currentTimeMillis();
-        Socket s = new Socket();
-        try {
-            s.connect(new InetSocketAddress(PROXY_HOST, PROXY_PORT), TIMEOUT_MS);
-            s.setSoTimeout(TIMEOUT_MS);
-            String req;
-            if (form == 0) {
-                // A : l'URI absolue (la forme proxy classique)
-                req = "GET http://" + host + "/ HTTP/1.1\r\n"
-                    + "Host: " + host + "\r\n"
-                    + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,*/*;q=0.8\r\n"
-                    + "Accept-Encoding: identity\r\n"
-                    + "Proxy-Connection: close\r\nConnection: close\r\n\r\n";
-            } else if (form == 1) {
-                // B : l'origine + Host candidat
-                req = "GET / HTTP/1.1\r\n"
-                    + "Host: " + host + "\r\n"
-                    + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,*/*;q=0.8\r\n"
-                    + "Accept-Encoding: identity\r\n"
-                    + "Connection: close\r\n\r\n";
-            } else if (form == 2) {
-                // C : X-Forward-Host sur free.facebook.com (la technique
-                // Free Basics : le proxy sert l'hôte transféré)
-                req = "GET / HTTP/1.1\r\n"
-                    + "Host: free.facebook.com\r\n"
-                    + "X-Forward-Host: " + host + "\r\n"
-                    + "X-Forwarded-Host: " + host + "\r\n"
-                    + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,*/*;q=0.8\r\n"
-                    + "Accept-Encoding: identity\r\n"
-                    + "Connection: close\r\n\r\n";
-            } else {
-                // D : X-Forwarded-Host + X-Online-Host
-                req = "GET / HTTP/1.1\r\n"
-                    + "Host: free.facebook.com\r\n"
-                    + "X-Forwarded-Host: " + host + "\r\n"
-                    + "X-Online-Host: free.facebook.com\r\n"
-                    + "X-Forward-Server: " + host + "\r\n"
-                    + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,*/*;q=0.8\r\n"
-                    + "Accept-Encoding: identity\r\n"
-                    + "Connection: close\r\n\r\n";
-            }
-            OutputStream os = s.getOutputStream();
-            os.write(req.getBytes(StandardCharsets.ISO_8859_1));
-            os.flush();
-            StringBuilder full = new StringBuilder();
-            StringBuilder body = new StringBuilder();
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
-            String line = br.readLine();
-            boolean inBody = false;
-            while (line != null) {
-                full.append(line).append("\n");
-                if (inBody && body.length() < 300) {
-                    body.append(line.trim()).append(" ");
-                }
-                if (line.trim().isEmpty()) {
-                    inBody = true;
-                }
-                line = br.readLine();
-            }
-            long ms = System.currentTimeMillis() - t0;
-            if (full.length() == 0) {
-                return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
-            }
-            String[] lines = full.toString().trim().split("\n");
-            String[] parts = lines[0].trim().split("\\s+", 3);
-            String code = parts.length > 1 ? parts[1] : "000";
-            String reason = parts.length > 2 ? parts[2] : "";
-            if (!"200".equals(code)) {
-                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
-                if (snippet.length() > 2) {
-                    if (snippet.length() > 70) snippet = snippet.substring(0, 70) + "…";
-                    return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
-                }
-            }
-            return new String[]{code, reason, host, String.valueOf(ms)};
-        } catch (Exception e) {
-            long ms = System.currentTimeMillis() - t0;
-            return new String[]{"ERR", e.getClass().getSimpleName(), host, String.valueOf(ms)};
-        } finally {
-            try {
-                s.close();
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    /** La sonde directe : host:80 (la vérification zero-rating sans proxy). */
-    private String[] probeDirect(String host) {
-        long t0 = System.currentTimeMillis();
-        Socket s = new Socket();
-        try {
-            s.connect(new InetSocketAddress(host, 80), TIMEOUT_MS);
-            s.setSoTimeout(TIMEOUT_MS);
-            String req = "GET / HTTP/1.1\r\n"
-                    + "Host: " + host + "\r\n"
-                    + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,*/*;q=0.8\r\n"
-                    + "Accept-Encoding: identity\r\n"
-                    + "Connection: close\r\n\r\n";
-            OutputStream os = s.getOutputStream();
-            os.write(req.getBytes(StandardCharsets.ISO_8859_1));
-            os.flush();
-            StringBuilder full = new StringBuilder();
-            StringBuilder body = new StringBuilder();
-            BufferedReader br = new BufferedReader(
-                    new InputStreamReader(s.getInputStream(), StandardCharsets.ISO_8859_1));
-            String line = br.readLine();
-            boolean inBody = false;
-            while (line != null) {
-                full.append(line).append("\n");
-                if (inBody && body.length() < 300) {
-                    body.append(line.trim()).append(" ");
-                }
-                if (line.trim().isEmpty()) {
-                    inBody = true;
-                }
-                line = br.readLine();
-            }
-            long ms = System.currentTimeMillis() - t0;
-            if (full.length() == 0) {
-                return new String[]{"000", "réponse vide", host, String.valueOf(ms)};
-            }
-            String[] lines = full.toString().trim().split("\n");
-            String[] parts = lines[0].trim().split("\\s+", 3);
-            String code = parts.length > 1 ? parts[1] : "000";
-            String reason = parts.length > 2 ? parts[2] : "";
-            if (!"200".equals(code)) {
-                String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
-                if (snippet.length() > 2) {
-                    if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
-                    return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
-                }
-            }
-            return new String[]{code, reason, host, String.valueOf(ms)};
-        } catch (Exception e) {
-            long ms = System.currentTimeMillis() - t0;
-            return new String[]{"ERR", e.getClass().getSimpleName(), host, String.valueOf(ms)};
-        } finally {
-            try {
-                s.close();
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    /** La palette 4 couleurs : vert 200, jaune 502, rouge 403, gris 429. */
     private static int colorFor(String code) {
         if ("200".equals(code)) return 0xFF4CAF50;
         if ("502".equals(code) || "504".equals(code)) return 0xFFFFEB3B;

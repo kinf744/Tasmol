@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="GOAL FREE — Sonde Free Basics / Meta (MTN CM)"
+        android:text="GOAL FREE — Tunnel Free Basics / Meta (MTN CM)"
         android:textStyle="bold"
         android:textSize="15sp"
         android:textColor="#4CAF50"
@@ -18,7 +18,7 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Hôtes candidats (1 par ligne — modifiables) :"
+        android:text="Hôtes à tester via le proxy CONNECT (1 par ligne) :"
         android:textSize="12sp"
         android:textColor="#90A4AE" />
 
@@ -33,12 +33,6 @@
         android:background="#161B22"
         android:inputType="textMultiLine|textNoSuggestions" />
 
-    <Spinner
-        android:id="@+id/mode"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp" />
-
     <Button
         android:id="@+id/scan"
         android:layout_width="match_parent"
@@ -47,7 +41,17 @@
         android:backgroundTint="#FFC107"
         android:textColor="#000000"
         android:textStyle="bold"
-        android:text="LANCER LA SONDE" />
+        android:text="SONDER LES HÔTES (CONNECT)" />
+
+    <Button
+        android:id="@+id/tunnel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:backgroundTint="#4CAF50"
+        android:textColor="#000000"
+        android:textStyle="bold"
+        android:text="TESTER LE TUNNEL (HTTPS RÉEL)" />
 
     <TextView
         android:id="@+id/progress"
@@ -59,37 +63,29 @@
         android:paddingTop="4dp"
         android:text="Prêt." />
 
-    <LinearLayout
+    <Button
+        android:id="@+id/copyAll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:textSize="11sp"
+        android:backgroundTint="#90A4AE"
+        android:textColor="#000000"
+        android:text="Copier résultats" />
 
-        <Button
-            android:id="@+id/copyAll"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="11sp"
-            android:backgroundTint="#90A4AE"
-            android:textColor="#000000"
-            android:text="Copier résultats" />
-
-        <Button
-            android:id="@+id/copyOk"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:textSize="11sp"
-            android:backgroundTint="#4CAF50"
-            android:textColor="#000000"
-            android:text="Copier hôtes 200" />
-    </LinearLayout>
+    <Button
+        android:id="@+id/copyOk"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:textSize="11sp"
+        android:backgroundTint="#4CAF50"
+        android:textColor="#000000"
+        android:text="Copier hôtes 200" />
 
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:layout_marginTop="4dp"
         android:background="#101014">
 
         <TextView
