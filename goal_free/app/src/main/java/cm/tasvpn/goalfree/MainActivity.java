@@ -27,11 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
@@ -236,77 +232,69 @@ public class MainActivity extends Activity {
         progressView.setText("Sonde CONNECT 0/" + total + " …");
         resultsView.setText("");
 
+        // SÉQUENTIEL : UN SEUL CONNECT à la fois — le chemin exact du test
+        // individuel qui fonctionne. Le proxy Free Basics ne tolère qu'un
+        // tunnel par téléphone : les CONNECT simultanés (10 threads)
+        // étaient rejetés — un seul 200, le reste ignoré. Les résultats
+        // s'affichent en direct, hôte après hôte.
+        int ok = 0;
+        SpannableStringBuilder colored = new SpannableStringBuilder();
+        int hStart = colored.length();
+        colored.append("== TUNNEL FREE BASICS (CONNECT) ==\n");
+        colored.setSpan(new ForegroundColorSpan(0xFF4CAF50), hStart, colored.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        StringBuilder sb = new StringBuilder();
+        StringBuilder okList = new StringBuilder();
         final long t0 = System.currentTimeMillis();
-        final ExecutorService pool = Executors.newFixedThreadPool(THREADS);
-        final CountDownLatch done = new CountDownLatch(total);
-        final AtomicInteger finished = new AtomicInteger();
-        final List<String[]> results = Collections.synchronizedList(new ArrayList<String[]>());
-
+        int checked = 0;
         for (final String host : list) {
-            pool.execute(() -> {
-                String[] r = probeHost(host);
-                results.add(r);
-                int f = finished.incrementAndGet();
-                ui.post(() -> progressView.setText("Sonde CONNECT " + f + "/" + total + " …"));
-                done.countDown();
-            });
-        }
-
-        new Thread(() -> {
+            checked++;
+            final String prog = "Sonde CONNECT " + checked + "/" + total + " : " + host + " …";
+            ui.post(() -> progressView.setText(prog));
+            String[] r = probeHost(host);
+            String line = r[0] + " — " + r[1];
+            sb.append(line).append("\n");
+            int start = colored.length();
+            colored.append(line).append("\n");
+            colored.setSpan(new ForegroundColorSpan(colorFor(r[0])), start, colored.length(),
+                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            if ("200".equals(r[0])) {
+                ok++;
+                okList.append(r[1]).append("\n");
+            }
+            final SpannableStringBuilder snapshot = new SpannableStringBuilder(colored);
+            ui.post(() -> resultsView.setText(snapshot));
             try {
-                done.await(15, TimeUnit.MINUTES);
+                Thread.sleep(300); // l'anti-rate-limit entre les CONNECT
             } catch (InterruptedException ignored) {
             }
-            pool.shutdownNow();
-
-            Collections.sort(results, (a, b) -> {
-                int ca = colorRank(a[0]), cb = colorRank(b[0]);
-                if (ca != cb) return ca - cb;
-                return a[1].compareTo(b[1]);
-            });
-
-            int ok = 0;
-            SpannableStringBuilder colored = new SpannableStringBuilder();
-            int hStart = colored.length();
-            colored.append("== TUNNEL FREE BASICS (CONNECT) ==\n");
-            colored.setSpan(new ForegroundColorSpan(0xFF4CAF50), hStart, colored.length(),
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            StringBuilder sb = new StringBuilder();
-            StringBuilder okList = new StringBuilder();
-            for (String[] r : results) {
-                String line = r[0] + " — " + r[1];
-                int start = colored.length();
-                colored.append(line).append("\n");
-                colored.setSpan(new ForegroundColorSpan(colorFor(r[0])), start, colored.length(),
-                        Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-                sb.append(line).append("\n");
-                if ("200".equals(r[0])) {
-                    ok++;
-                    okList.append(r[1]).append("\n");
-                }
-            }
-            long dt = (System.currentTimeMillis() - t0) / 1000;
-            final String header = "== TUNNEL FREE BASICS — " + ok + "/" + total
-                    + " hôtes OK — " + dt + " s ==\n";
-            final String body = sb.toString();
-            final String valid = okList.toString();
-            final int okCount = ok;
-            final SpannableStringBuilder coloredFinal = colored;
-            lastResults = header + body;
-            lastValid = valid;
-            ui.post(() -> {
-                resultsView.setText(coloredFinal);
-                progressView.setText("Terminé : " + okCount + "/" + total
-                        + " hôtes OK en " + dt + " s");
-                scanBtn.setEnabled(true);
-                tunnelBtn.setEnabled(true);
-                running = false;
-            });
-        }).start();
+        }
+        long dt = (System.currentTimeMillis() - t0) / 1000;
+        colored.append("\n== TUNNEL FREE BASICS — " + ok + "/" + total
+                + " hôtes OK — " + dt + " s ==\n");
+        int eStart = colored.length();
+        colored.append("Terminé : " + ok + "/" + total + " hôtes OK en " + dt + " s");
+        colored.setSpan(new ForegroundColorSpan(0xFF4CAF50), eStart, colored.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        final String header = "== TUNNEL FREE BASICS — " + ok + "/" + total
+                + " hôtes OK — " + dt + " s ==\n";
+        final String body = sb.toString();
+        final String valid = okList.toString();
+        final SpannableStringBuilder coloredFinal = colored;
+        lastResults = header + body;
+        lastValid = valid;
+        ui.post(() -> {
+            resultsView.setText(coloredFinal);
+            progressView.setText("Terminé : " + okCount2(ok, total) + " en " + dt + " s");
+            scanBtn.setEnabled(true);
+            tunnelBtn.setEnabled(true);
+            running = false;
+        });
     }
 
-    // ══ LE TEST RÉEL : le chargement HTTPS À TRAVERS le tunnel ═══════════
-
+    private static String okCount2(int ok, int total) {
+        return ok + "/" + total + " hôtes OK";
+    }
     private void startTunnelTest() {
         running = true;
         scanBtn.setEnabled(false);
