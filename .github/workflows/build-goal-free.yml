@@ -3,6 +3,8 @@ name: Build Goal Free (APK sonde Free Basics)
 on:
   push:
     branches: [master, main]
+    tags:
+      - 'gf-*'
     paths:
       - 'goal_free/**'
       - '.github/workflows/build-goal-free.yml'
