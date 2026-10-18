@@ -229,43 +229,92 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    /** 2 tentatives, la meilleure (200 prioritaire, sinon le code le plus bas). */
+    /** La matrice des formes de requête du proxy Free Basics :
+     *  A) l'URI absolue, B) l'origine+Host, C) X-Forward-Host sur
+     *  free.facebook.com, D) X-Forwarded-Host — la première forme qui
+     *  sort du 400/403 gagne ; la forme gagnante est affichée. */
     private String[] probeBest(String host, int mode) {
         String[] best = null;
-        for (int i = 0; i < ATTEMPTS; i++) {
-            String[] r;
-            if (mode == 0) {
-                // Les 2 formes : URI absolue puis forme Host (les proxies
-                // Free Basics n'acceptent pas toujours l'URI absolue).
-                r = (i == 0) ? probeProxy(host, true) : probeProxy(host, false);
-            } else {
-                r = probeDirect(host);
+        String bestForm = "";
+        if (mode == 1) {
+            for (int i = 0; i < ATTEMPTS; i++) {
+                String[] r = probeDirect(host);
+                if (r != null && "200".equals(r[0])) return r;
+                if (r != null && (best == null || parseCode(r[0]) < parseCode(best[0]))) best = r;
             }
-            if (r != null && "200".equals(r[0])) return r;
-            if (r != null && (best == null || parseCode(r[0]) < parseCode(best[0]))) best = r;
+            return best != null ? best : new String[]{"ERR", "injoignable", host, "0"};
+        }
+        // Le mode proxy : les 4 formes, la meilleure gagne
+        String[][] tried = new String[4][];
+        for (int f = 0; f < 4; f++) {
+            tried[f] = probeProxyForm(host, f);
+            if (tried[f] != null && "200".equals(tried[f][0])) {
+                return withForm(tried[f], f);
+            }
+            if (tried[f] != null && (best == null || parseCode(tried[f][0]) < parseCode(best[0]))) {
+                best = tried[f];
+                bestForm = String.valueOf(f);
+            }
         }
         if (best == null) {
             best = new String[]{"ERR", "injoignable", host, "0"};
         }
-        return best;
+        return withForm(best, Integer.parseInt(bestForm));
     }
 
-    /** La sonde via le proxy Free Basics 157.240.9.39:8080. */
-    private String[] probeProxy(String host, boolean absoluteUri) {
+    private String[] withForm(String[] r, int f) {
+        String[] names = {"A:URI", "B:Host", "C:X-Fwd-Host", "D:X-FwdHost2"};
+        String tag = (f >= 0 && f < names.length) ? names[f] : "?";
+        return new String[]{r[0], "[" + tag + "] " + r[1], r[2], r[3]};
+    }
+
+    /** La sonde via le proxy Free Basics 157.240.9.39:8080 — la forme f. */
+    private String[] probeProxyForm(String host, int form) {
         long t0 = System.currentTimeMillis();
         Socket s = new Socket();
         try {
             s.connect(new InetSocketAddress(PROXY_HOST, PROXY_PORT), TIMEOUT_MS);
             s.setSoTimeout(TIMEOUT_MS);
-            String target = absoluteUri ? ("http://" + host + "/") : "/";
-            String req = "GET " + target + " HTTP/1.1\r\n"
+            String req;
+            if (form == 0) {
+                // A : l'URI absolue (la forme proxy classique)
+                req = "GET http://" + host + "/ HTTP/1.1\r\n"
                     + "Host: " + host + "\r\n"
                     + "User-Agent: " + UA + "\r\n"
-                    + "Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8\r\n"
-                    + "Accept-Language: fr-FR,fr;q=0.9,en;q=0.8\r\n"
+                    + "Accept: text/html,*/*;q=0.8\r\n"
                     + "Accept-Encoding: identity\r\n"
-                    + "Proxy-Connection: close\r\n"
+                    + "Proxy-Connection: close\r\nConnection: close\r\n\r\n";
+            } else if (form == 1) {
+                // B : l'origine + Host candidat
+                req = "GET / HTTP/1.1\r\n"
+                    + "Host: " + host + "\r\n"
+                    + "User-Agent: " + UA + "\r\n"
+                    + "Accept: text/html,*/*;q=0.8\r\n"
+                    + "Accept-Encoding: identity\r\n"
                     + "Connection: close\r\n\r\n";
+            } else if (form == 2) {
+                // C : X-Forward-Host sur free.facebook.com (la technique
+                // Free Basics : le proxy sert l'hôte transféré)
+                req = "GET / HTTP/1.1\r\n"
+                    + "Host: free.facebook.com\r\n"
+                    + "X-Forward-Host: " + host + "\r\n"
+                    + "X-Forwarded-Host: " + host + "\r\n"
+                    + "User-Agent: " + UA + "\r\n"
+                    + "Accept: text/html,*/*;q=0.8\r\n"
+                    + "Accept-Encoding: identity\r\n"
+                    + "Connection: close\r\n\r\n";
+            } else {
+                // D : X-Forwarded-Host + X-Online-Host
+                req = "GET / HTTP/1.1\r\n"
+                    + "Host: free.facebook.com\r\n"
+                    + "X-Forwarded-Host: " + host + "\r\n"
+                    + "X-Online-Host: free.facebook.com\r\n"
+                    + "X-Forward-Server: " + host + "\r\n"
+                    + "User-Agent: " + UA + "\r\n"
+                    + "Accept: text/html,*/*;q=0.8\r\n"
+                    + "Accept-Encoding: identity\r\n"
+                    + "Connection: close\r\n\r\n";
+            }
             OutputStream os = s.getOutputStream();
             os.write(req.getBytes(StandardCharsets.ISO_8859_1));
             os.flush();
@@ -296,7 +345,7 @@ public class MainActivity extends Activity {
             if (!"200".equals(code)) {
                 String snippet = body.toString().replaceAll("<[^>]*>", " ").replaceAll("\\s+", " ").trim();
                 if (snippet.length() > 2) {
-                    if (snippet.length() > 80) snippet = snippet.substring(0, 80) + "…";
+                    if (snippet.length() > 70) snippet = snippet.substring(0, 70) + "…";
                     return new String[]{code, reason + " — " + snippet, host, String.valueOf(ms)};
                 }
             }
