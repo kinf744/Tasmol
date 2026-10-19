@@ -1,0 +1,260 @@
+name: Build Borum VPN (Android APK, armv7)
+
+on:
+  push:
+    branches: [master, main]
+    # Without this the "Create Release" step below was dead code: a `branches`
+    # filter never matches a tag ref, so no release could ever be published.
+    tags: ['v*']
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.23'
+  GOMOBILE_VERSION: v0.0.0-20240520174638-fa72addaaa1b
+  GRADLE_VERSION: '8.7'
+
+jobs:
+  apk:
+    name: Build Android APK (armv7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Set up Android SDK + NDK (manual, skip deprecated tools pkg)
+        run: |
+          # ubuntu-latest runners ship a preinstalled Android SDK; the
+          # android-actions/setup-android@v3 action is broken (it forces
+          # `sdkmanager tools`, a package removed from current repos).
+          # Install only what we need directly.
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_SDK_ROOT=$ANDROID_HOME
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/platform-tools" >> $GITHUB_PATH
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264" \
+            "cmake;3.22.1"
+
+      - name: Export NDK env
+        run: |
+          ls "$ANDROID_HOME/ndk/" || true
+          NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/* | head -1)
+          echo "Detected NDK: $NDK_DIR"
+          ls "$NDK_DIR/meta/platforms.json"
+          echo "ANDROID_NDK_HOME=$NDK_DIR" >> $GITHUB_ENV
+
+      - name: Install gomobile
+        run: |
+          go install "golang.org/x/mobile/cmd/gomobile@${{ env.GOMOBILE_VERSION }}"
+          go install "golang.org/x/mobile/cmd/gobind@${{ env.GOMOBILE_VERSION }}"
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+
+      - name: Resolve Go modules (gomobile bind deps)
+        run: |
+          go get "golang.org/x/mobile@${{ env.GOMOBILE_VERSION }}"
+          go mod tidy
+          go mod verify
+
+      - name: Bind vpn AAR (vpnlib + plan de contrôle durci, android/arm uniquement)
+        run: |
+          mkdir -p borum_vpn/android/app/libs
+          # -trimpath: chemins sources absents; -s -w -buildid= : symboles
+          # et id retirés. Les fonctions libpho (api/vault/self-check)
+          # sont exposées via vpnlib.Pho*.
+          # gomobile est incompatible avec un toolexec externe (sa sonde
+          # buildID casse sous garble, toutes versions testées). La
+          # protection de l'AAR repose donc sur: -trimpath (chemins absents),
+          # -s -w -buildid= (symboles/id retirés), le strip LLVM du NDK
+          # (step suivant) et des litteraux sensibles reconstruits par code
+          # points dans internal/pho (jamais contigus dans le .so). Le step
+          # Verify AAR fait echouer le build si l'un survit. garble complet
+          # (-literals -tiny) reste actif sur le binaire linux armv7.
+          # Cible: armeabi-v7a (32-bit) UNIQUEMENT — retrait volontaire de
+          # l'ABI arm64-v8a : taille de l'APK quasi divisée par deux pour
+          # les téléchargements sur faibles connexions. Rétablir
+          # -target=android/arm,android/arm64 si un appareil 64-bit-only
+          # doit être supporté.
+          gomobile bind \
+            -target=android/arm \
+            -androidapi 24 \
+            -trimpath \
+            -ldflags='-s -w -buildid=' \
+            -o borum_vpn/android/app/libs/vpnlib.aar \
+            ./golib/vpnlib
+
+      - name: Strip native symbols (anti nm/readelf/objdump)
+        run: |
+          # -ldflags '-s -w' retire déjà la table des symboles Go; on passe
+          # en plus le strip LLVM du NDK sur chaque .so pour vider ce qui
+          # resterait (sections .symtab/.debug résiduelles côté cgo). nm et
+          # readelf -s ne doivent plus montrer que les exports dynamiques
+          # indispensables (JNI_OnLoad, Java_vpnlib_*).
+          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          [ -x "$STRIP" ] || STRIP="$(ls "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-strip | head -1)"
+          AAR="$GITHUB_WORKSPACE/borum_vpn/android/app/libs/vpnlib.aar"
+          rm -rf /tmp/aar && mkdir -p /tmp/aar && cd /tmp/aar
+          unzip -o -q "$AAR" 'jni/*'
+          for so in jni/armeabi-v7a/*.so jni/arm64-v8a/*.so; do
+            [ -e "$so" ] || continue
+            "$STRIP" --strip-all --strip-unneeded "$so" || true
+          done
+          # zip -u depuis /tmp/aar: met a jour les entrees jni/* avec les
+          # .so strippee (meme arborescence relative que dans l'AAR).
+          zip -q -u "$AAR" 'jni/*'
+          ls -lh "$AAR"
+
+      - name: Verify AAR
+        run: |
+          ls -lh android/app/libs/vpnlib.aar
+          unzip -l borum_vpn/android/app/libs/vpnlib.aar | grep -E 'jni/|libgojni'
+          for abi in armeabi-v7a; do
+            unzip -p borum_vpn/android/app/libs/vpnlib.aar jni/$abi/libgojni.so > /tmp/libgojni.$abi.so
+            file /tmp/libgojni.$abi.so
+            echo "--- $abi : aucun symbole statique ne doit subsister ---"
+            readelf -h /tmp/libgojni.$abi.so | grep -i stripped || { nm /tmp/libgojni.$abi.so 2>&1 | head -3; }
+            echo "--- $abi : litteraux sensibles absents du .so ---"
+            # -i pour les domaines, sensible a la casse pour les noms de
+            # fichiers: sinon le garde-fou match les symboles exportes
+            # legitimes (vpn-app/internal/pho.VaultPut...) de la pclntab Go.
+            if strings /tmp/libgojni.$abi.so | grep -iE 'ggff\.net|kingom' || \
+               strings /tmp/libgojni.$abi.so | grep -E 'pho\.vault|pho\.pin|hu``hqb' ; then
+              echo '::error::littéraux sensibles visibles dans libgojni.so'
+              exit 1
+            fi
+          done
+          echo '--- bindings (jan/gobind camelCase) ---'
+          mkdir -p /tmp/aarx && unzip -o -q borum_vpn/android/app/libs/vpnlib.aar classes.jar -d /tmp/aarx
+          javap -classpath /tmp/aarx/classes.jar vpnlib.Vpnlib | grep -i pho
+
+      - name: Build utunnel client from source (always current)
+        run: |
+          # Le binaire utunnel committé dans bin/armv7/ peut être PÉRIMÉ :
+          # l'app (utunnel_tunnel.go) lance le client QUIC (le transport natif) —
+          # les binaires périmés meurent silencieusement et le tunnel ne
+          # la source connaissent — un binaire ancien meurt avec
+          # démarre pas — on rebuild ICI depuis la source du dépôt.
+          # démarre jamais. On rebuild ICI depuis la source du dépôt :
+          # le bundle embarqué suit TOUJOURS le code (build uniquement
+          # sur GitHub Actions).
+          cd utunnel
+          export GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0
+          go build -trimpath -ldflags="-s -w -X main.buildCommit=${GITHUB_SHA::7}" \
+            -o "$GITHUB_WORKSPACE/bin/armv7/utunnel" ./cmd/utunnel-client
+          file "$GITHUB_WORKSPACE/bin/armv7/utunnel"
+          echo "--- le client doit connaître -hop-min (QUIC) ---"
+          # Le check -h tourne sur x86_64 : le binaire ARM ne peut pas
+          # s'exécuter sur le runner sans qemu (exec format error
+          # silencieux -> le garde-fou échouait alors que le binaire ARM
+          # était correct). On build l'amd64 pour la vérification native.
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+            go build -trimpath -ldflags='-s -w' -o /tmp/utunnel-check ./cmd/utunnel-client
+          /tmp/utunnel-check -h 2>&1 | grep -q "hop-min" \
+            || { echo '::error::utunnel client sans -hop-min (QUIC transport)'; exit 1; }
+
+      - name: Stage official binaries into jniLibs
+        run: |
+          ls -lh bin/armv7/
+          bash scripts/fetch_android_bins.sh
+
+      - name: Install Gradle
+        run: |
+          cd /tmp
+          wget -q "https://services.gradle.org/distributions/gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+          unzip -q "gradle-${{ env.GRADLE_VERSION }}-bin.zip"
+          echo "/tmp/gradle-${{ env.GRADLE_VERSION }}/bin" >> $GITHUB_PATH
+
+      - name: Materialise release keystore
+        env:
+          TASMOL_KEYSTORE_B64: ${{ secrets.TASMOL_KEYSTORE_B64 }}
+        run: |
+          # Without this the release APK is signed with the runner's throwaway
+          # debug key, which changes on every run: each build then had a
+          # different signer and could not be installed over the previous one.
+          if [ -z "$TASMOL_KEYSTORE_B64" ]; then
+            echo "::error::TASMOL_KEYSTORE_B64 secret is missing - the APK would be signed with a per-run debug key and refuse to update"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/keystore"
+          printf '%s' "$TASMOL_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore/tasmol-release.jks"
+          echo "keystore: $(stat -c%s "$RUNNER_TEMP/keystore/tasmol-release.jks") bytes"
+
+      - name: Build Release APK
+        env:
+          TASMOL_KEYSTORE_PATH: ${{ runner.temp }}/keystore/tasmol-release.jks
+          TASMOL_KEY_ALIAS: ${{ secrets.TASMOL_KEY_ALIAS }}
+          TASMOL_KEY_PASSWORD: ${{ secrets.TASMOL_KEY_PASSWORD }}
+        run: |
+          cd borum_vpn/android
+          gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Verify APK
+        run: |
+          APK=borum_vpn/android/app/build/outputs/apk/release/app-release.apk
+          ls -lh "$APK"
+          file "$APK"
+          echo '--- signer certificate (must stay identical across builds) ---'
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$APK"
+          echo '--- versionCode (must strictly increase) ---'
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$APK" \
+            | grep -E "^package:|^native-code:" || true
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: borumvpn-android-apk-${{ github.run_number }}
+          path: borum_vpn/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
+
+  # Separate job on purpose: `permissions` is only valid at workflow and job
+  # level, never on a step. Keeping the release in its own job is therefore the
+  # only way to give it contents:write while the build job above stays at
+  # contents:read and never holds a write token.
+  release:
+    name: Publish GitHub Release
+    needs: apk
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: borumvpn-android-apk-${{ github.run_number }}
+          path: dist
+
+      - name: Create Release (APK)
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/app-release.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

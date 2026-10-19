@@ -1,0 +1,1221 @@
+package com.borum.vpn;
+
+import android.app.Activity;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.LayoutInflater;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AlertDialog;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+
+/** CONFIGS tab (NPV Tunnel style): last ping, active card, saved group. */
+public class ConfigsFragment extends Fragment {
+    private static final int REQ_IMPORT_SHARE = 3001;
+    private static final int REQ_EXPORT_SHARE = 3002;
+    /** Destination bound to the ⋮ menu entry that opened the export form. */
+    private static final String TARGET_FILE = "file";
+    private static final String TARGET_CLIPBOARD = "clipboard";
+    private String pendingExport = null;
+    private TextView lastPingText;
+    private LinearLayout activeCard;
+    private TextView activeName;
+    private TextView activeDetail;
+    private TextView activeType;
+    private TextView savedTitle;
+    private RecyclerView list;
+    private TunnelAdapter adapter;
+    private boolean sortByType = false;
+    private String query = "";
+    private String typeFilter = "all";
+    private boolean groupExpanded = true;
+    private final Handler bg = new Handler(Looper.getMainLooper());
+
+    @Nullable
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+                             @Nullable Bundle savedInstanceState) {
+        View v = inflater.inflate(R.layout.fragment_configs, container, false);
+        lastPingText = v.findViewById(R.id.configs_last_ping);
+        activeCard = v.findViewById(R.id.configs_active_card);
+        activeName = v.findViewById(R.id.configs_active_name);
+        activeDetail = v.findViewById(R.id.configs_active_detail);
+        activeType = v.findViewById(R.id.configs_active_type);
+        savedTitle = v.findViewById(R.id.configs_saved_title);
+        list = v.findViewById(R.id.configs_list);
+        list.setLayoutManager(new LinearLayoutManager(getContext()));
+        adapter = new TunnelAdapter(new TunnelAdapter.Listener() {
+            @Override
+            public void onTap(JSONObject tunnel) {
+                // Tap = select / deselect (green frame). No round-robin
+                // menu: every selected profile connects from Home.
+                toggleSelect(tunnel);
+            }
+
+            @Override
+            public void onActions(JSONObject tunnel) {
+                showActions(tunnel);
+            }
+
+            @Override
+            public void onEdit(JSONObject tunnel) {
+                if (ProfileTransfer.isLocked(tunnel)) {
+                    toast("Profil verrouillé : modification impossible");
+                    return;
+                }
+                Intent i = new Intent(getContext(), TunnelEditorActivity.class);
+                i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, tunnel.optString("id", ""));
+                startActivity(i);
+            }
+
+            @Override
+            public void onClone(JSONObject tunnel) {
+                if (ProfileTransfer.isLocked(tunnel)) {
+                    toast("Profil verrouillé : clonage impossible");
+                    return;
+                }
+                cloneTunnel(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
+            }
+
+            @Override
+            public void onDelete(JSONObject tunnel) {
+                confirmDelete(tunnel.optString("id", ""), tunnel.optString("name", "Server"));
+            }
+        });
+        list.setAdapter(adapter);
+
+        v.findViewById(R.id.configs_active_menu).setOnClickListener(view -> showShareMenu());
+
+        v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
+        // Connection happens from Home only: tapping the header card
+        // explains selection instead of connecting.
+        activeCard.setOnClickListener(view ->
+                toast("Tap profiles below to select them (green = will connect)"));
+        v.findViewById(R.id.configs_group_toggle).setOnClickListener(view -> {
+            groupExpanded = !groupExpanded;
+            list.setVisibility(groupExpanded ? View.VISIBLE : View.GONE);
+            view.setRotation(groupExpanded ? 0 : -90);
+        });
+        v.findViewById(R.id.configs_group_menu).setOnClickListener(view -> showSortMenu());
+
+        v.findViewById(R.id.configs_refresh).setOnClickListener(view -> reload());
+        // No connect button on this screen: connection happens from Home only.
+        v.findViewById(R.id.bar_connect).setVisibility(View.GONE);
+        v.findViewById(R.id.bar_sort).setOnClickListener(view -> {
+            sortByType = !sortByType;
+            reload();
+        });
+        v.findViewById(R.id.bar_refresh).setOnClickListener(view -> reload());
+        v.findViewById(R.id.bar_search).setOnClickListener(view -> showSearch());
+        v.findViewById(R.id.bar_filter).setOnClickListener(view -> showFilter());
+        v.findViewById(R.id.bar_add).setOnClickListener(view -> {
+            startActivity(new Intent(getContext(), TunnelEditorActivity.class));
+        });
+        return v;
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        reload();
+    }
+
+    private String cfgPath() {
+        return BinaryManager.configPath(requireContext()).getAbsolutePath();
+    }
+
+    private void reload() {
+        if (getContext() == null) {
+            return;
+        }
+        try {
+            lastPingText.setText(VPNApplication.getInstance().getLastPingDate());
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+
+            // Prune selections pointing at deleted profiles.
+            java.util.Set<String> existing = new java.util.HashSet<>();
+            for (int i = 0; i < arr.length(); i++) {
+                existing.add(arr.getJSONObject(i).optString("id", ""));
+            }
+            java.util.LinkedHashSet<String> selected =
+                    VPNApplication.getInstance().getSelectedIds();
+            selected.retainAll(existing);
+            VPNApplication.getInstance().setSelectedIds(selected);
+            // Keep the single-active pointer on the first selected profile
+            // (Home display, restart flow).
+            String first = selected.isEmpty() ? "" : selected.iterator().next();
+            VPNApplication.getInstance().setActiveTunnelId(first);
+
+            List<JSONObject> items = new ArrayList<>();
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                // Les profils matérialisés depuis l'API sont invisibles ici:
+                // CONFIGS gère uniquement les profils manuels.
+                JSONObject adv0 = t.optJSONObject("advanced");
+                if (adv0 != null && adv0.optBoolean(ApiSession.ADV_API_MANAGED, false)) {
+                    continue;
+                }
+                if (!typeFilter.equals("all") && !typeMatches(t.optString("type", ""))) {
+                    continue;
+                }
+                if (!query.isEmpty() && !t.optString("name", "").toLowerCase().contains(query)) {
+                    continue;
+                }
+                items.add(t);
+            }
+            if (sortByType) {
+                // Tri par type affiche : les variantes *SlowDNS se rangeent
+                // avec leur type de base (ssh / xray).
+                Collections.sort(items, (a, b) -> TunnelAdapter.prettyType(
+                        a.optString("type", "")).compareTo(TunnelAdapter.prettyType(
+                        b.optString("type", ""))));
+            } else {
+                Collections.sort(items, (a, b) -> a.optString("name", "").compareToIgnoreCase(b.optString("name", "")));
+            }
+            // Selected first.
+            for (int i = items.size() - 1; i >= 0; i--) {
+                if (selected.contains(items.get(i).optString("id", ""))) {
+                    JSONObject top = items.remove(i);
+                    items.add(0, top);
+                }
+            }
+
+            savedTitle.setText("Saved  (" + items.size() + ")");
+
+            activeCard.setVisibility(View.VISIBLE);
+            if (selected.isEmpty()) {
+                activeName.setText("No server selected");
+                activeDetail.setText("Tap profiles below to select them");
+                activeType.setText("");
+                activeCard.setBackgroundResource(R.drawable.card_bg);
+            } else if (selected.size() == 1) {
+                JSONObject pick = null;
+                for (int i = 0; i < items.size(); i++) {
+                    if (items.get(i).optString("id", "").equals(first)) {
+                        pick = items.get(i);
+                        break;
+                    }
+                }
+                if (pick == null && first.equals(ApiSession.activeTunnelId(requireContext()))) {
+                    // La sélection est une config API (cachée de la liste):
+                    // pas de substitution par un profil manuel.
+                    activeName.setText("Config API active");
+                    activeDetail.setText("Gérée depuis Home (section SERVER CONFIGS)");
+                    activeType.setText("API");
+                    activeCard.setBackgroundResource(R.drawable.card_bg_active);
+                    JSONArray shownApi = new JSONArray();
+                    for (JSONObject o : items) {
+                        shownApi.put(o);
+                    }
+                    adapter.setItems(shownApi, java.util.Collections.emptySet(), null);
+                    return;
+                }
+                if (pick == null && !items.isEmpty()) {
+                    pick = items.get(0);
+                }
+                if (pick != null) {
+                    activeName.setText(pick.optString("name", "Server"));
+                    JSONObject server = pick.optJSONObject("server");
+                    String host = server != null ? server.optString("host", "") : "";
+                    int port = server != null ? PingUtil.dialPort(server) : 0;
+                    boolean hidden = ProfileTransfer.isHideServer(pick);
+                    activeDetail.setText(hidden ? "serveur masqué"
+                            : (host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "")));
+                    activeType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
+                }
+                activeCard.setBackgroundResource(R.drawable.card_bg_active);
+            } else {
+                activeName.setText(selected.size() + " profiles selected");
+                StringBuilder names = new StringBuilder();
+                for (JSONObject o : items) {
+                    if (selected.contains(o.optString("id", ""))) {
+                        if (names.length() > 0) {
+                            names.append("  •  ");
+                        }
+                        names.append(o.optString("name", "Server"));
+                    }
+                }
+                activeDetail.setText(names.toString());
+                activeType.setText("round-robin");
+                activeCard.setBackgroundResource(R.drawable.card_bg_active);
+            }
+
+            JSONArray live = new JSONArray();
+            java.util.Map<String, String> liveMap = new java.util.HashMap<>();
+            if (TasVpnService.isRunning()) {
+                try {
+                    JSONObject st = new JSONObject(TasVpnService.controllerStatus());
+                    live = st.optJSONArray("tunnels");
+                    if (live != null) {
+                        for (int i = 0; i < live.length(); i++) {
+                            JSONObject t = live.getJSONObject(i);
+                            liveMap.put(t.optString("id", ""), t.optString("status", ""));
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            JSONArray shown = new JSONArray();
+            for (JSONObject o : items) {
+                shown.put(o);
+            }
+            adapter.setItems(shown, selected, liveMap);
+        } catch (Exception e) {
+            Toast.makeText(getContext(), "Load failed: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private boolean typeMatches(String type) {
+        switch (typeFilter) {
+            case "ssh":
+                return type.equals("ssh") || type.equals("ssh_slowdns");
+            case "xray":
+                return type.equals("xray") || type.equals("xray_slowdns");
+            case "zivpn":
+                return type.equals("zivpn");
+            case "hysteria":
+                return type.equals("hysteria");
+            case "utunnel":
+                return type.equals("utunnel");
+            default:
+                return true;
+        }
+    }
+
+    /** PING ALL (style NPV) : pinge tous les profils visibles en parallèle
+     *  et affiche le résultat sur chaque carte ("Ping <ms>"). */
+    private void pingActive() {
+        java.util.List<JSONObject> targets = new java.util.ArrayList<>();
+        try {
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                JSONObject adv = t.optJSONObject("advanced");
+                if (adv != null && adv.optBoolean(ApiSession.ADV_API_MANAGED, false)) {
+                    continue;
+                }
+                targets.add(t);
+            }
+        } catch (Exception ignored) {
+        }
+        if (targets.isEmpty()) {
+            toast("Aucun profil à pinger");
+            return;
+        }
+        toast("Ping de " + targets.size() + " profil(s)…");
+        if (lastPingText != null) {
+            lastPingText.setText("…");
+        }
+        final android.content.Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+        final long t0 = System.currentTimeMillis();
+        final java.util.concurrent.ExecutorService es =
+                java.util.concurrent.Executors.newFixedThreadPool(5);
+        final java.util.concurrent.atomic.AtomicInteger done =
+                new java.util.concurrent.atomic.AtomicInteger(0);
+        for (final JSONObject t : targets) {
+            es.execute(() -> {
+                final String tid = t.optString("id", "");
+                TunnelPing.ping(ctx, t, (ms, via) -> {
+                    if (!tid.isEmpty() && ms >= 0) {
+                        VPNApplication.getInstance().setTunnelPing(tid, ms);
+                    }
+                    if (done.incrementAndGet() == targets.size()) {
+                        es.shutdown();
+                        if (getActivity() != null) {
+                            getActivity().runOnUiThread(() -> {
+                                if (lastPingText != null) {
+                                    lastPingText.setText(new java.text.SimpleDateFormat(
+                                            "HH:mm", java.util.Locale.US)
+                                            .format(new java.util.Date()));
+                                }
+                                long dt = (System.currentTimeMillis() - t0) / 1000;
+                                toast("Test terminé (" + dt + " s)");
+                                reload();
+                            });
+                        }
+                    }
+                });
+            });
+        }
+    }
+
+    /** Tap a card: toggle its selection (green frame = will connect). */
+    private void toggleSelect(JSONObject tunnel) {
+        String id = tunnel.optString("id", "");
+        if (id.isEmpty()) {
+            return;
+        }
+        // Conflict rule: an API config currently owns the selection and the
+        // user picked a manual profile. Warn; on confirm the API config is
+        // withdrawn (API mode back to standby) and manual selection resumes.
+        boolean isApiTunnel = id.equals(ApiSession.activeTunnelId(requireContext()));
+        if (ApiSession.isApiActive(requireContext()) && !isApiTunnel) {
+            new AlertDialog.Builder(requireContext())
+                    .setTitle("Mode API actif")
+                    .setMessage("Une config API est active. Les profils manuels sont "
+                            + "bloqués tant qu'elle est sélectionnée.\n\n"
+                            + "Retirer la config API et utiliser ce profil ?")
+                    .setPositiveButton("Retirer l'API", (d, w) -> {
+                        ApiSession.onManualSelection(requireContext());
+                        applyToggle(id, tunnel);
+                    })
+                    .setNegativeButton("Annuler", null)
+                    .show();
+            return;
+        }
+        applyToggle(id, tunnel);
+        // Manual selection while an API tunnel merely existed (not active)
+        // also puts API mode in standby.
+        ApiSession.onManualSelection(requireContext());
+    }
+
+    private void applyToggle(String id, JSONObject tunnel) {
+        java.util.LinkedHashSet<String> set =
+                VPNApplication.getInstance().toggleSelected(id);
+        String first = set.isEmpty() ? "" : set.iterator().next();
+        VPNApplication.getInstance().setActiveTunnelId(first);
+        if (set.isEmpty()) {
+            toast("Deselected - no profile will connect");
+        } else if (set.size() == 1) {
+            toast("Selected: " + tunnel.optString("name", "Server"));
+        } else {
+            toast("Selected " + set.size() + " profiles (round-robin)");
+        }
+        reload();
+    }
+
+    /** Long-press a card: Ping / Clone / Edit / Delete (no connect here).
+     *  Locked profiles expose Ping + Delete only. */
+    private void showActions(JSONObject tunnel) {
+        String id = tunnel.optString("id", "");
+        String name = tunnel.optString("name", "Server");
+        boolean locked = ProfileTransfer.isLocked(tunnel);
+        java.util.List<String> opts = new java.util.ArrayList<>();
+        opts.add("Ping");
+        if (!locked) {
+            opts.add("Clone");
+            opts.add("Edit");
+        }
+        opts.add("Delete");
+        String[] options = opts.toArray(new String[0]);
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(name + (locked ? " (verrouillé)" : ""))
+                .setItems(options, (d, which) -> {
+                    switch (options[which]) {
+                        case "Ping":
+                            pingOne(tunnel);
+                            break;
+                        case "Clone":
+                            if (ProfileTransfer.isLocked(tunnel)) {
+                                toast("Profil verrouillé : clonage impossible");
+                            } else {
+                                cloneTunnel(id, name);
+                            }
+                            break;
+                        case "Edit": {
+                            if (ProfileTransfer.isLocked(tunnel)) {
+                                toast("Profil verrouillé : modification impossible");
+                                break;
+                            }
+                            Intent i = new Intent(getContext(), TunnelEditorActivity.class);
+                            i.putExtra(TunnelEditorActivity.EXTRA_TUNNEL_ID, id);
+                            startActivity(i);
+                            break;
+                        }
+                        case "Delete":
+                            confirmDelete(id, name);
+                            break;
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** Duplicate a profile (fresh id, "name copy"). */
+    private void cloneTunnel(String id, String name) {
+        if (id == null || id.isEmpty()) {
+            return;
+        }
+        try {
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
+            JSONObject src = null;
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if (id.equals(t.optString("id", ""))) {
+                    src = t;
+                    break;
+                }
+            }
+            if (src == null) {
+                toast("Profile not found");
+                return;
+            }
+            src.remove("id");
+            src.put("name", name + " copy");
+            String res = VpnlibHelper.configAdd(cfgPath(), src.toString());
+            if (res != null && res.startsWith("{")) {
+                JSONObject o = new JSONObject(res);
+                if (o.has("error")) {
+                    toast("Clone failed: " + o.optString("error"));
+                    return;
+                }
+            }
+            toast("Cloned: " + name + " copy");
+            reload();
+        } catch (Exception e) {
+            toast("Clone failed: " + e.getMessage());
+        }
+    }
+
+    /** Partager + Importer via le menu ⋮ de l'en-tête : c'est le SEUL point
+     *  d'entrée du partage. Il porte toujours sur la sélection (1+ profils au
+     *  cadre vert) — le partage d'un profil isolé n'existe plus, l'icône de
+     *  la carte est devenue un Clone.
+     *
+     *  Les 4 actions sont listées à plat, sans sous-menu ni paragraphe
+     *  explicatif : chaque entrée fait ce qu'elle annonce. L'export passe
+     *  ensuite par le formulaire de restrictions (verrou, mot de passe, HWID,
+     *  opérateur, expiration), qui est une saisie d'options et non un niveau
+     *  de navigation. */
+    private void showShareMenu() {
+        java.util.LinkedHashSet<String> selected =
+                VPNApplication.getInstance().getSelectedIds();
+        String[] options = {
+                "Exporter en fichier .epha",
+                "Exporter vers le clipboard",
+                "Importer un fichier .epha",
+                "Importer depuis le clipboard",
+        };
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle(selected.isEmpty()
+                        ? "Partager / Importer"
+                        : "Partager / Importer (" + selected.size() + " profil(s))")
+                .setItems(options, (d, which) -> {
+                    switch (which) {
+                        case 0:
+                            showExportMenu(TARGET_FILE);
+                            break;
+                        case 1:
+                            showExportMenu(TARGET_CLIPBOARD);
+                            break;
+                        case 2:
+                            openImportFile();
+                            break;
+                        default:
+                            showClipboardImport();
+                            break;
+                    }
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    /** Show the Backup form for the currently selected profiles, bound to
+     *  one export destination (file or clipboard). */
+    private void showExportMenu(String target) {
+        java.util.LinkedHashSet<String> selected =
+                VPNApplication.getInstance().getSelectedIds();
+        if (selected.isEmpty()) {
+            toast("Sélectionnez d'abord 1+ profils (cadre vert)");
+            return;
+        }
+        showExportMenu(ProfileTransfer.selectedTunnels(requireContext(), selected), target);
+    }
+
+    /** Open the .epha picker directly (import path, no options form). */
+    private void openImportFile() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        startActivityForResult(i, REQ_IMPORT_SHARE);
+    }
+
+    /** Backup form for an explicit list of profiles, ending on `target`
+     *  (TARGET_FILE or TARGET_CLIPBOARD). The form collects the restrictions
+     *  (lock, password, HWID, ISP, expiry) then performs that one action. */
+    private void showExportMenu(List<JSONObject> tunnels, String target) {
+        if (tunnels.isEmpty()) {
+            toast("Les configs de l'API sont sécurisées : export impossible");
+            return;
+        }
+        // Garde-fou unique applique au fichier ET au presse-papiers : un
+        // profil importe (ou verrouille non exportable) ne peut jamais
+        // repartir de cet appareil. Bloque avant meme d'afficher le
+        // formulaire pour ne pas laisser croire que l'export est possible.
+        for (JSONObject t : tunnels) {
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
+                return;
+            }
+        }
+
+        buildExportDialog(tunnels, target);
+    }
+
+    /** Label de section du formulaire d'export (style NPV). */
+    private android.widget.TextView sectionLabel(String text) {
+        android.widget.TextView tv = new android.widget.TextView(requireContext());
+        tv.setText(text);
+        tv.setTextColor(0xFF00E676);
+        tv.setTextSize(13);
+        tv.setTypeface(null, android.graphics.Typeface.BOLD);
+        tv.setPadding(0, (int) (10 * getResources().getDisplayMetrics().density), 0, (int) (2 * getResources().getDisplayMetrics().density));
+        return tv;
+    }
+
+    /**
+     * Formulaire "Export Config" : en-titre avec croix de fermeture,
+     * cases a cocher, champs conditionnels REELLEMENT masques tant que la
+     * case n'est pas cochee, operateur detecte automatiquement, et un
+     * seul bouton d'action pleine largeur (le "Annuler" est remplace par
+     * la croix).
+     */
+    private void buildExportDialog(List<JSONObject> tunnels, String target) {
+        final float density = getResources().getDisplayMetrics().density;
+        final int pad = (int) (16 * density);
+        final boolean toFile = TARGET_FILE.equals(target);
+        final int green = 0xFF00E676;
+        final int dim = 0xFF9E9E9E;
+
+        // Operateur actif detecte : "Bloquer operateur" n'exige aucune saisie.
+        final String detectedIsp = ProfileTransfer.detectIspCode(requireContext());
+        final String detectedName = ProfileTransfer.displayIspName(requireContext());
+
+        android.widget.LinearLayout root = new android.widget.LinearLayout(requireContext());
+        root.setOrientation(android.widget.LinearLayout.VERTICAL);
+
+        // --- En-titre + croix -----------------------------------------------------
+        android.widget.LinearLayout header = new android.widget.LinearLayout(requireContext());
+        header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        header.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        header.setPadding(pad, pad, pad, (int) (8 * density));
+
+        android.widget.TextView title = new android.widget.TextView(requireContext());
+        title.setText("EXPORT CONFIG");
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(19);
+        title.setTypeface(null, android.graphics.Typeface.BOLD);
+        title.setLetterSpacing(0.06f);
+        title.setLayoutParams(new android.widget.LinearLayout.LayoutParams(
+                0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        header.addView(title);
+
+        android.widget.TextView close = new android.widget.TextView(requireContext());
+        close.setText("✕");
+        close.setTextColor(0xFFB0BEC5);
+        close.setTextSize(20);
+        close.setPadding((int) (10 * density), 0, (int) (4 * density), 0);
+        close.setOnClickListener(v -> {
+            if (exportDialog != null) {
+                exportDialog.dismiss();
+            }
+        });
+        header.addView(close);
+        root.addView(header);
+
+        android.widget.ScrollView scroll = new android.widget.ScrollView(requireContext());
+        scroll.setFillViewport(true);
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(requireContext());
+        layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+        layout.setPadding(pad, 0, pad, 0);
+        scroll.addView(layout);
+        root.addView(scroll, new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // --- Nom du fichier (uniquement pour l'export fichier) --------------------
+        final android.widget.EditText filenameInput = new android.widget.EditText(requireContext());
+        filenameInput.setText("borum-" + tunnels.size() + "-profils.epha");
+        filenameInput.setTextColor(0xFFFFFFFF);
+        filenameInput.setHintTextColor(0xFF616161);
+        filenameInput.setSingleLine(true);
+        android.widget.LinearLayout fileCard = card(density);
+        fileCard.addView(sectionLabel("NOM DU FICHIER"));
+        fileCard.addView(filenameInput);
+        layout.addView(fileCard);
+        fileCard.setVisibility(toFile ? android.view.View.VISIBLE : android.view.View.GONE);
+
+        // --- Cases a cocher -------------------------------------------------------
+        android.widget.LinearLayout optCard = card(density);
+        optCard.addView(sectionLabel("RESTRICTIONS"));
+        android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
+        grid.setColumnCount(2);
+        final java.util.Map<String, android.widget.CheckBox> boxes = new java.util.LinkedHashMap<>();
+        // Une seule source de verite : cle -> libelle + valeur par defaut.
+        // Aucun tableau parallele a garder aligne (un bug historique
+        // (ArrayIndexOutOfBoundsException) venait d'un defaults[] plus court
+        // que opts[] quand deux options etaient ajoutees).
+        java.util.LinkedHashMap<String, Object[]> opts = new java.util.LinkedHashMap<>();
+        opts.put("lock", new Object[]{"Lock Backup", false});
+        opts.put("external", new Object[]{"External", true});   // défaut historique
+        opts.put("hideserver", new Object[]{"Hide Server", false});
+        opts.put("hideupass", new Object[]{"Hide UPass", false});
+        opts.put("blockroot", new Object[]{"Block Root", false});
+        opts.put("hwid", new Object[]{"HWID", false});
+        opts.put("note", new Object[]{"Note", false});
+        opts.put("expired", new Object[]{"Expired", false});
+        opts.put("password", new Object[]{"Mot de passe (chiffrement fort)", false});
+        opts.put("isp", new Object[]{"Bloquer opérateur", false});
+        int idx = 0;
+        for (java.util.Map.Entry<String, Object[]> e : opts.entrySet()) {
+            String key = e.getKey();
+            Object[] def = e.getValue();
+            android.widget.CheckBox cb = new android.widget.CheckBox(requireContext());
+            cb.setText((String) def[0]);
+            cb.setTextColor(0xFFFFFFFF);
+            cb.setTextSize(14);
+            cb.setChecked((Boolean) def[1]);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(green));
+            }
+            android.widget.GridLayout.LayoutParams lp = new android.widget.GridLayout.LayoutParams();
+            lp.width = 0;
+            lp.columnSpec = android.widget.GridLayout.spec(idx % 2, 1f);
+            lp.setMargins(0, (int) (4 * density), (int) (8 * density), (int) (4 * density));
+            cb.setLayoutParams(lp);
+            grid.addView(cb);
+            boxes.put(key, cb);
+            idx++;
+        }
+        optCard.addView(grid);
+        layout.addView(optCard);
+
+        // --- Champs conditionnels (cartes masquees tant que non coches) ----------
+        // HWID
+        android.widget.LinearLayout hwidCard = card(density);
+        hwidCard.addView(sectionLabel("HARDWARE ID"));
+        final android.widget.EditText hwidInput = new android.widget.EditText(requireContext());
+        hwidInput.setHint("MD5 du ANDROID_ID, 32 caracteres hexa (A,B,C...)");
+        hwidInput.setTextColor(0xFFFFFFFF);
+        hwidInput.setHintTextColor(0xFF616161);
+        hwidCard.addView(hwidInput);
+        layout.addView(hwidCard);
+
+        // Operateur (auto-detecte)
+        android.widget.LinearLayout ispCard = card(density);
+        ispCard.addView(sectionLabel("OPÉRATEUR DÉTECTÉ"));
+        final android.widget.EditText ispInput = new android.widget.EditText(requireContext());
+        ispInput.setText(detectedIsp);
+        ispInput.setTextColor(0xFFFFFFFF);
+        ispInput.setHintTextColor(0xFF616161);
+        ispInput.setSingleLine(true);
+        ispCard.addView(ispInput);
+        final android.widget.TextView ispInfo = new android.widget.TextView(requireContext());
+        ispInfo.setText(detectedIsp.isEmpty()
+                ? "Aucune SIM détectée : renseignez le nom de l'opérateur ci-dessus."
+                : "SIM active : " + detectedName + " → blocage limité à « " + detectedIsp + " »");
+        ispInfo.setTextColor(detectedIsp.isEmpty() ? 0xFFFF5252 : dim);
+        ispInfo.setTextSize(12);
+        ispInfo.setPadding(0, (int) (6 * density), 0, 0);
+        ispCard.addView(ispInfo);
+        layout.addView(ispCard);
+
+        // Mot de passe
+        android.widget.LinearLayout passCard = card(density);
+        passCard.addView(sectionLabel("MOT DE PASSE"));
+        final android.widget.EditText passwordInput = new android.widget.EditText(requireContext());
+        passwordInput.setHint("4+ caractères — requis à l'ouverture");
+        passwordInput.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passwordInput.setTextColor(0xFFFFFFFF);
+        passwordInput.setHintTextColor(0xFF616161);
+        passCard.addView(passwordInput);
+        layout.addView(passCard);
+
+        // Note
+        android.widget.LinearLayout noteCard = card(density);
+        noteCard.addView(sectionLabel("NOTE"));
+        final android.widget.EditText noteInput = new android.widget.EditText(requireContext());
+        noteInput.setHint("Ex. 2026 © borum Team");
+        noteInput.setTextColor(0xFFFFFFFF);
+        noteInput.setHintTextColor(0xFF616161);
+        noteCard.addView(noteInput);
+        layout.addView(noteCard);
+
+        // Expiration
+        final String[] expiry = {""};
+        android.widget.LinearLayout expCard = card(density);
+        expCard.addView(sectionLabel("EXPIRATION"));
+        final android.widget.TextView expiryText = new android.widget.TextView(requireContext());
+        expiryText.setText("Aucune date —Touchez pour choisir");        expiryText.setTextColor(0xFFFFFFFF);
+        expiryText.setTextSize(15);
+        expiryText.setPadding((int) (12 * density), (int) (12 * density),
+                (int) (12 * density), (int) (12 * density));
+        expiryText.setBackgroundResource(com.borum.vpn.R.drawable.card_bg);
+        expiryText.setOnClickListener(v -> showExpiryPicker(expiry, expiryText));
+        expCard.addView(expiryText);
+        layout.addView(expCard);
+
+        // Resume
+        android.widget.TextView summary = new android.widget.TextView(requireContext());
+        summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
+        summary.setTextColor(dim);
+        summary.setTextSize(12);
+        summary.setPadding((int) (4 * density), (int) (10 * density), 0, (int) (6 * density));
+        layout.addView(summary);
+
+        // Affichage conditionnel : chaque champ n'existe visuellement que si
+        // sa case est cochee.
+        final android.view.View[] cards = {
+                hwidCard, ispCard, passCard, noteCard, expCard};
+        final String[] keys = {"hwid", "isp", "password", "note", "expired"};
+        for (int i = 0; i < cards.length; i++) {
+            android.widget.CheckBox cb = boxes.get(keys[i]);
+            final android.view.View field = cards[i];
+            field.setVisibility(cb.isChecked() ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (!"expired".equals(keys[i])) {
+                cb.setOnCheckedChangeListener((b, c) ->
+                        field.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE));
+            }
+        }
+        // La date d'expiration demande un choix : on ouvre le picker quand
+        // la case devient cochee.
+        boxes.get("expired").setOnCheckedChangeListener((b, c) -> {
+            expCard.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE);
+            if (c) {
+                showExpiryPicker(expiry, expiryText);
+            }
+        });
+
+        // --- Bouton d'action plein ecran (remplace Annuler + ancien bouton) ---
+        final android.widget.Button action = new android.widget.Button(requireContext());
+        action.setText(toFile ? "ENREGISTRER LE .EPHA" : "COPIER LE LIEN");
+        action.setTextColor(0xFF001B00);
+        action.setTextSize(15);
+        action.setTypeface(null, android.graphics.Typeface.BOLD);
+        action.setAllCaps(false);
+        action.setBackgroundTintList(android.content.res.ColorStateList.valueOf(green));
+        action.setPadding(pad, (int) (14 * density), pad, (int) (14 * density));
+        android.widget.LinearLayout.LayoutParams aplp =
+                new android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        aplp.setMargins(pad, (int) (12 * density), pad, pad);
+        root.addView(action, aplp);
+
+        final androidx.appcompat.app.AlertDialog dlgRef =
+                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                        .setView(root)
+                        .create();
+        exportDialog = dlgRef;
+        action.setOnClickListener(v -> {
+            ProfileTransfer.Restrictions r = readBackupOptions(
+                    boxes, hwidInput.getText().toString(),
+                    noteInput.getText().toString(), expiry[0],
+                    passwordInput.getText().toString(),
+                    ispInput.getText().toString());
+            if (r == null) {
+                return;
+            }
+            dlgRef.dismiss();
+            if (toFile) {
+                exportToFile(tunnels, r, filenameInput.getText().toString());
+            } else {
+                exportToClipboard(tunnels, r);
+            }
+        });
+        dlgRef.show();
+    }
+
+    /** Conteneur "carte" sombre, aligne sur le style de l'application. */
+    private android.widget.LinearLayout card(float density) {
+        android.widget.LinearLayout c = new android.widget.LinearLayout(requireContext());
+        c.setOrientation(android.widget.LinearLayout.VERTICAL);
+        c.setBackgroundResource(com.borum.vpn.R.drawable.card_bg);
+        int p = (int) (14 * density);
+        c.setPadding(p, (int) (10 * density), p, (int) (10 * density));
+        android.widget.LinearLayout.LayoutParams lp = new android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                android.widget.LinearLayout.LayoutParams.WRAP_CONTENT);
+        lp.setMargins(0, (int) (8 * density), 0, 0);
+        c.setLayoutParams(lp);
+        return c;
+    }
+    /** Green date picker for the Expired option (AAAA-MM-JJ). Material style
+     *  with explicit green buttons (the default can be unreadable). */
+    private void showExpiryPicker(final String[] expiry, final android.widget.TextView label) {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        android.app.DatePickerDialog dlg = new android.app.DatePickerDialog(requireContext(),
+                android.R.style.Theme_Material_Dialog,
+                (view, y, m, day) -> {
+                    expiry[0] = String.format(java.util.Locale.US, "%04d-%02d-%02d", y, m + 1, day);
+                    label.setText("Expiration : " + expiry[0]);
+                },
+                cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH),
+                cal.get(java.util.Calendar.DAY_OF_MONTH));
+        dlg.getDatePicker().setMinDate(System.currentTimeMillis() - 1000);
+        dlg.show();
+        // Force readable green buttons: the Material theme otherwise can
+        // render light-on-light text.
+        try {
+            android.widget.Button ok = dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
+            android.widget.Button cancel = dlg.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
+            if (ok != null) {
+                ok.setTextColor(0xFF00BF9A);
+                ok.setTypeface(null, android.graphics.Typeface.BOLD);
+            }
+            if (cancel != null) {
+                cancel.setTextColor(0xFF00BF9A);
+                cancel.setTypeface(null, android.graphics.Typeface.BOLD);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Read an export option, tolerating options that have no checkbox. */
+    private static boolean checked(java.util.Map<String, android.widget.CheckBox> boxes,
+                                   String key) {
+        android.widget.CheckBox cb = boxes.get(key);
+        return cb != null && cb.isChecked();
+    }
+
+    /** Validate Backup options; null = invalid (toast shown). */
+    private ProfileTransfer.Restrictions readBackupOptions(
+            java.util.Map<String, android.widget.CheckBox> boxes,
+            String hwids, String note, String expiry, String password, String isp) {
+        ProfileTransfer.Restrictions r = new ProfileTransfer.Restrictions();
+        r.lockConfiguration = checked(boxes, "lock");
+        r.external = checked(boxes, "external");
+        r.hideServer = checked(boxes, "hideserver");
+        r.hideUpass = checked(boxes, "hideupass");
+        r.blockRoot = checked(boxes, "blockroot");
+        // "rmbanner"/"custombanner" have no checkbox in the grid any more:
+        // read them defensively (a missing key means "off"), otherwise this
+        // threw NullPointerException right after the dialog was validated.
+        r.removeBanner = checked(boxes, "rmbanner");
+        r.customBanner = checked(boxes, "custombanner");
+        if (checked(boxes, "expired")) {
+            if (expiry == null || !expiry.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                toast("Choisissez une date d'expiration");
+                return null;
+            }
+            r.expiresAt = expiry;
+        }
+        if (checked(boxes, "hwid")) {
+            if (hwids != null) {
+                for (String part : hwids.split("[,;\\n]+")) {
+                    String id = part.trim().replaceAll("\\s+", "").toUpperCase(java.util.Locale.US);
+                    if (!id.isEmpty() && !id.matches("[A-F0-9]{32}")) {
+                        toast("Hardware ID invalide : " + part.trim());
+                        return null;
+                    }
+                    if (!id.isEmpty() && !r.allowedHardwareIds.contains(id)) {
+                        r.allowedHardwareIds.add(id);
+                    }
+                }
+            }
+            if (r.allowedHardwareIds.isEmpty()) {
+                toast("HWID coché : saisissez au moins un ID");
+                return null;
+            }
+        }
+        if (checked(boxes, "note")) {
+            r.userNote = note == null ? "" : note.trim();
+        }
+        if (checked(boxes, "password")) {
+            if (password == null || password.length() < 4) {
+                toast("Mot de passe : 4 caractères minimum");
+                return null;
+            }
+            r.password = password;
+        }
+        if (checked(boxes, "isp")) {
+            String v = isp == null ? "" : isp.trim().toLowerCase(java.util.Locale.US);
+            if (!v.matches("[a-z0-9][a-z0-9 ._-]{1,30}")) {
+                toast("Opérateur invalide (ex : mtn)");
+                return null;
+            }
+            r.allowedIsp = v;
+        }
+        return r;
+    }
+
+    /** Dialogue d'export courant (ferme par la croix en haut a droite). */
+    private androidx.appcompat.app.AlertDialog exportDialog;
+
+    /** Message d refus d'export, different selon la cause du blocage. */
+    private String exportBlockedReason(JSONObject t) {
+        String name = t.optString("name", "Server");
+        if (ProfileTransfer.isImported(t)) {
+            return "Export interdit : « " + name + " » vient d'un import"
+                    + " (il ne peut jamais etre re-partage)";
+        }
+        return "Export interdit : « " + name + " » est verrouille (config recue)"
+                + " et ne peut pas etre re-partage";
+    }
+
+    private void exportToFile(List<JSONObject> tunnels, ProfileTransfer.Restrictions r,
+                              String filename) {
+        for (JSONObject t : tunnels) {
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
+                return;
+            }
+        }
+        try {
+            String json = ProfileTransfer.buildExport(tunnels, r, filename);
+            if (r.password != null && !r.password.isEmpty()) {
+                json = ProfileTransfer.buildExportEncrypted(json, r.password);
+            }
+            pendingExport = json;
+            String name = filename == null ? "" : filename.trim();
+            if (name.isEmpty()) {
+                name = "borum-" + tunnels.size() + "-profils.epha";
+            } else if (!name.toLowerCase(java.util.Locale.US).endsWith(".epha")) {
+                name = name + ".epha";
+            }
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/octet-stream");
+            i.putExtra(Intent.EXTRA_TITLE, name);
+            startActivityForResult(i, REQ_EXPORT_SHARE);
+        } catch (Exception e) {
+            toast("Export impossible : " + e.getMessage());
+        }
+    }
+
+    private void exportToClipboard(List<JSONObject> tunnels, ProfileTransfer.Restrictions r) {
+        for (JSONObject t : tunnels) {
+            if (!ProfileTransfer.canExport(t)) {
+                toast(exportBlockedReason(t));
+                return;
+            }
+        }
+        try {
+            String json = ProfileTransfer.buildExport(tunnels, r, null);
+            if (r.password != null && !r.password.isEmpty()) {
+                json = ProfileTransfer.buildExportEncrypted(json, r.password);
+            }
+            String link = ProfileTransfer.toClipboard(json);
+            android.content.ClipboardManager cm = (android.content.ClipboardManager) requireContext()
+                    .getSystemService(Context.CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("borum", link));
+            TasVpnService.logEvent("exported " + tunnels.size() + " profile(s) to clipboard"
+                    + (r.lockConfiguration ? " (locked)" : ""));
+            toast("Lien copié (" + tunnels.size() + " profil(s))");
+        } catch (Exception e) {
+            toast("Export impossible : " + e.getMessage());
+        }
+    }
+
+    private void showClipboardImport() {
+        final android.widget.EditText input = new android.widget.EditText(requireContext());
+        input.setHint("borum://...");
+        input.setTextColor(0xFFFFFFFF);
+        input.setHintTextColor(0xFF616161);
+        input.setMinLines(3);
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Coller le lien")
+                .setView(input)
+                .setPositiveButton("Importer", (d, w) -> doImport(input.getText().toString()))
+                .setNegativeButton("Annuler", null)
+                .show();
+    }
+
+    private void doImport(String raw) {
+        doImportWithPassword(raw, null);
+    }
+
+    private void doImportWithPassword(String raw, String password) {
+        ProfileTransfer.ImportResult res;
+        try {
+            res = ProfileTransfer.parseImport(raw, password);
+        } catch (ProfileTransfer.PasswordRequiredException e) {
+            // Export chiffré : on demande le mot de passe puis on réessaie.
+            final android.widget.EditText pw = new android.widget.EditText(requireContext());
+            pw.setHint("Mot de passe de l'export");
+            pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                    | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+            pw.setTextColor(0xFFFFFFFF);
+            pw.setHintTextColor(0xFF616161);
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Export chiffré")
+                    .setMessage("Ce fichier/lien est protégé par mot de passe "
+                            + "(PBKDF2 310k + AES-256-GCM).")
+                    .setView(pw)
+                    .setPositiveButton("Déchiffrer", (d, w) ->
+                            doImportWithPassword(raw, pw.getText().toString()))
+                    .setNegativeButton("Annuler", null)
+                    .show();
+            return;
+        } catch (Exception e) {
+            toast("Import impossible : " + e.getMessage());
+            return;
+        }
+        int added = 0;
+        try {
+            String cfgPath = cfgPath();
+            for (JSONObject t : res.tunnels) {
+                String r = VpnlibHelper.configAdd(cfgPath, t.toString());
+                if (r != null && r.startsWith("{") && new JSONObject(r).has("error")) {
+                    res.skipped++;
+                    continue;
+                }
+                added++;
+            }
+        } catch (Exception e) {
+            toast("Import impossible : " + e.getMessage());
+            return;
+        }
+        TasVpnService.logEvent("imported " + added + " profile(s)"
+                + (res.locked ? " (locked)" : "")
+                + (res.skipped > 0 ? ", " + res.skipped + " skipped" : ""));
+        toast("Importés : " + added + (res.locked ? " (verrouillés)" : "")
+                + (res.skipped > 0 ? " - ignorés : " + res.skipped : ""));
+        reload();
+    }
+
+    @Override
+    public void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_IMPORT_SHARE) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null) {
+                return;
+            }
+            try (java.io.InputStream in =
+                         requireContext().getContentResolver().openInputStream(data.getData())) {
+                byte[] content = readAllBytes(in);
+                doImport(new String(content, java.nio.charset.StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                toast("Import impossible : " + e.getMessage());
+            }
+            return;
+        }
+        if (requestCode == REQ_EXPORT_SHARE) {
+            if (resultCode != Activity.RESULT_OK || data == null || data.getData() == null
+                    || pendingExport == null) {
+                pendingExport = null;
+                return;
+            }
+            try (java.io.OutputStream out = requireContext().getContentResolver()
+                    .openOutputStream(data.getData())) {
+                out.write(pendingExport.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                TasVpnService.logEvent("exported profiles to .epha file");
+                toast("Fichier .epha enregistré");
+            } catch (Exception e) {
+                toast("Export impossible : " + e.getMessage());
+            } finally {
+                pendingExport = null;
+            }
+        }
+    }
+
+    private static byte[] readAllBytes(java.io.InputStream in) throws Exception {
+        java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+        byte[] tmp = new byte[8192];
+        int n;
+        while ((n = in.read(tmp)) > 0) {
+            buf.write(tmp, 0, n);
+        }
+        return buf.toByteArray();
+    }
+
+    private void pingOne(JSONObject tunnel) {
+        final String id = tunnel.optString("id", "");
+        TunnelPing.ping(requireContext(), tunnel, (ms, via) -> {
+            if (ms >= 0) {
+                if (!id.isEmpty()) {
+                    VPNApplication.getInstance().setTunnelPing(id, ms);
+                }
+                toast(ms + " ms");
+            } else if (ms == -2) {
+                toast("UDP server: TCP closed (normal). Connect, then PING measures real latency.");
+            } else {
+                toast("Ping failed");
+            }
+            reload();
+        });
+    }
+
+    private void confirmDelete(String id, String name) {
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Delete server?")
+                .setMessage("Delete \"" + name + "\"?")
+                .setPositiveButton("Delete", (d, w) -> {
+                    String err = VpnlibHelper.configDelete(cfgPath(), id);
+                    if (err != null && !err.isEmpty()) {
+                        toast("Delete failed");
+                    } else {
+                        java.util.LinkedHashSet<String> sel =
+                                VPNApplication.getInstance().getSelectedIds();
+                        if (sel.remove(id)) {
+                            VPNApplication.getInstance().setSelectedIds(sel);
+                        }
+                        if (id.equals(VPNApplication.getInstance().getActiveTunnelId())) {
+                            String first = sel.isEmpty() ? "" : sel.iterator().next();
+                            VPNApplication.getInstance().setActiveTunnelId(first);
+                        }
+                        toast("Deleted");
+                        reload();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void showSearch() {
+        EditText input = new EditText(getContext());
+        input.setHint("Filter by name");
+        input.setText(query);
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Search")
+                .setView(input)
+                .setPositiveButton("OK", (d, w) -> {
+                    query = input.getText().toString().trim().toLowerCase();
+                    reload();
+                })
+                .setNegativeButton("Clear", (d, w) -> {
+                    query = "";
+                    reload();
+                })
+                .show();
+    }
+
+    private void showFilter() {
+        String[] opts = {"All", "SSH", "Xray", "Zivpn UDP", "Hysteria UDP", "Utunnel UDP"};
+        String[] vals = {"all", "ssh", "xray", "zivpn", "hysteria", "utunnel"};
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Filter by type")
+                .setItems(opts, (d, which) -> {
+                    typeFilter = vals[which];
+                    reload();
+                })
+                .show();
+    }
+
+    private void showSortMenu() {
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Saved configs")
+                .setItems(new String[]{"Sort: Name", "Sort: Type"}, (d, which) -> {
+                    sortByType = which == 1;
+                    reload();
+                })
+                .show();
+    }
+
+    private void toast(String msg) {
+        Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
+    }
+}
