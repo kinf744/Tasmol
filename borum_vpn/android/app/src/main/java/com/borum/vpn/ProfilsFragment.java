@@ -228,7 +228,7 @@ public class ProfilsFragment extends Fragment {
         return card;
     }
 
-    private TextView dataRow(String label, String value, int valueColor) {
+    private View dataRow(String label, String value, int valueColor) {
         LinearLayout row = new LinearLayout(getContext());
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setPadding(0, dp(9), 0, dp(9));
