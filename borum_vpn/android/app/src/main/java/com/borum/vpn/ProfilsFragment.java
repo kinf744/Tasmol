@@ -179,7 +179,7 @@ public class ProfilsFragment extends Fragment {
         card.setCardBackgroundColor(CARD_BG);
         card.setCardElevation(0);
         GradientDrawable st = new GradientDrawable();
-        st.setColor(CARD_BG);
+        st.setColor(Color.TRANSPARENT);
         st.setCornerRadius(dp(22));
         st.setStroke(dp(1), CARD_STROKE);
         card.setForeground(st);
