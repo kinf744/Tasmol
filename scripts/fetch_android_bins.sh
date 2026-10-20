@@ -10,10 +10,11 @@
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+TARGET_DIR="${TARGET_DIR:-android}"
 
 stage_abi() {
     local src_dir="$1" abi_dir="$2"
-    local dir="$REPO_ROOT/android/app/src/main/jniLibs/$abi_dir"
+    local dir="$REPO_ROOT/$TARGET_DIR/app/src/main/jniLibs/$abi_dir"
     mkdir -p "$dir"
     local fail=0
     for pair in "xray lib_xray.so" "zivpn lib_zivpn.so" "slowdns lib_slowdns.so" "hysteria lib_hysteria.so" "utunnel lib_utunnel.so"; do
@@ -37,7 +38,7 @@ stage_abi "$REPO_ROOT/bin/armv7" "armeabi-v7a" || fail=1
 
 # Purge des résidus éventuels d'un ancien staging 64-bit (les .so d'un
 # build local précédent seraient sinon embarqués dans l'APK).
-rm -rf "$REPO_ROOT/android/app/src/main/jniLibs/arm64-v8a"
+rm -rf "$REPO_ROOT/$TARGET_DIR/app/src/main/jniLibs/arm64-v8a"
 
 # geoip.dat/geosite.dat ne sont plus embarqués (≈30 Mo économisés) :
 # l'app ne génère aucune règle geoip:/geosite: (vérif: aucune référence
@@ -50,4 +51,4 @@ if [ "$fail" -ne 0 ]; then
 fi
 
 echo "=== Staging complete ==="
-file "$REPO_ROOT/android/app/src/main/jniLibs/armeabi-v7a"/*.so
+file "$REPO_ROOT/$TARGET_DIR/app/src/main/jniLibs/armeabi-v7a"/*.so

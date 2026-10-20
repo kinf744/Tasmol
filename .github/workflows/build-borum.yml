@@ -181,7 +181,7 @@ jobs:
       - name: Stage official binaries into jniLibs
         run: |
           ls -lh bin/armv7/
-          bash scripts/fetch_android_bins.sh
+          TARGET_DIR=borum_vpn/android bash scripts/fetch_android_bins.sh
 
       - name: Install Gradle
         run: |
