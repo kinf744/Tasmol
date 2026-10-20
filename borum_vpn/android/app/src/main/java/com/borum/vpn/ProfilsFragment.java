@@ -106,8 +106,9 @@ public class ProfilsFragment extends Fragment {
                                 + " expires=" + resp.optString("expires_at", "-"));
             }
             JSONObject acc = (resp != null) ? resp.optJSONObject("account") : null;
+            if (acc == null) acc = accountFromFlat(resp);
             if (acc != null) ApiSession.saveAccountCard(c, acc);
-            final JSONObject accFinal = acc != null ? acc : accountFromFlat(resp);
+            final JSONObject accFinal = acc;
             final JSONArray cached = ApiSession.configs(c);
             getActivity().runOnUiThread(() -> render(accFinal, cached));
         });
@@ -147,25 +148,17 @@ public class ProfilsFragment extends Fragment {
     private void render(JSONObject acc, JSONArray configs) {
         if (list == null || getActivity() == null) return;
         list.removeAllViews();
-        JSONArray labels = (configs != null) ? configs : new JSONArray();
-        if (labels.length() == 0) {
-            if (acc != null) {
-                // Compte connecté mais aucun profil API en cache : carte unique.
-                list.addView(profileCard("Mon compte", acc));
-            } else {
-                TextView empty = new TextView(getContext());
-                empty.setText("Aucun profil. Verifiez la connexion puis reessayez (\u27F3).");
-                empty.setTextColor(TXT_DIM);
-                empty.setTextSize(14);
-                empty.setGravity(Gravity.CENTER);
-                empty.setPadding(0, dp(40), 0, 0);
-                list.addView(empty);
-            }
-            return;
-        }
-        for (int i = 0; i < labels.length(); i++) {
-            JSONObject c = labels.optJSONObject(i);
-            if (c != null) list.addView(profileCard(c.optString("label", "Profil"), acc));
+        if (acc != null) {
+            // Un seul compte (celui active) : une seule carte.
+            list.addView(profileCard(acc.optString("name", "Mon compte"), acc));
+        } else {
+            TextView empty = new TextView(getContext());
+            empty.setText("Chargement du compte…");
+            empty.setTextColor(TXT_DIM);
+            empty.setTextSize(14);
+            empty.setGravity(Gravity.CENTER);
+            empty.setPadding(0, dp(40), 0, 0);
+            list.addView(empty);
         }
     }
 
@@ -206,12 +199,6 @@ public class ProfilsFragment extends Fragment {
         in.addView(row1);
 
         if (acc == null) {
-            TextView wait = new TextView(getContext());
-            wait.setText("Chargement du compte…");
-            wait.setTextColor(TXT_DIM);
-            wait.setTextSize(14);
-            wait.setPadding(0, dp(14), 0, dp(4));
-            in.addView(wait);
             return card;
         }
 
@@ -330,7 +317,7 @@ public class ProfilsFragment extends Fragment {
             try {
                 Date d = new SimpleDateFormat(pattern, Locale.US).parse(iso);
                 if (d != null) {
-                    return new SimpleDateFormat("d MMM. yyyy", Locale.FRENCH).format(d);
+                    return new SimpleDateFormat("d MMM yyyy", Locale.FRENCH).format(d);
                 }
             } catch (Exception ignored) {
             }

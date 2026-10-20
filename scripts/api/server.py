@@ -204,8 +204,22 @@ class APIHandler(BaseHTTPRequestHandler):
                 exp = user["expires_at"]
                 if exp and datetime.fromisoformat(exp) < datetime.now():
                     return self._send({"activated": False, "message": "Subscription expired"}, 403)
+                # Objet account complet (quota) pour l'onglet PROFILS de
+                # Borum VPN : quota_mb<=0 => illimite (semantique quota.py).
+                qmb = user["quota_mb"] if "quota_mb" in user.keys() else 0
+                used = user["bytes_used"] if "bytes_used" in user.keys() else 0
+                limit = max(0, qmb or 0) * 1048576
+                account = {
+                    "active": 1, "name": user["name"], "phone": user["phone"],
+                    "expires_at": user["expires_at"],
+                    "unlimited": (qmb or 0) <= 0,
+                    "data_limit_bytes": limit,
+                    "data_remaining_bytes": max(0, limit - (used or 0)),
+                    "data_used_bytes": used or 0,
+                }
                 return self._send({"activated": True, "phone": user["phone"],
                                    "name": user["name"], "expires_at": user["expires_at"],
+                                   "account": account,
                                    "message": "Device is active"})
             return self._send({"activated": False, "message": "Device not found or inactive"}, 404)
 
