@@ -64,9 +64,11 @@ public final class PhoHelper {
         if (blocked(cb)) {
             return;
         }
+        // Preuve d'appareil (anti-clonage d'uuid, vérifiée par le serveur).
+        final String proof = DeviceIdentity.proof(VPNApplication.getInstance(), uuid);
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Vpnlib.phoActivate(phone, code, uuid));
+                JSONObject r = new JSONObject(Vpnlib.phoActivate(phone, code, uuid, proof));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;
@@ -101,9 +103,10 @@ public final class PhoHelper {
         if (blocked(cb)) {
             return;
         }
+        final String proof = DeviceIdentity.proof(VPNApplication.getInstance(), uuid);
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid));
+                JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid, proof));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;

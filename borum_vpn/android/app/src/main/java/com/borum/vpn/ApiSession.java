@@ -42,15 +42,13 @@ public final class ApiSession {
 
     // --- Identity / auth state ---
 
-    /** Device UUID, generated once on first use, stable afterwards. */
+    /**
+     * UUID de l'appareil : délégué à DeviceIdentity (dérivation matériel
+     * + secret par installation + preuve serveur anti-clonage). Le cache
+     * prefs n'est qu'un miroir non autoritaire.
+     */
     public static String deviceUuid(Context ctx) {
-        SharedPreferences sp = p(ctx);
-        String u = sp.getString(K_UUID, null);
-        if (u == null || u.isEmpty()) {
-            u = UUID.randomUUID().toString();
-            sp.edit().putString(K_UUID, u).apply();
-        }
-        return u;
+        return DeviceIdentity.getUuid(ctx);
     }
 
     public static void saveAuth(Context ctx, String phone, String code, String expiresAt) {

@@ -99,6 +99,9 @@ type startParams struct {
 	// LogDir is the device Download directory; a real-time activity file
 	// "kighmu.txt" is written there for diagnostics.
 	LogDir string `json:"log_dir"`
+	// LogQuiet réduit le journal aux jalons/erreurs (défaut Android :
+	// true). false = mode verbeux complet (diagnostic avancé).
+	LogQuiet *bool `json:"log_quiet"`
 	// TmpDir is a writable app-private directory (Android cache dir) for
 	// temp tunnel configs. Android has no /tmp and the process CWD is
 	// read-only, so os.MkdirTemp("") fails there.
@@ -299,6 +302,8 @@ func (c *Controller) Start(paramsJSON string) string {
 
 	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
+	// Journal minimal : jalons + erreurs uniquement (par défaut Android).
+	tunnel.QuietLog = p.LogQuiet == nil || *p.LogQuiet
 	tunnel.Connf("session", "starting session")
 
 	cfgMgr, err := config.NewManager(p.ConfigPath)

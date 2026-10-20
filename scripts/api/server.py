@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Stivaros activation API (compat EPHANG VPN)."""
-import json, os, sqlite3, sys, threading, time, collections
+import json, os, sqlite3, sys, threading, time, collections, hashlib
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+
+
+def _sha256(s):
+    return hashlib.sha256(s.encode()).hexdigest()
 
 DB_PATH = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
 
@@ -99,6 +103,11 @@ def init_db():
             nameserver TEXT DEFAULT '', slowdns_pubkey TEXT DEFAULT '',
             ssh_user TEXT DEFAULT '', ssh_pass TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+        CREATE TABLE IF NOT EXISTS devices (
+            uuid TEXT PRIMARY KEY,
+            proof_sha TEXT NOT NULL DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
         );
     """)
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
@@ -254,6 +263,18 @@ class APIHandler(BaseHTTPRequestHandler):
             device_id = params.get("device_id", [None])[0]
             if not device_id:
                 return self._send({"activated": False, "message": "Missing device_id"}, 400)
+            # Preuve d'appareil : un uuid volé depuis un autre matériel
+            # échoue ici aussi. Les uuid hérités sans preuve épinglée
+            # (anciens clients) restent acceptés (compat).
+            conn = get_db()
+            drow = conn.execute(
+                "SELECT proof_sha FROM devices WHERE uuid = ?", (device_id.lower(),)).fetchone()
+            conn.close()
+            if drow and drow["proof_sha"]:
+                p = (params.get("proof", [""])[0] or "").strip()
+                if not p or _sha256(p) != drow["proof_sha"]:
+                    return self._send({"activated": False,
+                                       "message": "Appareil non autorisé (preuve invalide)"}, 403)
             user = find_user(device_id)
             if user and user["active"]:
                 exp = user["expires_at"]
@@ -454,6 +475,38 @@ class APIHandler(BaseHTTPRequestHandler):
                     conn.close()
                     return self._send({"success": False,
                                        "message": "Trop d'appareils liés à ce compte"}, 403)
+            # ── Preuve d'appareil (anti-clonage d'UUID) ────────────────────
+            # proof = HMAC-SHA256(SHA-256(ANDROID_ID), uuid) calculée par
+            # l'app. Épinglée (SHA-256) au premier contact ; toute
+            # réutilisation de l'uuid depuis un autre matériel présente une
+            # preuve différente → refus ferme. Les uuid hérités sans preuve
+            # restent acceptés (compat anciens clients) mais se font
+            # épingler au premier register avec preuve.
+            proof = str(body.get("device_proof", "")).strip()[:128]
+            proof_sha = _sha256(proof) if proof else ""
+            drow = conn.execute(
+                "SELECT proof_sha FROM devices WHERE uuid = ?", (uuid.lower(),)).fetchone()
+            if drow:
+                if drow["proof_sha"] and proof_sha and drow["proof_sha"] != proof_sha:
+                    conn.close()
+                    activation_fail(phone)
+                    return self._send({"success": False,
+                                       "message": "UUID cloné refusé : preuve d'appareil "
+                                                  "différente (autre matériel)"},
+                                      403)
+                if drow["proof_sha"] and not proof_sha:
+                    conn.close()
+                    activation_fail(phone)
+                    return self._send({"success": False,
+                                       "message": "Mise à jour de l'application requise "
+                                                  "(preuve d'appareil manquante)"},
+                                      403)
+                if not drow["proof_sha"] and proof_sha:
+                    conn.execute("UPDATE devices SET proof_sha = ? WHERE uuid = ?",
+                                 (proof_sha, uuid.lower()))
+            else:
+                conn.execute("INSERT INTO devices (uuid, proof_sha) VALUES (?, ?)",
+                             (uuid.lower(), proof_sha))
             conn.execute("UPDATE users SET device_install_id=?, app_version=? WHERE id=?",
                          (new_iid, str(body.get("app_version", ""))[:20], user["id"]))
             conn.commit()

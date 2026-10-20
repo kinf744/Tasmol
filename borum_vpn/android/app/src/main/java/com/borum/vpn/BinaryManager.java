@@ -234,6 +234,9 @@ public class BinaryManager {
         // (makeFileLogger returns nil) if the path is not writable, which
         // is what happened with Download/ on Android 10+.
         p.put("log_dir", logDir().getAbsolutePath());
+        // Journal minimal : uniquement les jalons de connexion, les
+        // avertissements et les erreurs (mode verbeux désactivé).
+        p.put("log_quiet", true);
         // Forced DNS resolver for port-53 traffic (link-local/carrier DNS
         // is unreachable through the tunnel).
         p.put("dns_ip", VPNApplication.getInstance().getCustomDnsPrimary());

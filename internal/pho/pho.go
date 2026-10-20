@@ -266,13 +266,16 @@ func getJSON(pathQuery string) (map[string]interface{}, error) {
 
 // -- API publique (consommée via golib/pholib) ----------------------------
 
-// Activate registers uuid/phone/code and returns the raw JSON answer.
-func Activate(phone, code, uuid string) (string, error) {
+// Activate registers uuid/phone/code + device proof. Returns the raw JSON answer.
+// La preuve d'appareil (HMAC(ANDROID_ID, uuid)) lie l'UUID au matériel :
+// un UUID cloné vers un autre appareil est rejeté par le serveur.
+func Activate(phone, code, uuid, proof string) (string, error) {
 	return jsonString(postJSON(uuid, pathRegister, map[string]string{
 		"uuid":              uuid,
 		"device_install_id": uuid,
 		"phone_number":      phone,
 		"activation_code":   code,
+		"device_proof":      proof,
 	}))
 }
 
@@ -283,8 +286,10 @@ func FetchConfigs(uuid, code string) (string, error) {
 }
 
 // Check returns the raw /devices/check JSON.
-func Check(uuid string) (string, error) {
-	q := url.Values{"device_id": {uuid}}.Encode()
+// Check returns the raw /devices/check JSON. La preuve d'appareil
+// accompagne l'UUID : un uuid volé sans le matériel correspondant échoue.
+func Check(uuid, proof string) (string, error) {
+	q := url.Values{"device_id": {uuid}, "proof": {proof}}.Encode()
 	return jsonString(getJSON(pathCheck + "?" + q))
 }
 

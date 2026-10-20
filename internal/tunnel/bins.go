@@ -53,9 +53,28 @@ var DNSSecondary string
 var TmpDir string
 
 // LogFunc is an optional sink for verbose tunnel activity. vpnlib wires it
-// to a file (Download/kighmu.txt) so connection failures can be diagnosed in
+// to a file (kighmu.txt) so connection failures can be diagnosed in
 // real time. nil = logging disabled.
 var LogFunc func(format string, args ...interface{})
+
+// QuietLog réduit le journal au strict minimum : jalons de connexion,
+// avertissements, erreurs. Les traces détaillées (Tracef, Infof) et la
+// sortie des processus enfants ne passent plus — l'utilisateur voit
+// uniquement « connecté » / « échec : raison ». Le mode verbeux reste
+// possible en remettant QuietLog=false (debug).
+var QuietLog = true
+
+// errorish : ligne de sortie enfant qui mérite de traverser le mode silencieux.
+func errorish(s string) bool {
+	l := strings.ToLower(s)
+	for _, n := range []string{"error", "fail", "refused", "timeout", "timed out",
+		"denied", "panic", "fatal", "critical", "unreachable", "invalid"} {
+		if strings.Contains(l, n) {
+			return true
+		}
+	}
+	return false
+}
 
 // DirectLog is a low-level sink that writes a fully-formatted, timestamped
 // line straight to the diagnostic file, bypassing the LogFunc gate. It is
@@ -74,7 +93,11 @@ func directLog(format string, args ...interface{}) {
 }
 
 // Tracef appends a timestamped line to the tunnel activity log.
+// En mode silencieux (QuietLog, défaut Android) : ignoré.
 func Tracef(format string, args ...interface{}) {
+	if QuietLog {
+		return
+	}
 	if LogFunc != nil {
 		// Primary sink (sanitizes secrets + timestamps).
 		LogFunc(format, args...)
@@ -108,8 +131,11 @@ func logLine(level, component, format string, args ...interface{}) {
 	directLog("%s", line)
 }
 
-// Infof logs a routine journal line.
+// Infof logs a routine journal line. Ignoré en mode silencieux.
 func Infof(component, format string, args ...interface{}) {
+	if QuietLog {
+		return
+	}
 	logLine("info", component, format, args...)
 }
 

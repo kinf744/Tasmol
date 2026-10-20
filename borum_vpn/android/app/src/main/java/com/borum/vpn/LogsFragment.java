@@ -197,8 +197,11 @@ public class LogsFragment extends Fragment {
     /** Levels kept in the filtered "Journal" view: the session block plus
      *  anything the user must not miss (failures, warnings). */
     private static boolean isJournalLine(String level) {
-        return level.equals("udp") || level.equals("udp-ok") || level.equals("ready")
-                || level.equals("error") || level.equals("warning");
+        // Journal minimal : uniquement les jalons de connexion
+        // (connecté/déconnecté/échec), les avertissements et les erreurs.
+        // Toutes les étapes techniques restent en mode Verbose.
+        return level.equals("connection") || level.equals("error")
+                || level.equals("warning");
     }
 
     private CharSequence renderJournal(String raw) {

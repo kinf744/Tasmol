@@ -105,10 +105,15 @@ public class TasVpnService extends VpnService {
     }
 
     /**
-     * Leveled journal event, mirrored to Download/kighmu.txt so the Logs
-     * tab shows one unified journal (levels: info/connection/warning/error).
+     * Leveled journal event. Journal MINIMAL : les événements "info"
+     * (bavardage technique) ne sont plus journalisés — le journal ne
+     * contient que les jalons de connexion, les avertissements, les
+     * erreurs et la sécurité, lisibles d'un seul regard.
      */
     public static synchronized void logEvent(String level, String component, String msg) {
+        if ("info".equals(level) || "trace".equals(level)) {
+            return;
+        }
         java.text.SimpleDateFormat fmt =
                 new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
         eventLog.addLast(fmt.format(new java.util.Date()) + "  " + msg);

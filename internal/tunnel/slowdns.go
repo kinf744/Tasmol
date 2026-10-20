@@ -195,10 +195,20 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 }
 
 // PipeLinesToLog streams a child process pipe into the activity log.
+// Mode silencieux : seules les lignes d'erreur traversent (le stdout
+// verbeux de xray/dnstt ne pollue plus le journal).
 func PipeLinesToLog(r io.Reader, tag string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 64*1024)
 	for sc.Scan() {
-		Tracef("%s %s", tag, sc.Text())
+		line := sc.Text()
+		if QuietLog {
+			// Seules les erreurs des processus enfants traversent.
+			if errorish(line) {
+				logLine("warning", tag, "%s", line)
+			}
+			continue
+		}
+		Tracef("%s %s", tag, line)
 	}
 }

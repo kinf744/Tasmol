@@ -19,8 +19,9 @@ func PhoInit(filesDir string) string {
 func PhoSelfCheck() string { return pho.SelfCheck() }
 
 // PhoActivate registers a device. Returns API JSON, or {"error":...}.
-func PhoActivate(phone, code, uuid string) string {
-	s, err := pho.Activate(phone, code, uuid)
+// proof = preuve d'appareil HMAC(ANDROID_ID, uuid) — anti-clonage serveur.
+func PhoActivate(phone, code, uuid, proof string) string {
+	s, err := pho.Activate(phone, code, uuid, proof)
 	if err != nil {
 		return phoErrJSON(err)
 	}
@@ -37,8 +38,8 @@ func PhoFetchConfigs(uuid, code string) string {
 }
 
 // PhoCheck returns the device-check JSON, or {"error":...}.
-func PhoCheck(uuid string) string {
-	s, err := pho.Check(uuid)
+func PhoCheck(uuid, proof string) string {
+	s, err := pho.Check(uuid, proof)
 	if err != nil {
 		return phoErrJSON(err)
 	}

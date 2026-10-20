@@ -37,6 +37,14 @@ public class VPNApplication extends Application {
         // RASP : surveillance continue anti-analyse dynamique (Frida, hooks,
         // débogueur, re-signature) — sondes natives Go + sondes Java, 4 s.
         IntegrityGuard.start(this);
+        // Identité d'appareil : dérivation (secret, ANDROID_ID) préchauffée
+        // hors du thread UI pour qu'aucun écran ne jank au premier accès.
+        new Thread(() -> {
+            try {
+                DeviceIdentity.getUuid(VPNApplication.this);
+            } catch (Throwable ignored) {
+            }
+        }, "device-identity").start();
         // Suivi de l'activite courante : un crash arrive presque toujours
         // dans un ecran precis, son nom rend la stack trace parlante.
         registerActivityLifecycleCallbacks(new android.app.Application.ActivityLifecycleCallbacks() {
