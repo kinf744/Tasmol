@@ -72,8 +72,6 @@ public class MainActivity extends AppCompatActivity {
             int id = item.getItemId();
             if (id == R.id.nav_home) {
                 showTab(new HomeFragment(), "home");
-            } else if (id == R.id.nav_configs) {
-                showTab(new ConfigsFragment(), "configs");
             } else if (id == R.id.nav_logs) {
                 showTab(new LogsFragment(), "logs");
             } else if (id == R.id.nav_more) {
@@ -217,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void goToConfigs() {
-        bottomNav.setSelectedItemId(R.id.nav_configs);
+        bottomNav.setSelectedItemId(R.id.nav_home);
     }
 
     public void goToMore() {
@@ -438,7 +436,7 @@ public class MainActivity extends AppCompatActivity {
                     .setTitle("No server selected")
                     .setMessage("Tap one or more profiles in Configs to select them "
                             + "(green frame), then connect. 2+ selected = round-robin.")
-                    .setPositiveButton("Open Configs", (d, w) -> bottomNav.setSelectedItemId(R.id.nav_configs))
+                    .setPositiveButton("Open Configs", (d, w) -> bottomNav.setSelectedItemId(R.id.nav_home))
                     .setNegativeButton("Cancel", null)
                     .show();
             return;
