@@ -147,6 +147,10 @@ public class AuthActivity extends AppCompatActivity {
             statusText.setText("Connecté à l'API"
                     + (expires.isEmpty() ? "" : " — expire: " + expires));
             toast("Activation réussie");
+            Intent i = new Intent(this, MainActivity.class);
+            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(i);
+            finish();
             // Carte compte : uniquement pour un compte validé ET actif.
             JSONObject account = resp.optJSONObject("account");
             if (account != null && account.optInt("active", 0) == 1) {

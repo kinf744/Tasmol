@@ -17,7 +17,19 @@ stage_abi() {
     local dir="$REPO_ROOT/$TARGET_DIR/app/src/main/jniLibs/$abi_dir"
     mkdir -p "$dir"
     local fail=0
-    for pair in "xray lib_xray.so" "zivpn lib_zivpn.so" "slowdns lib_slowdns.so" "hysteria lib_hysteria.so" "utunnel lib_utunnel.so"; do
+    TUNNELS="${TUNNELS:-xray zivpn slowdns hysteria utunnel}"
+    pairs=""
+    for t in $TUNNELS; do
+        case "$t" in
+            xray) pairs="$pairs xray:lib_xray.so" ;;
+            zivpn) pairs="$pairs zivpn:lib_zivpn.so" ;;
+            slowdns) pairs="$pairs slowdns:lib_slowdns.so" ;;
+            hysteria) pairs="$pairs hysteria:lib_hysteria.so" ;;
+            utunnel) pairs="$pairs utunnel:lib_utunnel.so" ;;
+        esac
+    done
+    for pair in $pairs; do
+        pair="${pair/:/ }"
         local src="${pair%% *}" dst="${pair##* }"
         if [ ! -f "$src_dir/$src" ]; then
             echo "  ✗ missing in repo bundle: $src_dir/$src"
