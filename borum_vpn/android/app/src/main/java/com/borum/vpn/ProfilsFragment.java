@@ -94,9 +94,20 @@ public class ProfilsFragment extends Fragment {
         PhoHelper.check(uuid, (resp, err) -> {
             android.content.Context c = getContext();
             if (c == null) return;
+            if (err != null) {
+                TasVpnService.logEvent("warning", "api",
+                        "[profils] check erreur: " + err.getMessage());
+            } else if (resp != null) {
+                JSONObject acc = resp.optJSONObject("account");
+                TasVpnService.logEvent("info", "api",
+                        "[profils] check ok activated=" + resp.optBoolean("activated")
+                                + " account=" + (acc != null)
+                                + " cles=" + (acc != null ? acc.keys().toString() : "plat")
+                                + " expires=" + resp.optString("expires_at", "-"));
+            }
             JSONObject acc = (resp != null) ? resp.optJSONObject("account") : null;
             if (acc != null) ApiSession.saveAccountCard(c, acc);
-            final JSONObject accFinal = acc;
+            final JSONObject accFinal = acc != null ? acc : accountFromFlat(resp);
             final JSONArray cached = ApiSession.configs(c);
             getActivity().runOnUiThread(() -> render(accFinal, cached));
         });
@@ -104,8 +115,13 @@ public class ProfilsFragment extends Fragment {
             android.content.Context c = getContext();
             if (c == null) return;
             JSONArray cfgs = null;
-            if (r2 != null && r2.optBoolean("success", false)) {
+            if (e2 != null) {
+                TasVpnService.logEvent("warning", "api",
+                        "[profils] configs erreur: " + e2.getMessage());
+            } else if (r2 != null && r2.optBoolean("success", false)) {
                 cfgs = r2.optJSONArray("configs");
+                TasVpnService.logEvent("info", "api",
+                        "[profils] configs ok n=" + (cfgs == null ? 0 : cfgs.length()));
                 ApiSession.saveConfigs(c, cfgs);
             }
             final JSONArray cfgsFinal = cfgs;
@@ -114,18 +130,37 @@ public class ProfilsFragment extends Fragment {
         });
     }
 
+    /** Repli : endpoint check "plat" (activated/phone/expires_at sans objet account). */
+    private static JSONObject accountFromFlat(JSONObject resp) {
+        if (resp == null || !resp.optBoolean("activated", false)) return null;
+        try {
+            JSONObject a = new JSONObject();
+            a.put("name", resp.optString("name", "-"));
+            a.put("phone", resp.optString("phone", "-"));
+            a.put("expires_at", resp.optString("expires_at", ""));
+            return a;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private void render(JSONObject acc, JSONArray configs) {
         if (list == null || getActivity() == null) return;
         list.removeAllViews();
         JSONArray labels = (configs != null) ? configs : new JSONArray();
         if (labels.length() == 0) {
-            TextView empty = new TextView(getContext());
-            empty.setText("Aucun profil. Ouvrez l'onglet ACCUEIL pour actualiser.");
-            empty.setTextColor(TXT_DIM);
-            empty.setTextSize(14);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(0, dp(40), 0, 0);
-            list.addView(empty);
+            if (acc != null) {
+                // Compte connecté mais aucun profil API en cache : carte unique.
+                list.addView(profileCard("Mon compte", acc));
+            } else {
+                TextView empty = new TextView(getContext());
+                empty.setText("Aucun profil. Verifiez la connexion puis reessayez (\u27F3).");
+                empty.setTextColor(TXT_DIM);
+                empty.setTextSize(14);
+                empty.setGravity(Gravity.CENTER);
+                empty.setPadding(0, dp(40), 0, 0);
+                list.addView(empty);
+            }
             return;
         }
         for (int i = 0; i < labels.length(); i++) {
