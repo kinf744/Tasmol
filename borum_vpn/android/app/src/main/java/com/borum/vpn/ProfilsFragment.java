@@ -87,24 +87,30 @@ public class ProfilsFragment extends Fragment {
     }
 
     private void refresh() {
-        if (getActivity() == null) return;
-        render(ApiSession.accountCard(getContext()), ApiSession.configs(getContext()));
-        String uuid = ApiSession.deviceUuid(getContext());
+        android.content.Context ctx = getContext();
+        if (ctx == null) return;
+        render(ApiSession.accountCard(ctx), ApiSession.configs(ctx));
+        String uuid = ApiSession.deviceUuid(ctx);
         PhoHelper.check(uuid, (resp, err) -> {
-            if (getActivity() == null) return;
+            android.content.Context c = getContext();
+            if (c == null) return;
             JSONObject acc = (resp != null) ? resp.optJSONObject("account") : null;
-            if (acc != null) ApiSession.saveAccountCard(getContext(), acc);
-            getActivity().runOnUiThread(() -> render(acc, ApiSession.configs(getContext())));
+            if (acc != null) ApiSession.saveAccountCard(c, acc);
+            final JSONObject accFinal = acc;
+            final JSONArray cached = ApiSession.configs(c);
+            getActivity().runOnUiThread(() -> render(accFinal, cached));
         });
-        PhoHelper.configs(uuid, ApiSession.code(getContext()), (r2, e2) -> {
+        PhoHelper.configs(uuid, ApiSession.code(ctx), (r2, e2) -> {
+            android.content.Context c = getContext();
+            if (c == null) return;
+            JSONArray cfgs = null;
             if (r2 != null && r2.optBoolean("success", false)) {
-                ApiSession.saveConfigs(getContext(), r2.optJSONArray("configs"));
-                if (getActivity() != null) {
-                    getActivity().runOnUiThread(() ->
-                            render(ApiSession.accountCard(getContext()),
-                                    ApiSession.configs(getContext())));
-                }
+                cfgs = r2.optJSONArray("configs");
+                ApiSession.saveConfigs(c, cfgs);
             }
+            final JSONArray cfgsFinal = cfgs;
+            final JSONObject acc = ApiSession.accountCard(c);
+            getActivity().runOnUiThread(() -> render(acc, cfgsFinal));
         });
     }
 
