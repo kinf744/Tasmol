@@ -47,6 +47,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         app = VPNApplication.getInstance();
 
+        super.onCreate(savedInstanceState);
+
         // Premiere ouverture : bloquer sur la page d'activation tant que
         // le compte n'est pas active.
         if (!ApiSession.isAuthenticated(this)) {
@@ -63,7 +65,6 @@ public class MainActivity extends AppCompatActivity {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
         }
 
-        super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
         bottomNav = findViewById(R.id.bottom_nav);
