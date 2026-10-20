@@ -1,11 +1,62 @@
 #!/usr/bin/env python3
 """Stivaros activation API (compat EPHANG VPN)."""
-import json, os, sqlite3, sys
+import json, os, sqlite3, sys, threading, time, collections
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 DB_PATH = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
+
+# ── Rate limiting (anti brute-force du code d'activation) ─────────────────
+# Registre en mémoire : quota par IP sur une fenêtre glissante, et
+# verrouillage par téléphone après trop d'échecs d'activation (le code à
+# 6 chiffres n'a que 10^6 combinaisons : sans verrou, un brute-force est
+# réaliste). threading.Lock : ThreadingHTTPServer est multi-threads.
+_RL_LOCK = threading.Lock()
+_RL_HITS = collections.defaultdict(collections.deque)  # ip -> timestamps
+_RL_FAILS = collections.defaultdict(list)              # phone -> timestamps d'échecs
+RL_WINDOW = 60.0      # fenêtre glissante (s)
+RL_MAX_HITS = 60      # requêtes max par IP et par fenêtre
+RL_FAIL_MAX = 5       # échecs d'activation avant verrouillage
+RL_FAIL_LOCK = 900.0  # verrou de 15 min après RL_FAIL_MAX échecs
+
+
+def _client_ip(handler):
+    xff = handler.headers.get("X-Forwarded-For", "")
+    return (xff.split(",")[0].strip() if xff else handler.client_address[0])
+
+
+def rate_limit_hit(ip):
+    now = time.time()
+    with _RL_LOCK:
+        q = _RL_HITS[ip]
+        while q and now - q[0] > RL_WINDOW:
+            q.popleft()
+        if len(q) >= RL_MAX_HITS:
+            return True
+        q.append(now)
+        return False
+
+
+def activation_locked(phone):
+    now = time.time()
+    with _RL_LOCK:
+        fails = [t for t in _RL_FAILS.get(phone, []) if now - t < RL_FAIL_LOCK]
+        _RL_FAILS[phone] = fails
+        return len(fails) >= RL_FAIL_MAX
+
+
+def activation_fail(phone):
+    now = time.time()
+    with _RL_LOCK:
+        fails = [t for t in _RL_FAILS.get(phone, []) if now - t < RL_FAIL_LOCK]
+        fails.append(now)
+        _RL_FAILS[phone] = fails
+
+
+def activation_success(phone):
+    with _RL_LOCK:
+        _RL_FAILS.pop(phone, None)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -191,6 +242,10 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # Quota par IP commun à toutes les routes (check périodique des
+        # clients = 1 req/30 s ; configs sur ouverture d'écran).
+        if rate_limit_hit(_client_ip(self)):
+            return self._send({"success": False, "message": "Too many requests, retry later"}, 429)
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         params = parse_qs(parsed.query)
@@ -337,12 +392,18 @@ class APIHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
 
         if path == "/api/v1/devices/register":
+            if rate_limit_hit(_client_ip(self)):
+                return self._send({"success": False, "message": "Too many requests, retry later"}, 429)
             body = self._read_body()
             uuid = str(body.get("device_install_id") or body.get("uuid", "")).strip()[:64]
             phone = str(body.get("phone_number", ""))[:20].strip()
             code = str(body.get("activation_code", ""))[:10]
             if not uuid or not phone or not code:
                 return self._send({"success": False, "message": "Missing required fields"}, 400)
+            # Brute-force du code à 6 chiffres : verrou par téléphone.
+            if activation_locked(phone):
+                return self._send({"success": False,
+                                   "message": "Too many failed attempts, retry in 15 minutes"}, 429)
             conn = get_db()
             user = conn.execute("SELECT * FROM users WHERE uuid = ?", (uuid,)).fetchone()
             if not user:
@@ -353,6 +414,7 @@ class APIHandler(BaseHTTPRequestHandler):
                                    "message": "Device not registered. Contact admin."}, 404)
             if user["activation_code"] != code:
                 conn.close()
+                activation_fail(phone)
                 return self._send({"success": False, "message": "Invalid activation code"}, 403)
             if not user["active"]:
                 conn.close()
@@ -396,6 +458,7 @@ class APIHandler(BaseHTTPRequestHandler):
                          (new_iid, str(body.get("app_version", ""))[:20], user["id"]))
             conn.commit()
             conn.close()
+            activation_success(phone)
             return self._send({"success": True, "message": "Device activated successfully",
                                "phone": phone, "expires_at": exp,
                                "device_mode": "multi" if user["multi_device"] else "mono"})

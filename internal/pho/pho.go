@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -43,13 +44,14 @@ import (
 func r2(cp ...int32) string { return string(cp) }
 
 // Endpoints d'activation (jamais en clair dans le binaire).
+// HTTPS uniquement : le fallback http://…:9090 est retiré — il transmettait
+// téléphone + code d'activation en clair et permettait l'injection de
+// configs par MitM. usesCleartextTraffic=false côté manifeste l'interdit.
 var apiHosts = []string{
 	// https://api-v1.kingom.ggff.net
 	r2(104, 116, 116, 112, 115, 58, 47, 47, 97, 112, 105, 45, 118, 49, 46, 107, 105, 110, 103, 111, 109, 46, 103, 103, 102, 102, 46, 110, 101, 116),
 	// https://api-v1.kingom.ggff.net:8443
 	r2(104, 116, 116, 112, 115, 58, 47, 47, 97, 112, 105, 45, 118, 49, 46, 107, 105, 110, 103, 111, 109, 46, 103, 103, 102, 102, 46, 110, 101, 116, 58, 56, 52, 52, 51),
-	// http://api-v1.kingom.ggff.net:9090 (dernier recours)
-	r2(104, 116, 116, 112, 58, 47, 47, 97, 112, 105, 45, 118, 49, 46, 107, 105, 110, 103, 111, 109, 46, 103, 103, 102, 102, 46, 110, 101, 116, 58, 57, 48, 57, 48),
 }
 
 var (
@@ -71,6 +73,10 @@ func Init(dir string) error {
 		return err
 	}
 	storeDir = dir
+	// Sel du coffre créé dès l'initialisation (aléatoire, 0600).
+	if loadSalt() == nil {
+		return errors.New("cannot create vault salt")
+	}
 	return nil
 }
 
@@ -82,9 +88,10 @@ func Init(dir string) error {
 var (
 	pinFile        = r2(112, 104, 111, 46, 112, 105, 110)                                                      // "pho.pin"
 	storeFile      = r2(112, 104, 111, 46, 118, 97, 117, 108, 116)                                             // "pho.vault"
+	saltFile       = r2(112, 104, 111, 46, 115, 97, 108, 116)                                                  // "pho.salt"
 	procSelfStatus = r2(47, 112, 114, 111, 99, 47, 115, 101, 108, 102, 47, 115, 116, 97, 116, 117, 115)        // /proc/self/status
 	tracerPidStr   = r2(84, 114, 97, 99, 101, 114, 80, 105, 100, 58)                                           // "TracerPid:"
-	devQemuPipe    = r2(47, 100, 101, 118, 47, 113, 101, 109, 117, 95, 112, 105, 112, 101)                     // /dev/qemu_pipe
+	devQemuPipe    = r2(47, 100, 101, 118, 47, 113, 117, 109, 117, 95, 112, 105, 112, 101)                     // /dev/qemu_pipe
 	devGoldfish    = r2(47, 100, 101, 118, 47, 103, 111, 108, 100, 102, 105, 115, 104, 95, 112, 105, 112, 101) // /dev/goldfish_pipe
 )
 
@@ -125,8 +132,9 @@ func savePins(pins map[string]string) {
 	_ = os.WriteFile(filepath.Join(storeDir, pinFile), b, 0600)
 }
 
-// ResetPin oublie tous les pins TOFU (à utiliser uniquement après une
-// ROTATION volontaire des certificats serveur).
+// ResetPin oublie tous les pins TOFU. C'est désormais le MÉCANISME UNIQUE de
+// rotation : si le serveur change de certificat, les clients échouent
+// (fail-closed) jusqu'à une rotation volontaire via cette fonction.
 func ResetPin() {
 	if storeDir == "" {
 		return
@@ -140,10 +148,11 @@ func ResetPin() {
 //   - TOFU-pins the peer leaf cert SHA-256 PER ENDPOINT (host:port) on
 //     first contact: le 443 et le 8443 présentent des certs différents,
 //     un pin global les mettait en échec l'un l'autre;
-//   - tolère la ROTATION serveur : si le pin mémorisé ne correspond plus,
-//     le nouveau cert est épinglé (le secret d'activation reste valide et
-//     ses 15 s de timeout bornent toute fenêtre MitM). C'est ce comportement
-//     qui évite le blocage définitif des clients à chaque renouvellement.
+//   - FAIL-CLOSED sur mismatch : un pin connu qui ne correspond plus est
+//     refusé (un MitM se présente avec une nouvelle clé). La rotation
+//     légitime du certificat serveur passe par ResetPin() côté déploiement
+//     — jamais par une acceptation silencieuse, qui annulait toute la
+//     protection du pin.
 func mkTransport(remember bool, base string) *http.Transport {
 	key := hostKey(base)
 	return &http.Transport{
@@ -166,10 +175,8 @@ func mkTransport(remember bool, base string) *http.Transport {
 					return nil
 				}
 				if fp != known {
-					// Rotation de certificat côté serveur : re-pin.
-					pins[key] = fp
-					savePins(pins)
-					return nil
+					return errors.New("tls pin mismatch: server cert changed " +
+						"(mitm possible, or deliberate rotation -> resetPin)")
 				}
 				return nil
 			},
@@ -214,10 +221,16 @@ func postJSON(uuid, path string, payload map[string]string) (map[string]interfac
 }
 
 func mOK(m map[string]interface{}) bool {
+	// Validation stricte : "message" seul est accepté par n'importe qui
+	// (portail captif, bruit réseau). Les réponses légitimes de l'API
+	// portent toujours "success" (register), "configs" (fetch) ou
+	// "activated"+"account" (check — la réponse /devices/check n'a pas de
+	// champ success).
 	_, a := m["activated"]
 	_, b := m["configs"]
-	_, c := m["message"]
-	return a || b || c
+	_, c := m["success"]
+	_, d := m["account"]
+	return c || b || (a && d)
 }
 
 func getJSON(pathQuery string) (map[string]interface{}, error) {
@@ -264,16 +277,14 @@ func Activate(phone, code, uuid string) (string, error) {
 
 // FetchConfigs returns the raw /user/configs JSON.
 func FetchConfigs(uuid, code string) (string, error) {
-	return jsonString(getJSON(pathConfigs + "?uuid=" + urlQ(uuid) + "&code=" + urlQ(code)))
+	q := url.Values{"uuid": {uuid}, "code": {code}}.Encode()
+	return jsonString(getJSON(pathConfigs + "?" + q))
 }
 
+// Check returns the raw /devices/check JSON.
 func Check(uuid string) (string, error) {
-	return jsonString(getJSON(pathCheck + "?device_id=" + urlQ(uuid)))
-}
-
-func urlQ(s string) string {
-	r := strings.NewReplacer("%", "%25", "+", "%2B", "#", "%23", "&", "%26", "=", "%3D", " ", "%20")
-	return r.Replace(s)
+	q := url.Values{"device_id": {uuid}}.Encode()
+	return jsonString(getJSON(pathCheck + "?" + q))
 }
 
 func jsonString(m map[string]interface{}, err error) (string, error) {
@@ -286,11 +297,43 @@ func jsonString(m map[string]interface{}, err error) (string, error) {
 
 // -- Coffre chiffré au repos ----------------------------------------------
 
-// storeKey dérive une clé AES-256 du couple (uuid appareil, sel) — le vault
-// reste illisible hors de l'appareil même si le fichier est exfiltré.
-func storeKey(uuid string) []byte {
+// storeKey dérive une clé AES-256 de (uuid appareil, sel aléatoire par
+// installation) : le sel vit dans pho.salt (0600, jamais sauvegardé depuis
+// allowBackup=false) — un vol du fichier vault SEUL, ou la connaissance du
+// seul UUID (en clair dans les préférences), ne suffit plus à décrypter.
+// 600k itérations = recommandation OWASP PBKDF2-HMAC-SHA256 (2024+).
+const vaultKDFIterations = 600000
+
+func storeKey(uuid string, salt []byte) []byte {
+	ctx := sha256.Sum256(append([]byte(r2(112, 104, 111, 45, 118, 50)), salt...)) // "pho-v2"+salt
+	return pbkdf2.Key([]byte(uuid), ctx[:], vaultKDFIterations, 32, sha256.New)
+}
+
+// legacyKey : ancienne clé v1 (sel dérivé du seul uuid, 60k itérations),
+// conservée UNIQUEMENT pour la migration silencieuse vers v2.
+func legacyKey(uuid string) []byte {
 	salt := sha256.Sum256([]byte(r2(112, 104, 111, 45, 118, 49) + uuid)) // "pho-v1"+uuid
 	return pbkdf2.Key([]byte(uuid), salt[:], 60000, 32, sha256.New)
+}
+
+// loadSalt lit (ou crée au premier usage) le sel aléatoire 256 bits du
+// coffre. Nil si l'écriture est impossible.
+func loadSalt() []byte {
+	if storeDir == "" {
+		return nil
+	}
+	p := filepath.Join(storeDir, saltFile)
+	if b, err := os.ReadFile(p); err == nil && len(b) == 32 {
+		return b
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return nil
+	}
+	if err := os.WriteFile(p, b, 0600); err != nil {
+		return nil
+	}
+	return b
 }
 
 // VaultPut stores value under key, encrypted. overwrite of whole file.
@@ -328,9 +371,24 @@ func storeRead(uuid string) (map[string]string, error) {
 	if err != nil {
 		return out, err
 	}
-	raw, err := storeOpen(uuid, b)
+	salt := loadSalt()
+	if salt == nil {
+		return out, errors.New("vault salt unavailable")
+	}
+	raw, err := storeOpen(storeKey(uuid, salt), b)
 	if err != nil {
-		return out, err
+		// Migration v1 -> v2 : l'ancien coffre (sel dérivé du seul uuid,
+		// 60k itérations) est déchiffré puis immédiatement ré-encrypté en
+		// v2 (sel aléatoire + 600k itérations).
+		raw, err = storeOpen(legacyKey(uuid), b)
+		if err != nil {
+			return out, err
+		}
+		if jerr := json.Unmarshal(raw, &out); jerr != nil {
+			return out, jerr
+		}
+		_ = storeWrite(uuid, out)
+		return out, nil
 	}
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return out, err
@@ -351,7 +409,7 @@ func storeWrite(uuid string, v map[string]string) error {
 }
 
 func storeSeal(uuid string, plain []byte) ([]byte, error) {
-	block, err := aes.NewCipher(storeKey(uuid))
+	block, err := aes.NewCipher(storeKey(uuid, loadSalt()))
 	if err != nil {
 		return nil, err
 	}
@@ -366,8 +424,8 @@ func storeSeal(uuid string, plain []byte) ([]byte, error) {
 	return g.Seal(nonce, nonce, plain, nil), nil
 }
 
-func storeOpen(uuid string, data []byte) ([]byte, error) {
-	block, err := aes.NewCipher(storeKey(uuid))
+func storeOpen(key []byte, data []byte) ([]byte, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}

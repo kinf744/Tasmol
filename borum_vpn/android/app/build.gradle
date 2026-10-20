@@ -68,10 +68,13 @@ android {
 
     buildTypes {
         release {
-            // No minify/shrink: the tunnel binaries (lib_*.so) are executed
-            // via ProcessBuilder/exec, not loaded via System.loadLibrary, so
-            // resource stripping would drop them from the APK.
-            minifyEnabled false
+            // R8 activé : la couche Java n'est plus rétro-analysable telle
+            // quelle (la partie Go est déjà garblée côté CI). Les binaires
+            // tunnel (lib_*.so) vivent en jniLibs : minify/shrinkResources
+            // ne les touchent PAS (ils sont exécutés via ProcessBuilder).
+            // Les règles de keep (proguard-rules.pro) protègent les bindings
+            // gomobile vpnlib.** (JNI) et les points d'entrée manifeste.
+            minifyEnabled true
             shrinkResources false
             signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }

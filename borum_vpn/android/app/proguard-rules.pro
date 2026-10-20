@@ -1,42 +1,32 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
+# R8 / ProGuard — borum VPN (com.borum.vpn)
+# Les binaires tunnel (lib_*.so) sont des jniLibs exécutés via
+# ProcessBuilder : R8 ne les affecte pas (et shrinkResources reste off).
 
-# WebView
--keepclassmembers class * {
-    @android.webkit.JavascriptInterface <methods>;
-}
-
-# Keep application classes
--keep class com.ephang.vpn.VPNApplication { *; }
--keep class com.ephang.vpn.MainActivity { *; }
--keep class com.ephang.vpn.BootReceiver { *; }
-
-# Keep TasVpnService and BinaryManager (VPN data plane)
--keep class com.ephang.vpn.TasVpnService { *; }
--keep class com.ephang.vpn.BinaryManager { *; }
-
-# Keep gomobile bindings (vpnlib.aar) - accessed via JNI/reflection
+# ── Bindings gomobile (vpnlib.aar) : JNI + reflection gobind ──────────────
 -keep class vpnlib.** { *; }
+-keepclassmembers class vpnlib.** { *; }
 
-# Keep R classes
--keepclassmembers class **.R$* {
-    public static <fields>;
-}
+# ── Points d'entrée Android (manifeste) — conservés par AGP, redondance OK ─
+-keep class com.borum.vpn.VPNApplication { *; }
+-keep class com.borum.vpn.MainActivity { *; }
+-keep class com.borum.vpn.AuthActivity { *; }
+-keep class com.borum.vpn.BootReceiver { *; }
+-keep class com.borum.vpn.TasVpnService { *; }
 
-# Keep BuildConfig
--keep class com.ephang.vpn.BuildConfig { *; }
+# ── JNI remonte des stacks via les noms de classes/ méthodes gobind ───────
+-keepattributes SourceFile,LineNumberTable
+-renamesourcefileattribute SourceFile
 
-# Gson/JSON parsing (if used)
--keepattributes Signature
--keepattributes *Annotation*
--keep class sun.misc.Unsafe { *; }
--keep class com.google.gson.** { *; }
+# ── org.json (utilisé partout, pas de reflection nominative) ─────────────
+-dontwarn org.json.**
 
-# OkHttp (if used)
--keep class okhttp3.** { *; }
--keep interface okhttp3.** { *; }
--dontwarn okhttp3.**
+# ── Réflexion interne (WifiManager.getWifiApState via getDeclaredMethod) ──
+# reflection sur des méthodes du SDK : rien à keep côté app.
 
-# Kotlin coroutines
+# ── Kotlin / coroutines / androidx ────────────────────────────────────────
 -keepclassmembers class kotlinx.coroutines.** { *; }
+-dontwarn kotlinx.coroutines.**
+-dontwarn androidx.**
+
+# ── Ressources R ──────────────────────────────────────────────────────────
+-keepclassmembers class **.R$* { public static <fields>; }

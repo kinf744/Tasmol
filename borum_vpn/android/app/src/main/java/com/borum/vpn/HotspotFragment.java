@@ -240,7 +240,10 @@ public class HotspotFragment extends Fragment {
     private void launch(String host, int port) {
         // Nouvelle IP proxy 172.16.x.x à chaque lancement.
         proxyIp = pickProxyIp();
-        if (RELAY.start(host, port, proxyIp)) {
+        // LAN uniquement si le point d'accès Wi-Fi est réellement actif :
+        // le relais n'a pas d'authentification, il ne doit jamais être
+        // joignable depuis un réseau voisin (bind 127.0.0.1 sinon).
+        if (RELAY.start(host, port, proxyIp, isWifiApEnabled())) {
             TasVpnService.logEvent("connection", "app",
                     "hotspot relay " + proxyIp + ":" + RELAY.getListenPort()
                             + " -> " + host + ":" + port);

@@ -20,6 +20,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -73,8 +74,15 @@ public class BinaryManager {
                 throw new IllegalStateException("bundled binary missing: " + pair[0]);
             }
             File dst = new File(dir, pair[1]);
-            if (!dst.exists() || dst.length() != src.length()) {
+            // Intégrité par SHA-256 (la taille seule acceptait une copie
+            // falsifiée de même longueur dans filesDir) : toute divergence
+            // entre la copie extraite et le binaire embarqué dans l'APK
+            // force une ré-extraction.
+            if (!dst.exists() || !sameDigest(src, dst)) {
                 copyFile(src, dst);
+                if (!sameDigest(src, dst)) {
+                    throw new IllegalStateException("binary integrity check failed: " + pair[1]);
+                }
             }
             if (!dst.setExecutable(true, true)) {
                 Log.w(TAG, "setExecutable failed for " + dst);
@@ -118,6 +126,35 @@ public class BinaryManager {
             while ((n = in.read(buf)) > 0) {
                 out.write(buf, 0, n);
             }
+        }
+    }
+
+    /** SHA-256 identique entre deux fichiers (intégrité de l'extraction). */
+    private static boolean sameDigest(File a, File b) {
+        if (a.length() != b.length()) {
+            return false;
+        }
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = Files.newInputStream(a.toPath())) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    md.update(buf, 0, n);
+                }
+            }
+            byte[] expected = md.digest();
+            md.reset();
+            try (InputStream in = Files.newInputStream(b.toPath())) {
+                byte[] buf = new byte[65536];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    md.update(buf, 0, n);
+                }
+            }
+            return MessageDigest.isEqual(expected, md.digest());
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -299,13 +336,13 @@ public class BinaryManager {
                     .format(new java.util.Date());
             row = stamp + "  " + line + "\n";
             try (java.io.FileOutputStream out =
-                         new java.io.FileOutputStream(logFile(), true)) {
+                          new java.io.FileOutputStream(logFile(), true)) {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-            // Lazy-start the live mirror so the Download copy receives the
-            // rich Go detail too (see startDownloadMirror). Starting here
-            // on the first write covers both app start and VPN reconnects.
-            startDownloadMirror();
+            // PAS de miroir automatique vers Download : le journal peut
+            // contenir des traces d'activité (IP, profils, tunnels) — il ne
+            // quitte l'appareil que sur action explicite (LOGS → Partager).
+            // startDownloadMirror() reste disponible pour un débogage volontaire.
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "appendKighmu: " + e);
         }

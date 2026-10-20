@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sauvegarde cloud/adb désactivée : le coffre libpho et les configs de
+     tunnels ne doivent jamais quitter l'appareil. allowBackup=false est
+     complété par ces règles vides pour couvrir D2D (Android 12+). -->
+<full-backup-content>
+    <exclude domain="file" path="." />
+    <exclude domain="sharedpref" path="." />
+</full-backup-content>

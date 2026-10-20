@@ -65,6 +65,13 @@ public final class TcpRelay {
     }
 
     public synchronized boolean start(String targetHost, int targetPort, String proxyIp) {
+        // Défaut sûr : écoute locale uniquement (jamais de relais ouvert
+        // sur le réseau sans demande explicite).
+        return start(targetHost, targetPort, proxyIp, false);
+    }
+
+    public synchronized boolean start(String targetHost, int targetPort, String proxyIp,
+                                      boolean allowLan) {
         if (running.get()) {
             return true;
         }
@@ -74,13 +81,16 @@ public final class TcpRelay {
             this.proxyIp = proxyIp == null ? "" : proxyIp;
             server = new ServerSocket();
             server.setReuseAddress(true);
-            // Fixed port first; fall back to a random port only if 8080 is
-            // taken by another app (rare). Bind stays on 0.0.0.0 so every
-            // hotspot client can reach us at the phone's LAN address.
+            // Bind 0.0.0.0 SEULEMENT quand le partage hotspot est réellement
+            // actif (les clients du point d'accès doivent joindre l'IP LAN du
+            // téléphone). Sinon : 127.0.0.1 — un relais sans authentification
+            // ne doit jamais être joignable depuis un réseau voisin
+            // (hotspot éteint mais téléphone sur un Wi-Fi partagé).
+            String bindAddr = allowLan ? "0.0.0.0" : "127.0.0.1";
             try {
-                server.bind(new InetSocketAddress("0.0.0.0", FIXED_PORT));
+                server.bind(new InetSocketAddress(bindAddr, FIXED_PORT));
             } catch (Exception busy) {
-                server.bind(new InetSocketAddress("0.0.0.0", 0));
+                server.bind(new InetSocketAddress(bindAddr, 0));
             }
             listenPort = server.getLocalPort();
             upBytes.set(0);

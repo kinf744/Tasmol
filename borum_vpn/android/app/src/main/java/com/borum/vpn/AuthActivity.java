@@ -120,8 +120,12 @@ public class AuthActivity extends AppCompatActivity {
         statusText.setTextColor(getColor(R.color.npv_grey));
         statusText.setText("Vérification…");
         String uuid = ApiSession.deviceUuid(this);
-        TasVpnService.logEvent("info", "api", "[activation] début — téléphone=" + phone
-                + " uuid=" + uuid + " code=****" + code.substring(4));
+        // Journal masqué : ni le téléphone, ni l'UUID, ni le code (le
+        // journal est consultable dans l'onglet LOGS et partageable).
+        TasVpnService.logEvent("info", "api", "[activation] début — téléphone=****"
+                + phone.substring(Math.max(0, phone.length() - 3))
+                + " uuid=****" + uuid.substring(Math.max(0, uuid.length() - 4))
+                + " code=******");
 
         PhoHelper.activate(phone, code, uuid, (resp, err) -> {
             validateBtn.setEnabled(true);

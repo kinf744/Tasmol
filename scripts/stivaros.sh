@@ -1313,12 +1313,63 @@ install_api_server() {
     cat > "$API_DIR/server.py" << 'PYEOF'
 #!/usr/bin/env python3
 """Stivaros activation API (compat EPHANG VPN)."""
-import json, os, sqlite3, sys
+import json, os, sqlite3, sys, threading, time, collections
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
 DB_PATH = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
+
+# ── Rate limiting (anti brute-force du code d'activation) ─────────────────
+# Registre en mémoire : quota par IP sur une fenêtre glissante, et
+# verrouillage par téléphone après trop d'échecs d'activation (le code à
+# 6 chiffres n'a que 10^6 combinaisons : sans verrou, un brute-force est
+# réaliste). threading.Lock : ThreadingHTTPServer est multi-threads.
+_RL_LOCK = threading.Lock()
+_RL_HITS = collections.defaultdict(collections.deque)  # ip -> timestamps
+_RL_FAILS = collections.defaultdict(list)              # phone -> timestamps d'échecs
+RL_WINDOW = 60.0      # fenêtre glissante (s)
+RL_MAX_HITS = 60      # requêtes max par IP et par fenêtre
+RL_FAIL_MAX = 5       # échecs d'activation avant verrouillage
+RL_FAIL_LOCK = 900.0  # verrou de 15 min après RL_FAIL_MAX échecs
+
+
+def _client_ip(handler):
+    xff = handler.headers.get("X-Forwarded-For", "")
+    return (xff.split(",")[0].strip() if xff else handler.client_address[0])
+
+
+def rate_limit_hit(ip):
+    now = time.time()
+    with _RL_LOCK:
+        q = _RL_HITS[ip]
+        while q and now - q[0] > RL_WINDOW:
+            q.popleft()
+        if len(q) >= RL_MAX_HITS:
+            return True
+        q.append(now)
+        return False
+
+
+def activation_locked(phone):
+    now = time.time()
+    with _RL_LOCK:
+        fails = [t for t in _RL_FAILS.get(phone, []) if now - t < RL_FAIL_LOCK]
+        _RL_FAILS[phone] = fails
+        return len(fails) >= RL_FAIL_MAX
+
+
+def activation_fail(phone):
+    now = time.time()
+    with _RL_LOCK:
+        fails = [t for t in _RL_FAILS.get(phone, []) if now - t < RL_FAIL_LOCK]
+        fails.append(now)
+        _RL_FAILS[phone] = fails
+
+
+def activation_success(phone):
+    with _RL_LOCK:
+        _RL_FAILS.pop(phone, None)
 
 def get_db():
     conn = sqlite3.connect(DB_PATH)
@@ -1384,13 +1435,6 @@ def init_db():
         "   AND port_range != ?",
         ("34000-37999,38000-41999,42000-45999,46000-49999",
          "34000-37999,38000-41999,42000-45999,46000-49999"))
-
-    # Migration: les rows v2raydns héritées pointent vers les anciennes
-    # cibles (:5401 partagé / :5403 pont WARP de l'ère WireGuard). La
-    # cible canonique est l'instance dédiée stivaros (:5402 loopback).
-    conn.execute(
-        "UPDATE vpn_configs SET server_port = 5402"
-        " WHERE mode = 'v2raydns' AND server_port != 5402")
 
     # Verrou d'appareil : multi_device (0 = mono, activable/joignable
     # uniquement depuis l'UUID qui a activé le compte ; 1 = tout appareil).
@@ -1511,6 +1555,10 @@ class APIHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        # Quota par IP commun à toutes les routes (check périodique des
+        # clients = 1 req/30 s ; configs sur ouverture d'écran).
+        if rate_limit_hit(_client_ip(self)):
+            return self._send({"success": False, "message": "Too many requests, retry later"}, 429)
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/")
         params = parse_qs(parsed.query)
@@ -1524,8 +1572,22 @@ class APIHandler(BaseHTTPRequestHandler):
                 exp = user["expires_at"]
                 if exp and datetime.fromisoformat(exp) < datetime.now():
                     return self._send({"activated": False, "message": "Subscription expired"}, 403)
+                # Objet account complet (quota) pour l'onglet PROFILS de
+                # Borum VPN : quota_mb<=0 => illimite (semantique quota.py).
+                qmb = user["quota_mb"] if "quota_mb" in user.keys() else 0
+                used = user["bytes_used"] if "bytes_used" in user.keys() else 0
+                limit = max(0, qmb or 0) * 1048576
+                account = {
+                    "active": 1, "name": user["name"], "phone": user["phone"],
+                    "expires_at": user["expires_at"],
+                    "unlimited": (qmb or 0) <= 0,
+                    "data_limit_bytes": limit,
+                    "data_remaining_bytes": max(0, limit - (used or 0)),
+                    "data_used_bytes": used or 0,
+                }
                 return self._send({"activated": True, "phone": user["phone"],
                                    "name": user["name"], "expires_at": user["expires_at"],
+                                   "account": account,
                                    "message": "Device is active"})
             return self._send({"activated": False, "message": "Device not found or inactive"}, 404)
 
@@ -1560,6 +1622,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "V2Ray + SlowDNS"
                 elif mode == "sshslowdns":
                     label = "SSH + SlowDNS"
+                elif mode == "wgslowdns":
+                    label = "WireGuard + SlowDNS"
                 elif mode == "xray" and isp == "orange":
                     label = "Orange Illimité"
                 elif mode == "xray" and isp == "mtn" and tier == "150":
@@ -1590,6 +1654,25 @@ class APIHandler(BaseHTTPRequestHandler):
                     entry["zivpn_password"] = cfg["zivpn_password"] or ""
                     entry["port_range"] = cfg["port_range"] or \
                         "34000-37999,38000-41999,42000-45999,46000-49999"
+                if mode == "wgslowdns":
+                    # Les clés WireGuard : servies dans le champ wg_keys
+                    # (JSON string) — l'app les parse dans advanced.wg_*.
+                    try:
+                        wgk = cfg["wg_keys"] or ""
+                        if wgk:
+                            wg_obj = json.loads(wgk)
+                            entry["wg_secret_key"] = wg_obj.get("wg_secret_key", "")
+                            entry["wg_peer_public_key"] = wg_obj.get("wg_peer_public_key", "")
+                            entry["wg_pre_shared_key"] = wg_obj.get("wg_pre_shared_key", "")
+                            entry["wg_address"] = wg_obj.get("wg_address", "10.66.66.2/32")
+                            entry["wg_peer_endpoint"] = wg_obj.get("wg_peer_endpoint", "")
+                            entry["wg_allowed_ips"] = wg_obj.get("wg_allowed_ips", "0.0.0.0/0,::/0")
+                            entry["wg_mtu"] = wg_obj.get("wg_mtu", 1420)
+                            entry["wg_keep_alive"] = wg_obj.get("wg_keep_alive", 25)
+                            entry["wg_no_kernel_tun"] = wg_obj.get("wg_no_kernel_tun", True)
+                            entry["wg_remote_dns"] = wg_obj.get("wg_remote_dns", "1.1.1.1,8.8.8.8")
+                    except Exception:
+                        pass
                 if mode == "utunnel":
                     # Clé client PRÉ-CALCULÉE (64 hex) : le serveur utunnel
                     # dérive SHA256(uuid:secret) — la même formule est servie
@@ -1622,12 +1705,18 @@ class APIHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
 
         if path == "/api/v1/devices/register":
+            if rate_limit_hit(_client_ip(self)):
+                return self._send({"success": False, "message": "Too many requests, retry later"}, 429)
             body = self._read_body()
             uuid = str(body.get("device_install_id") or body.get("uuid", "")).strip()[:64]
             phone = str(body.get("phone_number", ""))[:20].strip()
             code = str(body.get("activation_code", ""))[:10]
             if not uuid or not phone or not code:
                 return self._send({"success": False, "message": "Missing required fields"}, 400)
+            # Brute-force du code à 6 chiffres : verrou par téléphone.
+            if activation_locked(phone):
+                return self._send({"success": False,
+                                   "message": "Too many failed attempts, retry in 15 minutes"}, 429)
             conn = get_db()
             user = conn.execute("SELECT * FROM users WHERE uuid = ?", (uuid,)).fetchone()
             if not user:
@@ -1638,6 +1727,7 @@ class APIHandler(BaseHTTPRequestHandler):
                                    "message": "Device not registered. Contact admin."}, 404)
             if user["activation_code"] != code:
                 conn.close()
+                activation_fail(phone)
                 return self._send({"success": False, "message": "Invalid activation code"}, 403)
             if not user["active"]:
                 conn.close()
@@ -1681,6 +1771,7 @@ class APIHandler(BaseHTTPRequestHandler):
                          (new_iid, str(body.get("app_version", ""))[:20], user["id"]))
             conn.commit()
             conn.close()
+            activation_success(phone)
             return self._send({"success": True, "message": "Device activated successfully",
                                "phone": phone, "expires_at": exp,
                                "device_mode": "multi" if user["multi_device"] else "mono"})

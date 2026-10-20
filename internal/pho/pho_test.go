@@ -22,8 +22,34 @@ func TestVaultRoundTrip(t *testing.T) {
 	if len(data) == 0 {
 		t.Fatal("vault empty")
 	}
-	if _, err := storeOpen("autre-uuid", data); err == nil {
+	if _, err := storeOpen(legacyKey("autre-uuid"), data); err == nil {
 		t.Fatal("decrypt with wrong uuid must fail")
+	}
+}
+
+func TestVaultV2SaltRequired(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := VaultPut("uuid-v2", "code", "secret-v2"); err != nil {
+		t.Fatal(err)
+	}
+	salt := loadSalt()
+	if salt == nil || len(salt) != 32 {
+		t.Fatal("salt file missing")
+	}
+	// Clé v2 (uuid+salt) déchiffre ; la clé v1 (uuid seul) ne doit PAS.
+	data, _ := os.ReadFile(dir + "/pho.vault")
+	if _, err := storeOpen(storeKey("uuid-v2", salt), data); err != nil {
+		t.Fatalf("v2 key must decrypt: %v", err)
+	}
+	if _, err := storeOpen(legacyKey("uuid-v2"), data); err == nil {
+		t.Fatal("legacy key must NOT decrypt a v2 vault")
+	}
+	// Mauvais salt (autre installation) -> illisible.
+	if _, err := storeOpen(storeKey("uuid-v2", make([]byte, 32)), data); err == nil {
+		t.Fatal("foreign salt must fail")
 	}
 }
 
