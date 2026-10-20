@@ -252,6 +252,24 @@ valid_name()  { [[ "$1" =~ ^[a-zA-Z0-9._-]{1,32}$ ]]; }
 valid_domain(){ [[ "$1" =~ ^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$ ]] && [[ ! "$1" =~ \.\. ]]; }
 valid_code()  { [[ "$1" =~ ^[0-9]{6}$ ]]; }
 
+# Lit un quota saisi en Go — entier ou 1-2 décimales, séparateur "." ou ","
+# (ex: 0, 2, 0.15, 12,57) — et l'affiche en Mo entiers (unité interne
+# quota_mb), arrondi au plus proche. Écho vide + retour 1 si invalide.
+read_quota_gb() { # $1 = prompt
+    local raw intp frac
+    read -r -p "$1" raw
+    raw=$(printf '%s' "$raw" | tr -d '[:space:]' | tr ',' '.')
+    [[ "$raw" =~ ^[0-9]+(\.[0-9]{1,2})?$ ]] || return 1
+    if [[ "$raw" == *.* ]]; then
+        intp=${raw%%.*} frac=${raw#*.}
+        while (( ${#frac} < 2 )); do frac+="0"; done
+    else
+        intp=$raw frac=0
+    fi
+    # centièmes de Go -> Mo : h*1024/100 arrondi au plus proche (+50).
+    echo $(( ((intp * 100 + frac) * 1024 + 50) / 100 ))
+}
+
 # Échappe une valeur pour insertion SQL (quote doubling).
 sqlq() { printf '%s' "$1" | sed "s/'/''/g"; }
 
@@ -1878,8 +1896,9 @@ create_user() {
     [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
         || { error "Date d'expiration dans le passé"; pause; return 1; }
     local quota_mb
-    read -r -p "Quota data en Mo (0 = illimité): " quota_mb
-    [[ "$quota_mb" =~ ^[0-9]+$ ]] || { error "Quota invalide"; pause; return 1; }
+    # Saisie en Go (ex: 0.15, 12.57, 2) — convertie en Mo pour quota_mb.
+    quota_mb=$(read_quota_gb "Quota data en Go (0 = illimité, ex: 0.15 ou 12.57): ") \
+        || { error "Quota invalide (Go, 2 décimales max — ex: 0.15, 12.57)"; pause; return 1; }
 
     # Sélection des configurations à servir via l'API : une, plusieurs
     # (liste séparée par des virgules) ou toutes ("0" ou "t"). L'app
@@ -2543,8 +2562,9 @@ quotas_menu() {
             local id q
             read -r -p "N° compte: " id
             [[ "$id" =~ ^[0-9]+$ ]] || { error "N° invalide"; pause; return; }
-            read -r -p "Nouveau quota (Mo, 0 = illimité): " q
-            [[ "$q" =~ ^[0-9]+$ ]] || { error "Quota invalide"; pause; return; }
+            # Saisie en Go (ex: 0.15, 12.57, 2) — convertie en Mo pour quota_mb.
+            q=$(read_quota_gb "Nouveau quota (Go, 0 = illimité, ex: 0.15 ou 12.57): ") \
+                || { error "Quota invalide (Go, 2 décimales max — ex: 0.15, 12.57)"; pause; return; }
             sql "UPDATE users SET quota_mb=$q WHERE id=$id;"
             zivpn_update_passwords 2>/dev/null || true
             msg "Quota mis à jour"
