@@ -5,9 +5,9 @@
         android:icon="@drawable/ic_home"
         android:title="HOME" />
     <item
-        android:id="@+id/nav_configs"
+        android:id="@+id/nav_profils"
         android:icon="@drawable/ic_cloud"
-        android:title="CONFIGS" />
+        android:title="PROFILS" />
     <item
         android:id="@+id/nav_logs"
         android:icon="@drawable/ic_info"

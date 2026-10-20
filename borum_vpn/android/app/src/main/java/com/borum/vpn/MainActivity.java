@@ -73,6 +73,8 @@ public class MainActivity extends AppCompatActivity {
             int id = item.getItemId();
             if (id == R.id.nav_home) {
                 showTab(new HomeFragment(), "home");
+            } else if (id == R.id.nav_profils) {
+                showTab(new ProfilsFragment(), "profils");
             } else if (id == R.id.nav_logs) {
                 showTab(new LogsFragment(), "logs");
             } else if (id == R.id.nav_more) {
