@@ -196,3 +196,47 @@ func TestDeepCheckShape(t *testing.T) {
 		}
 	}
 }
+
+func TestVaultCacheConsistency(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	const uuid = "uuid-cache"
+	// Écriture -> cache -> lecture (depuis le cache) -> fichier toujours chiffré.
+	if err := VaultPut(uuid, "k1", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	if got := VaultGet(uuid, "k1"); got != "v1" {
+		t.Fatalf("cached read: got %q", got)
+	}
+	data, _ := os.ReadFile(dir + "/pho.vault")
+	if len(data) == 0 || string(data[:1]) == "{" {
+		t.Fatal("vault file must remain encrypted")
+	}
+	// Écritures successives : le cache suit la dernière valeur.
+	if err := VaultPut(uuid, "k1", "v2"); err != nil {
+		t.Fatal(err)
+	}
+	if got := VaultGet(uuid, "k1"); got != "v2" {
+		t.Fatalf("cache staleness: got %q", got)
+	}
+	// Clear : cache invalidé, lecture vide, fichier parti.
+	VaultClear(uuid)
+	if got := VaultGet(uuid, "k1"); got != "" {
+		t.Fatalf("clear must invalidate cache: got %q", got)
+	}
+	if _, err := os.Stat(dir + "/pho.vault"); !os.IsNotExist(err) {
+		t.Fatal("vault file must be removed")
+	}
+	// Isolation inter-uuid conservée avec le cache.
+	if err := VaultPut("u-a", "k", "a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := VaultPut("u-b", "k", "b"); err != nil {
+		t.Fatal(err)
+	}
+	if VaultGet("u-a", "k") != "a" || VaultGet("u-b", "k") != "b" {
+		t.Fatal("cross-uuid isolation broken with cache")
+	}
+}

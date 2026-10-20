@@ -14,6 +14,7 @@
 package pho
 
 import (
+	"bytes"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -30,6 +31,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
@@ -342,6 +344,49 @@ func loadSalt() []byte {
 	return b
 }
 
+// ── Cache mémoire (clé dérivée + coffre déchiffré) ────────────────────────
+//
+// Sans cache, CHAQUE VaultGet relisait le fichier et recalculait
+// PBKDF2(600k) : ~300-700 ms sur armv7, payées sur le thread UI de l'app
+// (tick Home 2 s, navigations). Le cache rend les lectures O(1) après le
+// premier déchiffrement ; la clé dérivée n'est calculée qu'une fois par
+// (uuid, sel). Invalidation : écriture, clear, changement de sel.
+var (
+	vaultMu    sync.Mutex
+	vaultCache = map[string]map[string]string{}
+	keyMu      sync.Mutex
+	keyCache   = map[string]*keyEntry{}
+)
+
+type keyEntry struct {
+	salt []byte
+	key  []byte
+}
+
+// derivedKey retourne la clé AES-256 du coffre pour uuid (cache + sel).
+func derivedKey(uuid string) ([]byte, error) {
+	salt := loadSalt()
+	if salt == nil {
+		return nil, errors.New("vault salt unavailable")
+	}
+	keyMu.Lock()
+	defer keyMu.Unlock()
+	if e, ok := keyCache[uuid]; ok && bytes.Equal(e.salt, salt) {
+		return e.key, nil
+	}
+	k := storeKey(uuid, salt)
+	keyCache[uuid] = &keyEntry{salt: append([]byte(nil), salt...), key: k}
+	return k, nil
+}
+
+func cloneMap(v map[string]string) map[string]string {
+	out := make(map[string]string, len(v))
+	for k2, v2 := range v {
+		out[k2] = v2
+	}
+	return out
+}
+
 // VaultPut stores value under key, encrypted. overwrite of whole file.
 func VaultPut(uuid, key, value string) error {
 	if storeDir == "" {
@@ -355,7 +400,7 @@ func VaultPut(uuid, key, value string) error {
 	return storeWrite(uuid, v)
 }
 
-// VaultGet returns the decrypted value ("" if absent).
+// VaultGet returns the decrypted value ("" if absent). O(1) via cache.
 func VaultGet(uuid, key string) string {
 	v, _ := storeRead(uuid)
 	return v[key]
@@ -366,6 +411,9 @@ func VaultClear(uuid string) {
 		return
 	}
 	_ = os.Remove(filepath.Join(storeDir, storeFile))
+	vaultMu.Lock()
+	delete(vaultCache, uuid)
+	vaultMu.Unlock()
 }
 
 func storeRead(uuid string) (map[string]string, error) {
@@ -373,15 +421,24 @@ func storeRead(uuid string) (map[string]string, error) {
 	if storeDir == "" {
 		return out, errors.New("not initialized")
 	}
+	// Cache hit : aucune IO, aucun déchiffrement.
+	vaultMu.Lock()
+	if v, ok := vaultCache[uuid]; ok {
+		out = cloneMap(v)
+		vaultMu.Unlock()
+		return out, nil
+	}
+	vaultMu.Unlock()
+
 	b, err := os.ReadFile(filepath.Join(storeDir, storeFile))
 	if err != nil {
 		return out, err
 	}
-	salt := loadSalt()
-	if salt == nil {
-		return out, errors.New("vault salt unavailable")
+	key, err := derivedKey(uuid)
+	if err != nil {
+		return out, err
 	}
-	raw, err := storeOpen(storeKey(uuid, salt), b)
+	raw, err := storeOpen(key, b)
 	if err != nil {
 		// Migration v1 -> v2 : l'ancien coffre (sel dérivé du seul uuid,
 		// 60k itérations) est déchiffré puis immédiatement ré-encrypté en
@@ -399,6 +456,9 @@ func storeRead(uuid string) (map[string]string, error) {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return out, err
 	}
+	vaultMu.Lock()
+	vaultCache[uuid] = cloneMap(out)
+	vaultMu.Unlock()
 	return out, nil
 }
 
@@ -411,11 +471,22 @@ func storeWrite(uuid string, v map[string]string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(storeDir, storeFile), enc, 0600)
+	if err := os.WriteFile(filepath.Join(storeDir, storeFile), enc, 0600); err != nil {
+		return err
+	}
+	// Cache mis à jour SEULEMENT après écriture disque réussie.
+	vaultMu.Lock()
+	vaultCache[uuid] = cloneMap(v)
+	vaultMu.Unlock()
+	return nil
 }
 
 func storeSeal(uuid string, plain []byte) ([]byte, error) {
-	block, err := aes.NewCipher(storeKey(uuid, loadSalt()))
+	key, err := derivedKey(uuid)
+	if err != nil {
+		return nil, err
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err
 	}
