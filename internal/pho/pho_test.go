@@ -154,3 +154,45 @@ func TestEndpointsObfuscated(t *testing.T) {
 		t.Fatal("bad path")
 	}
 }
+
+func TestMapLineSuspicious(t *testing.T) {
+	hits := []string{
+		"/data/local/tmp/re.frida.server/frida-agent.so",
+		"7f2a1000-7f2a2000 r-xp 0 /data/local/tmp/linjector",
+		"/data/app/libgum.so",
+		"gum-js-loop",
+		"/system/lib/libsubstrate.so",
+		"/system/lib/libxposed_art.so",
+	}
+	for _, h := range hits {
+		if !mapLineSuspicious(h) {
+			t.Fatalf("must detect: %s", h)
+		}
+	}
+	clean := []string{
+		"/apex/com.android.runtime/lib64/bionic/libc.so",
+		"/data/app/com.borum.vpn/lib/arm/libgojni.so",
+		"/system/lib64/libbinder.so",
+	}
+	for _, c := range clean {
+		if mapLineSuspicious(c) {
+			t.Fatalf("false positive: %s", c)
+		}
+	}
+}
+
+func TestProbeFridaPorts(t *testing.T) {
+	// Aucun frida-server sur la machine de test : aucun hit.
+	if hits := probeFridaPorts(); len(hits) != 0 {
+		t.Fatalf("unexpected hits: %v", hits)
+	}
+}
+
+func TestDeepCheckShape(t *testing.T) {
+	v := deepCheck()
+	for _, k := range []string{"traced", "emulator", "frida", "hook", "root", "magisk", "hard"} {
+		if _, ok := v[k]; !ok {
+			t.Fatalf("missing key %s", k)
+		}
+	}
+}

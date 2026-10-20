@@ -24,13 +24,11 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -77,6 +75,9 @@ func Init(dir string) error {
 	if loadSalt() == nil {
 		return errors.New("cannot create vault salt")
 	}
+	// Protections passives du processus : non-attachable (ptrace), pas de
+	// core dump. Idempotent.
+	hardenSelf()
 	return nil
 }
 
@@ -549,19 +550,11 @@ func ClearAccount(uuid string) error {
 
 // SelfCheck renvoie des drapeaux JSON: {"traced":bool,"emulator":bool}.
 // Non bloquant: la stratégie (avertir/dégrader) reste côté appelant.
+// SelfCheck exécute les sondes anti-analyse dynamique (Frida/gadget, hooks,
+// TracerPid tous threads, émulateur, root/Magisk, ports d'injection) et
+// retourne un verdict JSON. Clé "hard" = instrumentation/débogage détecté.
 func SelfCheck() string {
-	traced := false
-	if b, err := os.ReadFile(procSelfStatus); err == nil {
-		for _, line := range strings.Split(string(b), "\n") {
-			if strings.HasPrefix(line, tracerPidStr) {
-				var pid int
-				fmt.Sscanf(strings.TrimSpace(strings.TrimPrefix(line, tracerPidStr)), "%d", &pid)
-				traced = pid != 0
-			}
-		}
-	}
-	emu := runtime.GOOS == "android" && (fileExists(devQemuPipe) || fileExists(devGoldfish))
-	b, _ := json.Marshal(map[string]bool{"traced": traced, "emulator": emu})
+	b, _ := json.Marshal(deepCheck())
 	return string(b)
 }
 

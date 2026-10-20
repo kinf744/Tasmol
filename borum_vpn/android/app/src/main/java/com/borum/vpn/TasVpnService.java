@@ -228,6 +228,14 @@ public class TasVpnService extends VpnService {
             Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
+        // RASP : instrumentation/débogage/re-signature détectés — aucune
+        // session VPN (le plan de données ne doit pas tourner sous hook).
+        if (IntegrityGuard.hardBlocked()) {
+            lastError = "Environnement non autorisé";
+            logEvent("error", "security", "démarrage refusé — environnement non autorisé");
+            stopSelf();
+            return;
+        }
         lastError = null;
         // Foreground immediately: the data plane can take 5-20s (process
         // startups, readiness probes). Blocking the main thread here is an

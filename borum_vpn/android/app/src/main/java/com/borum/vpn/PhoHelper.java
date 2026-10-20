@@ -20,11 +20,23 @@ public final class PhoHelper {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean ready = false;
 
+    /** Message générique (sans révéler la sonde) si l'environnement est
+     *  compromis : l'API d'activation/configs est la cible — on refuse. */
+    private static final String SEC_BLOCKED = "Environnement non autorisé";
+
     public interface Callback {
         void onResult(JSONObject response, Exception error);
     }
 
     private PhoHelper() {
+    }
+
+    private static boolean blocked(Callback cb) {
+        if (IntegrityGuard.hardBlocked()) {
+            deliver(cb, null, new Exception(SEC_BLOCKED));
+            return true;
+        }
+        return false;
     }
 
     public static synchronized void init(android.content.Context ctx) {
@@ -36,6 +48,9 @@ public final class PhoHelper {
     }
 
     public static void selfCheck(Callback cb) {
+        if (blocked(cb)) {
+            return;
+        }
         IO.execute(() -> {
             try {
                 deliver(cb, new JSONObject(Vpnlib.phoSelfCheck()), null);
@@ -46,6 +61,9 @@ public final class PhoHelper {
     }
 
     public static void activate(String phone, String code, String uuid, Callback cb) {
+        if (blocked(cb)) {
+            return;
+        }
         IO.execute(() -> {
             try {
                 JSONObject r = new JSONObject(Vpnlib.phoActivate(phone, code, uuid));
@@ -61,6 +79,9 @@ public final class PhoHelper {
     }
 
     public static void configs(String uuid, String code, Callback cb) {
+        if (blocked(cb)) {
+            return;
+        }
         IO.execute(() -> {
             try {
                 JSONObject r = new JSONObject(Vpnlib.phoFetchConfigs(uuid, code));
@@ -77,6 +98,9 @@ public final class PhoHelper {
 
     /** GET /api/v1/devices/check — statut du compte lié à cet appareil. */
     public static void check(String uuid, Callback cb) {
+        if (blocked(cb)) {
+            return;
+        }
         IO.execute(() -> {
             try {
                 JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid));

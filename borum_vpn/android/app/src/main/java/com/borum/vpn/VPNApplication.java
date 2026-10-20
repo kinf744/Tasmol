@@ -34,12 +34,9 @@ public class VPNApplication extends Application {
         });
         // Initialise le coffre chiffré + client API durci (libpho).
         PhoHelper.init(this);
-        // Self-check runtime (non bloquant): trace/émulateur -> log.
-        PhoHelper.selfCheck((r, e) -> {
-            if (r != null && r.optBoolean("traced", false)) {
-                TasVpnService.logEvent("warning", "app", "Debugger détecté (mode dégradé silencieux)");
-            }
-        });
+        // RASP : surveillance continue anti-analyse dynamique (Frida, hooks,
+        // débogueur, re-signature) — sondes natives Go + sondes Java, 4 s.
+        IntegrityGuard.start(this);
         // Suivi de l'activite courante : un crash arrive presque toujours
         // dans un ecran precis, son nom rend la stack trace parlante.
         registerActivityLifecycleCallbacks(new android.app.Application.ActivityLifecycleCallbacks() {

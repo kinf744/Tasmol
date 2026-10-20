@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Verrou TLS de la pile Java (complément du pinning Go côté libpho) :
+     - cleartext interdit partout (Burp/mitmproxy/HTTP Toolkit ne voient rien
+       en clair, même par erreur de code futur) ;
+     - SEULES les CA système sont dignes de confiance : une CA installée par
+       l'utilisateur (cert Burp Suite / mitmproxy / HTTP Toolkit) est ignorée
+       par toute pile HTTP Java. Le canal d'activation reste de toute façon
+       verrouillé par le pin SHA-256 natif (pho.mkTransport). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
