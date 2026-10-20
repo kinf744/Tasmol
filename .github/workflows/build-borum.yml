@@ -132,7 +132,7 @@ jobs:
 
       - name: Verify AAR
         run: |
-          ls -lh android/app/libs/vpnlib.aar
+          ls -lh borum_vpn/android/app/libs/vpnlib.aar
           unzip -l borum_vpn/android/app/libs/vpnlib.aar | grep -E 'jni/|libgojni'
           for abi in armeabi-v7a; do
             unzip -p borum_vpn/android/app/libs/vpnlib.aar jni/$abi/libgojni.so > /tmp/libgojni.$abi.so
