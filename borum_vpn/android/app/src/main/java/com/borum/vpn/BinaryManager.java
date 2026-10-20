@@ -201,7 +201,7 @@ public class BinaryManager {
     /** Port UDPGW local par défaut — natif, repli 7300. */
     private static int nativeUdpgwPort() {
         try {
-            return vpnlib.Vpnlib.phoPortUdpgw();
+            return (int) vpnlib.Vpnlib.phoPortUdpgw();
         } catch (Throwable t) {
             return 7300;
         }

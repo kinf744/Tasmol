@@ -31,7 +31,7 @@ public final class TcpRelay {
 
     private static int nativeRelayPort() {
         try {
-            return vpnlib.Vpnlib.phoPortRelay();
+            return (int) vpnlib.Vpnlib.phoPortRelay();
         } catch (Throwable t) {
             return 8080;
         }

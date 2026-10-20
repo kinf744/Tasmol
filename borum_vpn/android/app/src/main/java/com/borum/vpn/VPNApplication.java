@@ -277,7 +277,7 @@ public class VPNApplication extends Application {
 
     private int nativeManagePort() {
         try {
-            return Vpnlib.phoPortManage();
+            return (int) Vpnlib.phoPortManage();
         } catch (Throwable t) {
             return 18080;
         }
