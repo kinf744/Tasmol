@@ -19,6 +19,7 @@ public final class PhoHelper {
     private static final ExecutorService IO = Executors.newCachedThreadPool();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean ready = false;
+    private static android.content.Context appCtx;
 
     public interface Callback {
         void onResult(JSONObject response, Exception error);
@@ -32,7 +33,38 @@ public final class PhoHelper {
             return;
         }
         ready = true;
+        appCtx = ctx.getApplicationContext();
         Vpnlib.phoInit(ctx.getFilesDir().getAbsolutePath() + "/pho");
+    }
+
+    /**
+     * Preuve d'appareil anti-clonage : HMAC-SHA256(SHA-256(ANDROID_ID),
+     * uuid), hex — identique au calcul natif de Borum VPN (libpho). Le
+     * serveur l'épingle au premier register et refuse tout uuid présenté
+     * depuis un autre matériel.
+     */
+    private static String deviceProof(String uuid) {
+        try {
+            String aid = android.provider.Settings.Secure.getString(
+                    appCtx.getContentResolver(),
+                    android.provider.Settings.Secure.ANDROID_ID);
+            if (aid == null) {
+                aid = "";
+            }
+            java.security.MessageDigest sha =
+                    java.security.MessageDigest.getInstance("SHA-256");
+            byte[] key = sha.digest(aid.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+            mac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA256"));
+            byte[] out = mac.doFinal(uuid.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder(out.length * 2);
+            for (byte b : out) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     public static void selfCheck(Callback cb) {
@@ -48,7 +80,7 @@ public final class PhoHelper {
     public static void activate(String phone, String code, String uuid, Callback cb) {
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Vpnlib.phoActivate(phone, code, uuid));
+                JSONObject r = new JSONObject(Vpnlib.phoActivate(phone, code, uuid, deviceProof(uuid)));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;
@@ -79,7 +111,7 @@ public final class PhoHelper {
     public static void check(String uuid, Callback cb) {
         IO.execute(() -> {
             try {
-                JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid));
+                JSONObject r = new JSONObject(Vpnlib.phoCheck(uuid, deviceProof(uuid)));
                 if (r.has("error")) {
                     deliver(cb, null, new Exception(r.optString("error")));
                     return;
