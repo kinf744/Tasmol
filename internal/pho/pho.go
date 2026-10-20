@@ -312,16 +312,21 @@ func jsonString(m map[string]interface{}, err error) (string, error) {
 // 600k itérations = recommandation OWASP PBKDF2-HMAC-SHA256 (2024+).
 const vaultKDFIterations = 600000
 
+// pbkdf2Key : wrapper unique de dérivation (importe le KDF à un seul endroit).
+func pbkdf2Key(password, salt []byte, iter, keyLen int) []byte {
+	return pbkdf2.Key(password, salt, iter, keyLen, sha256.New)
+}
+
 func storeKey(uuid string, salt []byte) []byte {
 	ctx := sha256.Sum256(append([]byte(r2(112, 104, 111, 45, 118, 50)), salt...)) // "pho-v2"+salt
-	return pbkdf2.Key([]byte(uuid), ctx[:], vaultKDFIterations, 32, sha256.New)
+	return pbkdf2Key([]byte(uuid), ctx[:], vaultKDFIterations, 32)
 }
 
 // legacyKey : ancienne clé v1 (sel dérivé du seul uuid, 60k itérations),
 // conservée UNIQUEMENT pour la migration silencieuse vers v2.
 func legacyKey(uuid string) []byte {
 	salt := sha256.Sum256([]byte(r2(112, 104, 111, 45, 118, 49) + uuid)) // "pho-v1"+uuid
-	return pbkdf2.Key([]byte(uuid), salt[:], 60000, 32, sha256.New)
+	return pbkdf2Key([]byte(uuid), salt[:], 60000, 32)
 }
 
 // loadSalt lit (ou crée au premier usage) le sel aléatoire 256 bits du
@@ -486,6 +491,12 @@ func storeSeal(uuid string, plain []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return sealWithKey(key, plain)
+}
+
+// sealWithKey scelle avec une clé explicite (coffre comptes OU fichier
+// identité — clés dérivées de contextes r2 distincts).
+func sealWithKey(key, plain []byte) ([]byte, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, err

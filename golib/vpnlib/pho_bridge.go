@@ -61,6 +61,33 @@ func PhoVaultClear(uuid string) { pho.VaultClear(uuid) }
 // PhoResetPin forgets the TLS pin (only for deliberate cert rotation).
 func PhoResetPin() { pho.ResetPin() }
 
+// ── Secrets & constantes servies par le natif (plus rien dans le DEX) ────
+
+// PhoDeviceProof calcule la preuve d'appareil anti-clonage dans le .so :
+// HMAC-SHA256(SHA-256(androidId), uuid), hex. Sortie identique à l'ancien
+// calcul Java (preuves épinglées serveur toujours valides).
+func PhoDeviceProof(uuid, androidId string) string { return pho.DeviceProof(uuid, androidId) }
+
+// PhoIdentityEnsure retourne le secret d'installation (32 hex), créé et
+// scellé dans pho.id au premier appel (remplace les préférences XML).
+func PhoIdentityEnsure() string { return pho.IdentityEnsure() }
+
+// PhoIdentityUuid dérive l'UUID v4 (secret | ANDROID_ID) côté natif.
+func PhoIdentityUuid(androidId string) string { return pho.IdentityUuid(androidId) }
+
+// PhoPortRelay : port du relais hotspot (8080).
+func PhoPortRelay() int { return pho.PortRelay() }
+
+// PhoPortUdpgw : port UDPGW local par défaut (7300).
+func PhoPortUdpgw() int { return pho.PortUdpgw() }
+
+// PhoPortManage : port d'administration local par défaut (18080).
+func PhoPortManage() int { return pho.PortManage() }
+
+// PhoLogFileName : nom du fichier journal résolu côté natif (Java et Go
+// écrivent toujours le même fichier).
+func PhoLogFileName() string { return pho.LogFileName() }
+
 // --- Secrets de tunnels & credentials API (vault chiffré) -------------
 
 // PhoTunPut stores a tunnel secret in the encrypted vault.

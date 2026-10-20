@@ -76,6 +76,15 @@ func errorish(s string) bool {
 	return false
 }
 
+// LogFileName : nom du fichier journal, reconstruit par code points (le
+// littéral ne doit pas être grep-able dans le binaire). vpnlib.openLog et
+// Java (via PhoLogFileName) utilisent TOUS LES DEUX cette valeur : même
+// fichier garanti. Fallback identique si l'appel natif échoue côté Java.
+var logFileName = string([]rune{107, 105, 103, 104, 109, 117, 46, 116, 120, 116})
+
+// LogFileName retourne le nom du journal (ex. "kighmu.txt").
+func LogFileName() string { return logFileName }
+
 // DirectLog is a low-level sink that writes a fully-formatted, timestamped
 // line straight to the diagnostic file, bypassing the LogFunc gate. It is
 // set by vpnlib.makeFileLogger and is NEVER nil on Android: the Go side

@@ -12,6 +12,8 @@ import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import vpnlib.Vpnlib;
+
 /**
  * Identité d'appareil durcie.
  *
@@ -62,11 +64,23 @@ public final class DeviceIdentity {
     }
 
     /**
-     * Preuve d'appareil : HMAC-SHA256(key=SHA-256(ANDROID_ID), msg=uuid),
-     * hex minuscules. Envoyée au register et au check ; le serveur compare
-     * avec la preuve épinglée — un uuid cloné échoue.
+     * Preuve d'appareil : calculée dans le .so garblé (libpho) — le schéma
+     * HMAC n'apparaît plus dans le DEX. Repli : implémentation locale
+     * identique (preuves épinglées serveur toujours valides).
      */
     public static String proof(Context ctx, String uuid) {
+        try {
+            String p = Vpnlib.phoDeviceProof(uuid, androidId(ctx));
+            if (p != null && p.length() == 64) {
+                return p;
+            }
+        } catch (Throwable ignored) {
+        }
+        return localProof(ctx, uuid);
+    }
+
+    /** Ancienne implémentation Java (repli si le natif est indisponible). */
+    private static String localProof(Context ctx, String uuid) {
         try {
             String aid = androidId(ctx);
             MessageDigest sha = MessageDigest.getInstance("SHA-256");
@@ -90,6 +104,34 @@ public final class DeviceIdentity {
         android.content.SharedPreferences sp =
                 ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         String existing = sp.getString(K_UUID, null);
+        String aid = androidId(ctx);
+        if (existing != null && existing.matches(
+                "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+            // Migration : l'installation existante garde son uuid (le
+            // verrou d'appareil serveur pointe dessus). Le secret natif
+            // est créé/scellé dès maintenant (pho.id) pour les besoins
+            // futurs. La preuve serveur protège cet uuid depuis sa mise
+            // en place.
+            try {
+                Vpnlib.phoIdentityEnsure();
+            } catch (Throwable ignored) {
+            }
+            return existing.toLowerCase(Locale.US);
+        }
+        // Nouvelle installation : identité ENTIÈREMENT native — secret
+        // scellé AES-GCM dans pho.id (0600, jamais dans les préférences
+        // XML) et dérivation dans le .so garblé. Un patch des préférences
+        // est sans effet.
+        try {
+            String uuid = Vpnlib.phoIdentityUuid(aid);
+            if (uuid != null && uuid.matches(
+                    "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
+                sp.edit().putString(K_UUID, uuid).apply();
+                return uuid;
+            }
+        } catch (Throwable ignored) {
+        }
+        // Repli : ancien chemin (secret en prefs + dérivation locale).
         String secret = sp.getString(K_SECRET, null);
         if (secret == null || secret.isEmpty()) {
             // Secret frais par installation (128 bits, hex).
@@ -105,16 +147,11 @@ public final class DeviceIdentity {
             secret = sb.toString();
             sp.edit().putString(K_SECRET, secret).apply();
         }
-        String aid = androidId(ctx);
         String derived = uuidFrom(secret, aid);
 
         String uuid;
         if (existing != null && existing.matches(
                 "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
-            // Migration : l'installation existante garde son uuid (le
-            // verrou d'appareil serveur pointe dessus). Il est désormais
-            // protégé par la preuve serveur, et toute réinstallation
-            // génère un uuid neuf dérivé du matériel.
             uuid = existing.toLowerCase(Locale.US);
         } else {
             uuid = derived;

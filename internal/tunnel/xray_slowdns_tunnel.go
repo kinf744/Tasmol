@@ -234,7 +234,8 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
-	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
+	// 0600 : la config contient l'uuid Xray et les secrets trojan/ss.
+	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
 		Errorf("xray-slowdns", "write config: %v", err)
 		t.slowdnscmd.Process.Kill()
 		t.status = StatusError

@@ -2,9 +2,19 @@ package pho
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestDeepCheckShape(t *testing.T) {
+	v := deepCheck()
+	for _, k := range []string{"traced", "emulator", "frida", "hook", "root", "magisk", "hard"} {
+		if _, ok := v[k]; !ok {
+			t.Fatalf("missing key %s", k)
+		}
+	}
+}
 
 func TestVaultRoundTrip(t *testing.T) {
 	dir := t.TempDir()
@@ -188,12 +198,73 @@ func TestProbeFridaPorts(t *testing.T) {
 	}
 }
 
-func TestDeepCheckShape(t *testing.T) {
-	v := deepCheck()
-	for _, k := range []string{"traced", "emulator", "frida", "hook", "root", "magisk", "hard"} {
-		if _, ok := v[k]; !ok {
-			t.Fatalf("missing key %s", k)
-		}
+func TestDeviceProofMatchesJava(t *testing.T) {
+	// Vecteurs figés (référence Python/Java) : la sortie DOIT rester
+	// identique à l'ancienne implémentation Java — les preuves épinglées
+	// côté serveur le exigent.
+	got := DeviceProof("a1b2c3d4-e5f6-4a1b-8c2d-9e0f1a2b3c4d", "1234567890abcdef")
+	if got != "0b7c05128dc8127079ef6a02aa0077b86947c3b8eeaacd0ca03a606730932bf7" {
+		t.Fatalf("proof vector mismatch: %s", got)
+	}
+	// ANDROID_ID vide : clé = SHA-256("") (82d2… — référence Python).
+	got = DeviceProof("u", "")
+	if got != "82d206e486c4629c17ae9322b2bc1251df69500dce75d0b233f364c076068778" {
+		t.Fatalf("empty aid proof mismatch: %s", got)
+	}
+}
+
+func TestIdentityUuidVector(t *testing.T) {
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	// Vecteur figé (référence Python) : secret imposé via IdentityEnsure
+	// puis uuid dérivé — format v4 et valeur identiques à l'ancienne
+	// formule Java (SHA-256(secret|aid), nibbles version/variante).
+	s := IdentityEnsure()
+	if len(s) != 32 {
+		t.Fatalf("secret must be 32 hex chars: %q", s)
+	}
+	// Réécrivons pho.id avec un secret connu pour vérifier le vecteur.
+	salt := loadSalt()
+	known := "0123456789abcdef0123456789abcdef"
+	enc, err := sealWithKey(identityKey(salt), []byte(known))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, idFile), enc, 0600); err != nil {
+		t.Fatal(err)
+	}
+	idVal = "" // invalide le cache pour forcer la relecture
+	if got := IdentityEnsure(); got != known {
+		t.Fatalf("identity read-back: got %q", got)
+	}
+	u := IdentityUuid("1234567890abcdef")
+	if u != "0809c47f-76c4-415c-864c-9c7f05b13065" {
+		t.Fatalf("uuid vector mismatch: %s", u)
+	}
+	// Stable sur appels répétés (cache).
+	if u2 := IdentityUuid("1234567890abcdef"); u2 != u {
+		t.Fatal("identity uuid must be stable")
+	}
+	// Un autre appareil (autre ANDROID_ID) dérive un uuid différent.
+	if IdentityUuid("ffffffffffffffff") == u {
+		t.Fatal("different device must derive a different uuid")
+	}
+}
+
+func TestPortsObfuscated(t *testing.T) {
+	if PortRelay() != 8080 || PortUdpgw() != 7300 || PortManage() != 18080 {
+		t.Fatalf("ports: %d %d %d", PortRelay(), PortUdpgw(), PortManage())
+	}
+}
+
+func TestLogFileNameShared(t *testing.T) {
+	// Le nom doit correspondre à celui utilisé par le fichier Java
+	// (Bridge PhoLogFileName) : format <nom>.txt, non vide.
+	n := LogFileName()
+	if n == "" || filepath.Ext(n) != ".txt" {
+		t.Fatalf("bad log file name: %q", n)
 	}
 }
 

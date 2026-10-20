@@ -25,7 +25,17 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public final class TcpRelay {
     /** Fixed proxy port, never changes between launches. */
-    public static final int FIXED_PORT = 8080;
+    // Port du relais résolu par le natif (plus de littéral exploitable
+    // dans le DEX) ; repli identique si libpho est indisponible.
+    public static final int FIXED_PORT = nativeRelayPort();
+
+    private static int nativeRelayPort() {
+        try {
+            return vpnlib.Vpnlib.phoPortRelay();
+        } catch (Throwable t) {
+            return 8080;
+        }
+    }
 
     // HARD crash fix (itel P662L, OOM pthread_create, 2187 threads):
     // newCachedThreadPool() acceptait une connexion = 3 threads (relais +

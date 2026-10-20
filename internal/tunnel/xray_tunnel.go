@@ -221,7 +221,8 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
-	if err := os.WriteFile(t.configPath, []byte(configContent), 0644); err != nil {
+	// 0600 : la config contient l'uuid Xray et les mots de passe trojan/ss.
+	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
 		Errorf("xray", "write config: %v", err)
 		t.status = StatusError
 		t.setError(err.Error())

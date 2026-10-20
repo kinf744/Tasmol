@@ -225,8 +225,9 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 	}
 }
 
-// openLog opens <logDir>/kighmu.txt for append, creating the directory.
-// Returns (path, file, true) on success.
+// openLog opens <logDir>/<LogFileName> for append, creating the directory.
+// Returns (path, file, true) on success. Le nom du fichier est résolu par
+// le natif (r2) — le même que celui utilisé par Java via PhoLogFileName().
 func (c *Controller) openLog(logDir string) (string, *os.File, bool) {
 	if logDir == "" {
 		return "", nil, false
@@ -234,8 +235,8 @@ func (c *Controller) openLog(logDir string) (string, *os.File, bool) {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return "", nil, false
 	}
-	path := filepath.Join(logDir, "kighmu.txt")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	path := filepath.Join(logDir, tunnel.LogFileName())
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return "", nil, false
 	}

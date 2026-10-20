@@ -9,6 +9,8 @@ import android.util.Log;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 
+import vpnlib.Vpnlib;
+
 public class VPNApplication extends Application {
     private static VPNApplication instance;
     private SharedPreferences prefs;
@@ -269,7 +271,16 @@ public class VPNApplication extends Application {
     }
 
     public int getManagePort() {
-        return prefs.getInt("manage_port", 18080);
+        // Défaut résolu par libpho (repli 18080 identique).
+        return prefs.getInt("manage_port", nativeManagePort());
+    }
+
+    private int nativeManagePort() {
+        try {
+            return Vpnlib.phoPortManage();
+        } catch (Throwable t) {
+            return 18080;
+        }
     }
 
     public void setManagePort(int port) {

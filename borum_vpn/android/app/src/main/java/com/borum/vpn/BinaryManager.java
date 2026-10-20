@@ -189,11 +189,45 @@ public class BinaryManager {
                 "  max_retries: 10\n" +
                 "udpgw:\n" +
                 "  enabled: true\n" +
-                "  listen_addr: \"127.0.0.1:7300\"\n" +
+                "  listen_addr: \"127.0.0.1:" + nativeUdpgwPort() + "\"\n" +
                 "  max_clients: 100\n" +
                 "  timeout: 30\n" +
                 "  mtu: 1500\n";
         Files.write(cfg.toPath(), yaml.getBytes(StandardCharsets.UTF_8));
+    }
+
+    // ── Constantes servies par libpho (plus de littéraux dans le DEX) ────
+
+    /** Port UDPGW local par défaut — natif, repli 7300. */
+    private static int nativeUdpgwPort() {
+        try {
+            return vpnlib.Vpnlib.phoPortUdpgw();
+        } catch (Throwable t) {
+            return 7300;
+        }
+    }
+
+    /** Nom du fichier journal — résolu par le natif (le Go écrit le même
+     *  fichier), repli "kighmu.txt". Mis en cache pour la durée du process. */
+    private static volatile String sLogName = null;
+
+    private static String logFileName() {
+        String n = sLogName;
+        if (n != null) {
+            return n;
+        }
+        try {
+            String v = vpnlib.Vpnlib.phoLogFileName();
+            if (v != null && !v.trim().isEmpty()) {
+                n = v.trim();
+            }
+        } catch (Throwable ignored) {
+        }
+        if (n == null || n.isEmpty()) {
+            n = "kighmu.txt";
+        }
+        sLogName = n;
+        return n;
     }
 
     /** Build the vpnlib start-params JSON document. */
@@ -306,7 +340,7 @@ public class BinaryManager {
     }
 
     public static File logFile() {
-        return new File(logDir(), "kighmu.txt");
+        return new File(logDir(), logFileName());
     }
 
     /** Append one line to the journal (unified connection journal).
