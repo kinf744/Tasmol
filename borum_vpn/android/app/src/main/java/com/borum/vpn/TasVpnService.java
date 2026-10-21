@@ -178,7 +178,7 @@ public class TasVpnService extends VpnService {
         eventLog.clear();
     }
 
-    private ParcelFileDescriptor tunFd = null;
+    private volatile ParcelFileDescriptor tunFd = null;
 
     public static Object getController() {
         return controller;

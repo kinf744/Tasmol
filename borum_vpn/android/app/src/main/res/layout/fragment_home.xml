@@ -228,15 +228,17 @@
                     android:textSize="9sp"
                     android:typeface="monospace" />
 
-                <ImageButton
+                <TextView
                     android:id="@+id/home_remove_active"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:layout_marginStart="6dp"
                     android:background="@android:color/transparent"
                     android:contentDescription="Retirer la config active"
-                    android:padding="3dp"
-                    android:src="@android:drawable/ic_delete"
+                    android:gravity="center"
+                    android:text="×"
+                    android:textColor="#B0BEC5"
+                    android:textSize="20sp"
                     android:visibility="gone" />
 
                 <ImageView

@@ -38,7 +38,7 @@ public class HomeFragment extends Fragment {
     private android.widget.Spinner apiSpinner;
     // Rangées visibles du spinner (paires SlowDNS fusionnées en une entrée).
     private java.util.List<JSONObject> visibleApiConfigs = new java.util.ArrayList<>();
-    private android.widget.ImageButton removeActiveBtn;
+    private android.widget.TextView removeActiveBtn;
     private boolean spinnerGuard = false;
     private final Handler bg = new Handler(Looper.getMainLooper());
 
