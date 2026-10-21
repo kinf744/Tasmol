@@ -158,6 +158,17 @@ jobs:
           ls -lh bin/armv7/
           TARGET_DIR=borum_vpn/android TUNNELS="xray zivpn slowdns" bash scripts/fetch_android_bins.sh
 
+      - name: UPX compress native binaries (reduce APK size)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -qq -y upx-ucl
+          JNILIBS="$GITHUB_WORKSPACE/borum_vpn/android/app/src/main/jniLibs/armeabi-v7a"
+          for so in "$JNILIBS"/*.so; do
+            [ -e "$so" ] || continue
+            echo "Compressing $(basename "$so")"
+            upx --best --lzma "$so" || echo "UPX failed on $so, keeping original"
+            ls -lh "$so"
+          done
+
       - name: Install Gradle
         run: |
           cd /tmp
