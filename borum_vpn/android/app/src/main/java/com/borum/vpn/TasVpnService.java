@@ -432,7 +432,7 @@ public class TasVpnService extends VpnService {
                     // Close detached fd on error (not handed to Go).
                     if (detachedFd >= 0) {
                         try {
-                            android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+                            android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
                         } catch (Exception ignored) {
                         } finally {
                             detachedFd = -1;
@@ -470,7 +470,7 @@ public class TasVpnService extends VpnService {
             // Safety: close detached fd if still open (e.g., max attempts reached without supersede).
             if (detachedFd >= 0) {
                 try {
-                    android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+                    android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
                 } catch (Exception ignored) {
                 } finally {
                     detachedFd = -1;
@@ -889,7 +889,7 @@ public class TasVpnService extends VpnService {
         // 2b) Close detached fd if it was never handed to Go (superseded before invokeStart)
         if (detachedFd >= 0) {
             try {
-                android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+                android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
             } catch (Exception ignored) {
             } finally {
                 detachedFd = -1;
