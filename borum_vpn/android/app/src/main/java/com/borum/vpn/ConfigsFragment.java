@@ -624,7 +624,7 @@ public class ConfigsFragment extends Fragment {
         header.addView(title);
 
         android.widget.TextView close = new android.widget.TextView(requireContext());
-        close.setText("✕");
+        close.setText("×");
         close.setTextColor(0xFFB0BEC5);
         close.setTextSize(20);
         close.setPadding((int) (10 * density), 0, (int) (4 * density), 0);
