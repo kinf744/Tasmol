@@ -1,5 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Borum VPN</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Accueil</string>
+    <string name="nav_profiles">Profils</string>
+    <string name="nav_logs">Journal</string>
+    <string name="nav_settings">Réglages</string>
+
+    <!-- Home -->
+    <string name="home_connecting">[ CONNEXION ]</string>
+    <string name="home_connected">[ CONNECTÉ ]</string>
+    <string name="home_ping">PING</string>
+    <string name="home_ping_testing">…</string>
+    <string name="home_ping_none">—</string>
+    <string name="home_no_server">Aucun serveur sélectionné</string>
+    <string name="home_ping_failed">Ping échoué</string>
+    <string name="home_ping_udp_hint">Serveur UDP uniquement : connectez-vous d\'abord, puis le PING affiche la latence réelle.</string>
+    <string name="home_need_two_profiles">2 profils requis pour le round-robin — mode simple</string>
+
+    <!-- Profils -->
+    <string name="profils_title">CONNEXIONS VPN</string>
+    <string name="profils_active">Actif</string>
+    <string name="profils_inactive">Inactif</string>
+    <string name="profils_unlimited">Illimité</string>
+    <string name="profils_remaining">Restant</string>
+    <string name="profils_used">Utilisé</string>
+    <string name="profils_total">Total</string>
+    <string name="profils_refresh">Actualiser</string>
+
+    <!-- Journal -->
+    <string name="logs_empty">Aucun événement.\nConnectez-vous pour démarrer le journal.</string>
+    <string name="logs_verbose">Verbose</string>
+    <string name="logs_clear">Vider</string>
+    <string name="logs_share">Partager</string>
+
+    <!-- Réglages -->
+    <string name="settings_title">RÉGLAGES</string>
+    <string name="settings_device">APPAREIL</string>
+    <string name="settings_integrity">Intégrité : %s</string>
+    <string name="settings_root_detected">root détecté</string>
+    <string name="settings_no_root">aucun root détecté</string>
+    <string name="settings_theme">THÈME</string>
+    <string name="settings_theme_system">Système</string>
+    <string name="settings_theme_light">Clair</string>
+    <string name="settings_theme_dark">Sombre</string>
+    <string name="settings_language">LANGUE</string>
+    <string name="settings_lang_system">Défaut (système)</string>
+    <string name="settings_lang_fr">Français</string>
+    <string name="settings_lang_en">English</string>
+    <string name="settings_network">SÉCURITÉ RÉSEAU</string>
+    <string name="settings_dns_protect">Protection DNS</string>
+    <string name="settings_stop_loss">Stop sur perte réseau</string>
+    <string name="settings_reconnect">Reconnexion auto</string>
+    <string name="settings_boot">Lancer au démarrage</string>
+    <string name="settings_verbose_diag">Diagnostics verbeux</string>
+    <string name="settings_confirm_disc">Confirmer la déconnexion</string>
+    <string name="settings_wakelock">Maintenir actif (session)</string>
+    <string name="settings_slowdns_boost">Boost SlowDNS</string>
+    <string name="settings_tcp_nodelay">TCP_NODELAY</string>
+    <string name="settings_dns_force">Forcer le DNS via le tunnel (anti-fuite)</string>
+    <string name="settings_dns_primary">DNS primaire</string>
+    <string name="settings_dns_secondary">DNS secondaire</string>
+    <string name="settings_stop_loss_short">Arrêter sur perte réseau</string>
+    <string name="settings_stop_loss_desc">Couper le VPN si le réseau disparaît</string>
+    <string name="settings_conn_perf">CONNEXION & PERFORMANCE</string>
+    <string name="settings_reconnect_desc">Reconnexion automatique</string>
+    <string name="settings_reconnect_desc2">10 tentatives, sinon 1 seul essai</string>
+
+    <!-- Chaînes historiques -->
     <string name="vpn_service_running">VPN App Running</string>
     <string name="tap_to_open">Tap to open Web UI</string>
     <string name="unable_to_connect">Unable to connect</string>
@@ -7,4 +76,19 @@
     <string name="retry">Retry</string>
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="share_via">Share via</string>
+    <string name="settings_boot_short">Démarrer au lancement</string>
+    <string name="settings_boot_desc">Proposer la dernière session à l'ouverture</string>
+    <string name="settings_delay_label">Délai entre essais (s)</string>
+    <string name="settings_mtu">MTU tunnel</string>
+    <string name="settings_wakelock_short">Wakelock session</string>
+    <string name="settings_wakelock_desc">Garder le CPU actif pendant le VPN</string>
+    <string name="settings_boost_short">Boost SlowDNS (TCP)</string>
+    <string name="settings_boost_desc">DNS du tunnel via TCP si l'UDP est filtré</string>
+    <string name="settings_tcp_short">TCP No Delay</string>
+    <string name="settings_tcp_desc">Latence réduite sur les relais</string>
+    <string name="settings_interface">INTERFACE</string>
+    <string name="settings_diag_short">Diagnostic détaillé</string>
+    <string name="settings_diag_desc">Onglet Logs en mode Verbose par défaut</string>
+    <string name="settings_confirm_desc">Demander avant d'arrêter une session</string>
+    <string name="settings_reset">Réinitialiser les réglages</string>
 </resources>

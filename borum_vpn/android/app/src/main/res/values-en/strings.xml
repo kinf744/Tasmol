@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Borum VPN</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_profiles">Profiles</string>
+    <string name="nav_logs">Logs</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Home -->
+    <string name="home_connecting">[ CONNECTING ]</string>
+    <string name="home_connected">[ CONNECTED ]</string>
+    <string name="home_ping">PING</string>
+    <string name="home_ping_testing">…</string>
+    <string name="home_ping_none">—</string>
+    <string name="home_no_server">No server selected</string>
+    <string name="home_ping_failed">Ping failed</string>
+    <string name="home_ping_udp_hint">UDP-only server: connect first, then PING shows live latency.</string>
+    <string name="home_need_two_profiles">2 profiles required for round-robin — single mode</string>
+
+    <!-- Profiles -->
+    <string name="profils_title">VPN CONNECTIONS</string>
+    <string name="profils_active">Active</string>
+    <string name="profils_inactive">Inactive</string>
+    <string name="profils_unlimited">Unlimited</string>
+    <string name="profils_remaining">Remaining</string>
+    <string name="profils_used">Used</string>
+    <string name="profils_total">Total</string>
+    <string name="profils_refresh">Refresh</string>
+
+    <!-- Logs -->
+    <string name="logs_empty">No events yet.\nConnect to start the journal.</string>
+    <string name="logs_verbose">Verbose</string>
+    <string name="logs_clear">Clear</string>
+    <string name="logs_share">Share</string>
+
+    <!-- Settings -->
+    <string name="settings_title">SETTINGS</string>
+    <string name="settings_device">DEVICE</string>
+    <string name="settings_integrity">Integrity: %s</string>
+    <string name="settings_root_detected">root detected</string>
+    <string name="settings_no_root">no root detected</string>
+    <string name="settings_theme">THEME</string>
+    <string name="settings_theme_system">System</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_language">LANGUAGE</string>
+    <string name="settings_lang_system">Default (system)</string>
+    <string name="settings_lang_fr">Français</string>
+    <string name="settings_lang_en">English</string>
+    <string name="settings_network">NETWORK SECURITY</string>
+    <string name="settings_dns_protect">DNS protection</string>
+    <string name="settings_stop_loss">Stop on network loss</string>
+    <string name="settings_reconnect">Auto reconnect</string>
+    <string name="settings_boot">Launch on boot</string>
+    <string name="settings_verbose_diag">Verbose diagnostics</string>
+    <string name="settings_confirm_disc">Confirm disconnect</string>
+    <string name="settings_wakelock">Keep awake (session)</string>
+    <string name="settings_slowdns_boost">SlowDNS boost</string>
+    <string name="settings_tcp_nodelay">TCP_NODELAY</string>
+    <string name="settings_dns_force">Force DNS through the tunnel (leak protection)</string>
+    <string name="settings_dns_primary">Primary DNS</string>
+    <string name="settings_dns_secondary">Secondary DNS</string>
+    <string name="settings_stop_loss_short">Stop on network loss</string>
+    <string name="settings_stop_loss_desc">Kill the VPN if the network disappears</string>
+    <string name="settings_conn_perf">CONNECTION & PERFORMANCE</string>
+    <string name="settings_reconnect_desc">Automatic reconnection</string>
+    <string name="settings_reconnect_desc2">10 attempts, else a single try</string>
+
+    <!-- Legacy -->
+    <string name="vpn_service_running">VPN App Running</string>
+    <string name="tap_to_open">Tap to open Web UI</string>
+    <string name="unable_to_connect">Unable to connect</string>
+    <string name="make_sure_vpn_running">Make sure VPN App is running in Termux</string>
+    <string name="retry">Retry</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="share_via">Share via</string>
+    <string name="settings_boot_short">Start on boot</string>
+    <string name="settings_boot_desc">Offer last session on open</string>
+    <string name="settings_delay_label">Retry delay (s)</string>
+    <string name="settings_mtu">Tunnel MTU</string>
+    <string name="settings_wakelock_short">Session wakelock</string>
+    <string name="settings_wakelock_desc">Keep the CPU awake during VPN</string>
+    <string name="settings_boost_short">SlowDNS boost (TCP)</string>
+    <string name="settings_boost_desc">Tunnel DNS over TCP when UDP is filtered</string>
+    <string name="settings_tcp_short">TCP No Delay</string>
+    <string name="settings_tcp_desc">Lower latency on relays</string>
+    <string name="settings_interface">INTERFACE</string>
+    <string name="settings_diag_short">Detailed diagnostics</string>
+    <string name="settings_diag_desc">Logs tab in Verbose mode by default</string>
+    <string name="settings_confirm_desc">Ask before stopping a session</string>
+    <string name="settings_reset">Reset settings</string>
+</resources>

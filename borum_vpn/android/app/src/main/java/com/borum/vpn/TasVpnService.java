@@ -70,7 +70,7 @@ public class TasVpnService extends VpnService {
     // cannot unwind a gomobile call. If the Go stop has still not returned by
     // then, the only reliable way to make the VPN key disappear is to end the
     // process: Android always revokes the key of a dead VpnService.
-    private static final long WATCHDOG_KILL_NORMAL_MS = 20000;
+    private static final long WATCHDOG_KILL_NORMAL_MS = 8000;
     private static final long WATCHDOG_KILL_NUCLEAR_MS = 5000;
     // True from the moment a controller is handed to the Go stop until that
     // call actually returns. This distinguishes "teardown finished" from "we
@@ -672,6 +672,17 @@ public class TasVpnService extends VpnService {
         logEvent("connection", "app", "disconnected");
         releaseWakeLock();
         stopSelf();
+        // Le thread de connexion peut encore re-poster la notification (et
+        // re-rattacher le TUN) APRÈS ce point — il vérifie isSuperseded()
+        // et démonte aussi. Balayage de sécurité différé : rien ne doit
+        // survivre à une déconnexion, surtout pendant CONNECTING.
+        serviceHandler.postDelayed(() -> {
+            try {
+                stopForeground(true);
+            } catch (Exception ignored) {
+            }
+            cancelNotification();
+        }, 1500);
     }
 
     /**

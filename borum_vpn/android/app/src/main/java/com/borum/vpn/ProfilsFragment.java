@@ -32,14 +32,20 @@ import java.util.Locale;
  * Restant / Utilisé / Total, date d'expiration.
  */
 public class ProfilsFragment extends Fragment {
-    private static final int BG = Color.parseColor("#0A1220");
-    private static final int CARD_BG = Color.parseColor("#111B2A");
-    private static final int CARD_STROKE = Color.parseColor("#1E2A3D");
-    private static final int TXT = Color.parseColor("#E6EDF5");
-    private static final int TXT_DIM = Color.parseColor("#8CA0B8");
-    private static final int GREEN = Color.parseColor("#34D399");
-    private static final int CYAN = Color.parseColor("#38BDF8");
-    private static final int RED = Color.parseColor("#F87171");
+    // Palette du thème (clair/sombre) — résolue depuis les ressources.
+    private int BG, CARD_BG, CARD_STROKE, TXT, TXT_DIM, GREEN, CYAN, RED;
+
+    private void loadPalette() {
+        android.content.Context c = requireContext().getApplicationContext();
+        BG = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_bg, c.getTheme());
+        CARD_BG = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_card, c.getTheme());
+        CARD_STROKE = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_border, c.getTheme());
+        TXT = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_text, c.getTheme());
+        TXT_DIM = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_grey, c.getTheme());
+        GREEN = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_green, c.getTheme());
+        CYAN = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_cyan, c.getTheme());
+        RED = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_red, c.getTheme());
+    }
 
     private LinearLayout list;
     private TextView header;
@@ -47,6 +53,7 @@ public class ProfilsFragment extends Fragment {
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle s) {
         ScrollView root = new ScrollView(getContext());
+        loadPalette();
         root.setBackgroundColor(BG);
         root.setFillViewport(true);
         root.setVerticalScrollBarEnabled(false);
@@ -64,7 +71,7 @@ public class ProfilsFragment extends Fragment {
         head.setPadding(dp(8), dp(4), dp(8), dp(12));
         header = new TextView(getContext());
         header.setText("CONNEXIONS VPN");
-        header.setTextColor(Color.parseColor("#B7C4D6"));
+        header.setTextColor(TXT_DIM);
         header.setTextSize(17);
         header.setTypeface(null, Typeface.BOLD);
         header.setLetterSpacing(0.12f);
@@ -233,7 +240,7 @@ public class ProfilsFragment extends Fragment {
             bar.setMax(100);
             bar.setProgress(pct);
             bar.setProgressTintList(ColorStateList.valueOf(barColor));
-            bar.setProgressBackgroundTintList(ColorStateList.valueOf(Color.parseColor("#1A2536")));
+            bar.setProgressBackgroundTintList(ColorStateList.valueOf(CARD_STROKE));
             bar.setMinimumHeight(dp(10));
             LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(10));
             bp.setMargins(0, 0, 0, dp(14));
@@ -275,7 +282,7 @@ public class ProfilsFragment extends Fragment {
         w.setOrientation(LinearLayout.VERTICAL);
         w.addView(row);
         View sep = new View(getContext());
-        sep.setBackgroundColor(Color.parseColor("#182338"));
+        sep.setBackgroundColor(CARD_STROKE);
         w.addView(sep, new LinearLayout.LayoutParams(-1, dp(1)));
         return w;
     }

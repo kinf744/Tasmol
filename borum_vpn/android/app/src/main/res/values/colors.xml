@@ -1,21 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- NPV Tunnel palette -->
-    <color name="npv_bg">#000000</color>
-    <color name="npv_card">#0E0E0E</color>
-    <color name="npv_border">#2A2A2A</color>
-    <color name="npv_green">#00E676</color>
-    <color name="npv_red">#FF5252</color>
-    <color name="npv_green_dim">#0A3D28</color>
-    <color name="npv_teal_pill">#114E44</color>
-    <color name="npv_yellow">#FFC107</color>
-    <color name="npv_text">#FFFFFF</color>
-    <color name="npv_grey">#9E9E9E</color>
-    <color name="npv_dim">#616161</color>
-    <color name="primary">#3B82F6</color>
-    <color name="primary_dark">#2563EB</color>
+    <!-- Palette CLAIR (défaut) — suit le thème système.
+         La variante sombre vit dans values-night/colors.xml. -->
+    <color name="npv_bg">#F2F5FA</color>
+    <color name="npv_card">#FFFFFF</color>
+    <color name="npv_border">#DFE6F0</color>
+    <color name="npv_green">#0BA36F</color>
+    <color name="npv_red">#E5484D</color>
+    <color name="npv_green_dim">#D9F2E7</color>
+    <color name="npv_teal_pill">#D5F0E8</color>
+    <color name="npv_yellow">#B45309</color>
+    <color name="npv_text">#17202E</color>
+    <color name="npv_grey">#5B6B80</color>
+    <color name="npv_dim">#8A97A8</color>
+    <color name="npv_cyan">#0369A1</color>
+    <color name="primary">#2563EB</color>
+    <color name="primary_dark">#1D4ED8</color>
     <color name="primary_light">#60A5FA</color>
-    <color name="secondary">#1E293B</color>
+    <color name="secondary">#E2E8F0</color>
     <color name="background">#F8FAFC</color>
     <color name="surface">#FFFFFF</color>
     <color name="error">#EF4444</color>

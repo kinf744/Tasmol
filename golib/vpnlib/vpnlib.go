@@ -26,6 +26,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -112,6 +113,16 @@ type startParams struct {
 type Controller struct {
 	mu      sync.Mutex
 	running bool
+
+	// Abort d'un Start() en vol : une déconnexion pendant CONNECTING
+	// ne doit PAS attendre la fin du build (helpers, attentes SOCKS/dnstt
+	// jusqu'à ~20 s) pour reprendre le mutex. Stop() lève abort + annule
+	// le ctx SANS le mutex ; le build en cours s'effondre alors en 1-2 s
+	// (les enfants sont tués via exec.CommandContext) et Stop() reprend
+	// la main. C'était la cause du « déconnexion inefficace en
+	// CONNECTING, la clé VPN reste à l'écran ».
+	abort        atomic.Bool
+	cancelHolder atomic.Value
 
 	cfgMgr *config.Manager
 	vpn    *core.VPNCore
@@ -267,6 +278,10 @@ var (
 // in-process data plane over the Android TUN fd. Returns "" on success or
 // a JSON {"error": "..."} document.
 func (c *Controller) Start(paramsJSON string) string {
+	// Une déconnexion déjà passée sur CE contrôleur : ne rien construire.
+	if c.abort.Load() {
+		return errJSON(errors.New("aborted"))
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -347,6 +362,9 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.DnsttUseTCP = p.DnsttTCP != nil && *p.DnsttTCP
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
+	// Publication sans mutex : Stop() doit pouvoir annuler ce ctx pendant
+	// que le build tourne encore (il tient c.mu).
+	c.cancelHolder.Store(context.CancelFunc(c.cancel))
 	c.cfgMgr = cfgMgr
 	c.vpn = vpn
 	c.tunFd = p.TunFd
@@ -377,6 +395,10 @@ func (c *Controller) Start(paramsJSON string) string {
 	// runs in round-robin mode (Xray's built-in balancer); otherwise the
 	// data plane dials the single active SOCKS directly (no balancer).
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
+	if c.abort.Load() {
+		c.cleanupLocked()
+		return errJSON(errors.New("aborted"))
+	}
 	if len(c.rrIDs) >= 2 {
 		tunnel.Tracef("[rr] mode=round-robin with %d profiles", len(c.rrIDs))
 	} else {
@@ -399,9 +421,17 @@ func (c *Controller) Start(paramsJSON string) string {
 			return errJSON(err)
 		}
 	}
+	if c.abort.Load() {
+		c.cleanupLocked()
+		return errJSON(errors.New("aborted"))
+	}
 	if err := c.startDataplaneLocked(); err != nil {
 		c.cleanupLocked()
 		return errJSON(err)
+	}
+	if c.abort.Load() {
+		c.cleanupLocked()
+		return errJSON(errors.New("aborted"))
 	}
 
 	// Embedded management Web UI (same UI as Termux/server mode).
@@ -458,6 +488,16 @@ func (c *Controller) Stop() (out string) {
 			out = ""
 		}
 	}()
+	// AVANT le mutex : signaler l'abort à un Start() encore en vol. Le
+	// build tient c.mu pendant tout le montage — sans ce signal, Stop()
+	// attendait la fin du build (jusqu'à ~20 s) et la clé VPN restait
+	// affichée pendant toute la construction d'une session déjà annulée.
+	c.abort.Store(true)
+	if v := c.cancelHolder.Load(); v != nil {
+		if cancel, ok := v.(context.CancelFunc); ok {
+			cancel()
+		}
+	}
 	c.mu.Lock()
 	// cleanupLocked() must run even when the session never reached the
 	// running state: a failed or superseded Start() still leaves a TUN fd, a
