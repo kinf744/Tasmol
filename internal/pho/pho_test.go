@@ -259,6 +259,26 @@ func TestPortsObfuscated(t *testing.T) {
 	}
 }
 
+func TestSetProxyState(t *testing.T) {
+	if currentProxy() != "" {
+		t.Fatal("proxy must default to direct")
+	}
+	SetProxy("127.0.0.1:59999")
+	if currentProxy() != "127.0.0.1:59999" {
+		t.Fatal("proxy not stored")
+	}
+	if socksDialer(currentProxy()) == nil {
+		t.Fatal("socks dialer must build for a valid addr")
+	}
+	SetProxy("")
+	if currentProxy() != "" {
+		t.Fatal("clear proxy failed")
+	}
+	if socksDialer("") != nil {
+		t.Fatal("empty proxy must yield nil dialer")
+	}
+}
+
 func TestLogFileNameShared(t *testing.T) {
 	// Le nom doit correspondre à celui utilisé par le fichier Java
 	// (Bridge PhoLogFileName) : format <nom>.txt, non vide.

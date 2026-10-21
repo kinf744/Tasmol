@@ -88,6 +88,11 @@ func PhoPortManage() int { return pho.PortManage() }
 // écrivent toujours le même fichier).
 func PhoLogFileName() string { return pho.LogFileName() }
 
+// PhoSetProxy route les appels API de libpho via un SOCKS local
+// (127.0.0.1:port du tunnel actif) : la consommation est consultable
+// À TRAVERS le propre VPN de l'app. "" = direct (repli automatique inclus).
+func PhoSetProxy(addr string) { pho.SetProxy(addr) }
+
 // --- Secrets de tunnels & credentials API (vault chiffré) -------------
 
 // PhoTunPut stores a tunnel secret in the encrypted vault.

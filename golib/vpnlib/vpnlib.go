@@ -424,6 +424,25 @@ func (c *Controller) Start(paramsJSON string) string {
 	return ""
 }
 
+// ApiSocksAddr retourne le SOCKS local à utiliser pour les appels API de
+// l'app (consommation, activation) : le front round-robin quand il est
+// actif, sinon le SOCKS live du tunnel actif. "" si aucune session — l'app
+// repasse alors en direct. Permet de consulter sa consommation À TRAVERS
+// son propre VPN (l'UID de l'app étant exclu du TUN pour éviter la boucle).
+func (c *Controller) ApiSocksAddr(activeTunnelID string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running && c.frontPort != 0 && len(c.rrIDs) >= 2 {
+		return fmt.Sprintf("127.0.0.1:%d", c.frontPort)
+	}
+	if activeTunnelID != "" {
+		if a := tunnel.LiveSocksAddr(activeTunnelID); a != "" {
+			return a
+		}
+	}
+	return ""
+}
+
 // Stop tears the session down. Returns "" on success.
 // Every teardown step is time-bounded: a wedged helper, a stuck
 // tun2socks drain or a blocked follow tick must never hang Stop

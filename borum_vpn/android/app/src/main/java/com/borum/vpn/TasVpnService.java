@@ -637,6 +637,8 @@ public class TasVpnService extends VpnService {
         controller = null;
         final Object inflight = pendingController.getAndSet(null);
         activeTunnelId = null;
+        // Les appels API repassent en direct (le chemin tunnel va mourir).
+        updateApiProxy();
         final Object target = ctrl != null ? ctrl : inflight;
         if (target == null) {
             // Nothing visible to stop — mais une tentative peut être en vol
@@ -878,7 +880,39 @@ public class TasVpnService extends VpnService {
     // --- gomobile Controller calls (kept reflective-free: direct calls) ---
 
     private static String invokeStart(Object ctrl, String params) {
-        return ((vpnlib.Controller) ctrl).start(params);
+        String err = ((vpnlib.Controller) ctrl).start(params);
+        if (err == null || err.isEmpty()) {
+            // Session UP : les appels API de l'app passent désormais par le
+            // SOCKS du tunnel (consommation consultable via le propre VPN).
+            updateApiProxy();
+        }
+        return err;
+    }
+
+    /**
+     * Route les appels API de libpho via le SOCKS local du tunnel actif
+     * (front round-robin si actif, sinon SOCKS du profil) : la consommation
+     * est consultable À TRAVERS le propre VPN de l'app — l'UID de l'app
+     * étant exclu du TUN (anti-boucle), sans ce routage les appels sortent
+     * par la connexion sous-jacente (bloquée sur certains opérateurs).
+     * À appeler après connexion, après un switch de tunnel, à la
+     * déconnexion et avant chaque rafraîchissement API.
+     */
+    public static void updateApiProxy() {
+        String socks = "";
+        Object ctrl = controller;
+        if (ctrl != null) {
+            try {
+                String id = activeTunnelId;
+                socks = ((vpnlib.Controller) ctrl).apiSocksAddr(id == null ? "" : id);
+            } catch (Throwable ignored) {
+                socks = "";
+            }
+        }
+        try {
+            Vpnlib.phoSetProxy(socks == null ? "" : socks);
+        } catch (Throwable ignored) {
+        }
     }
 
     private static void invokeStop(Object ctrl) {
@@ -908,6 +942,7 @@ public class TasVpnService extends VpnService {
             if (err == null || err.isEmpty()) {
                 activeTunnelId = tunnelId;
                 VPNApplication.getInstance().setActiveTunnelId(tunnelId);
+                updateApiProxy();
                 logEvent("connection", "app", "switched to tunnel " + tunnelId);
             }
             return err;

@@ -15,6 +15,7 @@ package pho
 
 import (
 	"bytes"
+	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
@@ -26,6 +27,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -35,6 +37,7 @@ import (
 	"time"
 
 	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/net/proxy"
 )
 
 // -- Obfuscated literals -------------------------------------------------
@@ -193,20 +196,75 @@ func mkTransport(remember bool, base string) *http.Transport {
 
 // -- HTTP client ----------------------------------------------------------
 
+// ── Proxy SOCKS local (auto-consommation via son propre VPN) ─────────────
+// Le service VPN exclut l'UID de l'app du TUN (anti-boucle) : sans proxy,
+// les appels API de l'app sortent par la connexion SOUS-JACENTE — bloquée
+// sur certains opérateurs, d'où l'impossibilité d'actualiser sa
+// consommation tant que le VPN est actif. SetProxy route ces appels via le
+// SOCKS local du tunnel actif (front round-robin ou SOCKS du profil) : la
+// requête part À TRAVERS le VPN, avec le même pinning TLS. Repli direct
+// automatique si le chemin tunnel échoue.
+var (
+	proxyMu   sync.RWMutex
+	proxyAddr string
+)
+
+// SetProxy définit ("" retire) le SOCKS 127.0.0.1 utilisé par l'API.
+func SetProxy(addr string) {
+	proxyMu.Lock()
+	defer proxyMu.Unlock()
+	proxyAddr = strings.TrimSpace(addr)
+}
+
+func currentProxy() string {
+	proxyMu.RLock()
+	defer proxyMu.RUnlock()
+	return proxyAddr
+}
+
+// socksDialer construit un DialContext SOCKS5 (résolution du domaine par le
+// tunnel, aucune fuite DNS locale). Retourne nil si le proxy est vide.
+func socksDialer(via string) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	if via == "" {
+		return nil
+	}
+	d, err := proxy.SOCKS5("tcp", via, nil, proxy.Direct)
+	if err != nil {
+		return nil
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		if cd, ok := d.(proxy.ContextDialer); ok {
+			return cd.DialContext(ctx, network, addr)
+		}
+		return d.Dial(network, addr)
+	}
+}
+
 func postJSON(uuid, path string, payload map[string]string) (map[string]interface{}, error) {
 	body, _ := json.Marshal(payload)
-	var lastErr error
+	m, err := postVia(body, path, currentProxy())
+	if err != nil && currentProxy() != "" {
+		// Le chemin tunnel a échoué : repli direct (connexion sous-jacente).
+		m, err = postVia(body, path, "")
+	}
+	return m, err
+}
+
+func postVia(body []byte, path, via string) (map[string]interface{}, error) {
 	for _, base := range apiHosts {
-		req, err := http.NewRequest("POST", base+path, strings.NewReader(string(body)))
+		req, err := http.NewRequest("POST", base+path, bytes.NewReader(body))
 		if err != nil {
 			continue
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json")
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: mkTransport(true, base)}
+		tr := mkTransport(true, base)
+		if d := socksDialer(via); d != nil {
+			tr.DialContext = d
+		}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: tr}
 		resp, err := cli.Do(req)
 		if err != nil {
-			lastErr = err
 			continue
 		}
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
@@ -220,9 +278,8 @@ func postJSON(uuid, path string, payload map[string]string) (map[string]interfac
 		}
 		return m, nil
 	}
-	// Erreur volontairement générique : lastErr contient l'URL complète
-	// (domaine des endpoints obfusqués) — jamais retournée telle quelle.
-	_ = lastErr
+	// Erreur volontairement générique : jamais l'URL (domaine des
+	// endpoints obfusqués) ni le détail du dial.
 	return nil, errors.New(r2(115, 101, 114, 118, 101, 117, 114, 32, 105, 110,
 		106, 111, 105, 103, 110, 97, 98, 108, 101)) // "serveur injoignable"
 }
@@ -241,16 +298,27 @@ func mOK(m map[string]interface{}) bool {
 }
 
 func getJSON(pathQuery string) (map[string]interface{}, error) {
-	var lastErr error
+	m, err := getVia(pathQuery, currentProxy())
+	if err != nil && currentProxy() != "" {
+		// Repli direct (voir postJSON).
+		m, err = getVia(pathQuery, "")
+	}
+	return m, err
+}
+
+func getVia(pathQuery, via string) (map[string]interface{}, error) {
 	for _, base := range apiHosts {
 		req, err := http.NewRequest("GET", base+pathQuery, nil)
 		if err != nil {
 			continue
 		}
-		cli := &http.Client{Timeout: 15 * time.Second, Transport: mkTransport(true, base)}
+		tr := mkTransport(true, base)
+		if d := socksDialer(via); d != nil {
+			tr.DialContext = d
+		}
+		cli := &http.Client{Timeout: 15 * time.Second, Transport: tr}
 		resp, err := cli.Do(req)
 		if err != nil {
-			lastErr = err
 			continue
 		}
 		data, _ := io.ReadAll(io.LimitReader(resp.Body, 512*1024))
@@ -265,7 +333,6 @@ func getJSON(pathQuery string) (map[string]interface{}, error) {
 		return m, nil
 	}
 	// Erreur volontairement générique (voir postJSON).
-	_ = lastErr
 	return nil, errors.New(r2(115, 101, 114, 118, 101, 117, 114, 32, 105, 110,
 		106, 111, 105, 103, 110, 97, 98, 108, 101)) // "serveur injoignable"
 }

@@ -84,6 +84,10 @@ public final class PhoHelper {
         if (blocked(cb)) {
             return;
         }
+        try {
+            TasVpnService.updateApiProxy();
+        } catch (Throwable ignored) {
+        }
         IO.execute(() -> {
             try {
                 JSONObject r = new JSONObject(Vpnlib.phoFetchConfigs(uuid, code));
@@ -102,6 +106,11 @@ public final class PhoHelper {
     public static void check(String uuid, Callback cb) {
         if (blocked(cb)) {
             return;
+        }
+        // Rafraîchir le routage (SOCKS du tunnel actif si le VPN tourne).
+        try {
+            TasVpnService.updateApiProxy();
+        } catch (Throwable ignored) {
         }
         final String proof = DeviceIdentity.proof(VPNApplication.getInstance(), uuid);
         IO.execute(() -> {
