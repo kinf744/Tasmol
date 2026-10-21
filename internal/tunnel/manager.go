@@ -204,9 +204,6 @@ func CreateTunnel(cfg *config.TunnelConfig) (Tunnel, error) {
 	case config.TunnelHysteria:
 		Tracef("[tunnel] %q (id=%s type=hysteria) engine=hysteria-client", cfg.Name, cfg.ID)
 		return NewHysteriaTunnel(cfg), nil
-	case config.TunnelUtunnel:
-		Tracef("[tunnel] %q (id=%s type=utunnel) engine=utunnel-client", cfg.Name, cfg.ID)
-		return NewUtunnelTunnel(cfg), nil
 	default:
 		return nil, fmt.Errorf("unknown tunnel type: %s", cfg.Type)
 	}

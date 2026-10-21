@@ -114,7 +114,6 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
-                     ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 0"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
         # quota_mb/bytes_used ciblent la table users
         table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
@@ -324,8 +323,6 @@ class APIHandler(BaseHTTPRequestHandler):
                 tier = cfg["tier"] or "150"
                 if mode == "zivpn":
                     label = "Camtel UDP"
-                elif mode == "utunnel":
-                    label = "Utunnel UDP"
                 elif mode == "v2raydns":
                     label = "V2Ray + SlowDNS"
                 elif mode == "sshslowdns":
@@ -381,17 +378,6 @@ class APIHandler(BaseHTTPRequestHandler):
                             entry["wg_remote_dns"] = wg_obj.get("wg_remote_dns", "1.1.1.1,8.8.8.8")
                     except Exception:
                         pass
-                if mode == "utunnel":
-                    # Clé client PRÉ-CALCULÉE (64 hex) : le serveur utunnel
-                    # dérive SHA256(uuid:secret) — la même formule est servie
-                    # ici, l'app n'a rien à calculer. server_port = port RÉEL
-                    # d'écoute (:5669), la plage est DNAT-ée côté serveur.
-                    entry["utunnel_secret"] = cfg["utunnel_secret"] or ""
-                    entry["utunnel_hop"] = cfg["utunnel_hop"] or 0
-                    # Plage DNAT servie aussi : le journal de l'app
-                    # (kighmu.txt) l'affiche — "plage absente" dans le log
-                    # = cause n°1 du "dial: aucune réponse du serveur".
-                    entry["port_range"] = cfg["port_range"] or "50000-59999"
                 if mode in ("v2raydns", "sshslowdns"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""

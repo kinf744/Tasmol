@@ -539,7 +539,7 @@ public final class ProfileTransfer {
     }
 
     private static final java.util.Set<String> KNOWN_TYPES = new java.util.HashSet<>(
-            java.util.Arrays.asList("ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria", "utunnel"));
+            java.util.Arrays.asList("ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria"));
 
     /** Parse .epha content or an borum:// link. Throws with a clear message. */
     public static ImportResult parseImport(String raw) throws Exception {

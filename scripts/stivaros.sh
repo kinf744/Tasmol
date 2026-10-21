@@ -51,24 +51,6 @@ readonly ZIVPN_RANGE="34000-49999"
 # Plages clients round-robin (8 sous-plages, un processus par plage).
 readonly ZIVPN_RANGES="34000-37999,38000-41999,42000-45999,46000-49999"
 
-# utunnel (UDP propriétaire : ARQ sélective + XChaCha20-Poly1305,
-# port-hopping par rotation de socket). Plage DNAT DISTINCTE de ZIVPN.
-readonly UTUNNEL_BIN="/usr/local/bin/utunnel-server"
-readonly UTUNNEL_SERVICE="utunnel.service"
-readonly UTUNNEL_HOME="/etc/utunnel"
-readonly UTUNNEL_PSK="$UTUNNEL_HOME/server.psk"
-readonly UTUNNEL_USERS="$UTUNNEL_HOME/users.list"
-readonly UTUNNEL_NFT="/etc/nftables/utunnel.nft"
-readonly UTUNNEL_PORT=5669
-# La plage SERVIE aux clients : classes en rotation (le client hoppe).
-# 15000-15999 = sous-plage EXCLUSIVE (le catch-all zivpn 6000-19999 est
-# recadré sur 6000-14999 + 16000-19999) ; c'est la classe la plus sûre
-# sur les CGNAT qui filtrent le downlink UDP en plage haute et :443.
-# PLAGE 20000-33999 (EXCLUSIVE — entre le zivpn 6000-19999 et le
-# stivaros_zivpn 34000-49999 : zéro conflit de DNAT). :5669.
-readonly UTUNNEL_RANGE="20000-33999"
-readonly UTUNNEL_CONFIG="$UTUNNEL_HOME/config.json"
-readonly UTUNNEL_RELEASES="https://github.com/kinf744/Tasmol/releases/download/v1.0.0-utunnel"
 
 # SlowDNS (dnstt + dnsdist)
 readonly SLOWDNS_DIR="/etc/slowdns"
@@ -207,7 +189,7 @@ dashboard() {
     box_sep
     box_line "  ${GOLD}Comptes${NC} : ${LIME}${BOLD}${valid} valide(s)${NC} ${GRAY}│${NC} ${RED}${BOLD}${expired} expiré(s)${NC}"
     box_sep
-    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC} $(tun_dot zivpn) ${WHITE}ZIVPN${NC} $(tun_dot ssh) ${WHITE}SSH${NC} $(tun_dot utunnel) ${WHITE}Utunnel${NC}"
+    box_line "  ${GOLD}Tunnels${NC} : $(tun_dot xray) ${WHITE}Xray${NC} $(tun_dot zivpn) ${WHITE}ZIVPN${NC} $(tun_dot ssh) ${WHITE}SSH${NC}"
     box_line "            $(tun_dot v2ray) ${WHITE}V2Ray-DNS${NC} $(tun_dot slowdns) ${WHITE}SlowDNS${NC}"
     box_line "  ${GOLD}API${NC}     : ${apic} ${WHITE}stivaros-api :${API_PORT}${NC}"
     box_sep
@@ -286,7 +268,6 @@ tunnel_installed() {
         zivpn)   [[ -x "$ZIVPN_BIN" && -f "/etc/systemd/system/$ZIVPN_SERVICE" ]] ;;
         slowdns) [[ -x "$DNSTT_BIN" && -f /etc/systemd/system/slowdns-ns4.service ]] ;;
         v2ray)   [[ -x "$V2RAY_BIN" && -f "/etc/systemd/system/$V2RAY_SERVICE" ]] ;;
-        utunnel) [[ -x "$UTUNNEL_BIN" && -f "/etc/systemd/system/$UTUNNEL_SERVICE" ]] ;;
         ssh)     dpkg -s openssh-server &>/dev/null || command -v sshd &>/dev/null ;;
         *)       return 1 ;;
     esac
@@ -300,7 +281,6 @@ tunnel_active() {
               && systemctl is-active --quiet slowdns-nv4 \
               && systemctl is-active --quiet dnsdist ;;
         v2ray)   systemctl is-active --quiet "$V2RAY_SERVICE" ;;
-        utunnel) systemctl is-active --quiet "$UTUNNEL_SERVICE" ;;
         ssh)     systemctl is-active --quiet ssh || systemctl is-active --quiet sshd ;;
         *)       return 1 ;;
     esac
@@ -694,7 +674,6 @@ EOF
     rm -f "$tmp"
 
     zivpn_update_passwords
-    utunnel_update_passwords
     systemctl daemon-reload
     systemctl enable --now "$ZIVPN_SERVICE"
     systemctl restart "$ZIVPN_SERVICE"
@@ -721,98 +700,6 @@ zivpn_cleanup_expired() {
     mv "$tmp" "$ZIVPN_USER_FILE"; chmod 600 "$ZIVPN_USER_FILE"
 }
 
-utunnel_update_passwords() {
-    # Miroir de zivpn_update_passwords, pour le serveur utunnel (QUIC/zivpn
-    # sur :5669). Les auth = les PSK PRÉ-CALCULÉES (SHA256(uuid:secret))
-    # des comptes actifs : l'app les sert telles quelles (champ
-    # utunnel_secret 64 hex) — le match exact côté serveur.
-    local tmp
-    tmp=$(mktemp)
-    STIVAROS_DB="$DB_PATH" UTUNNEL_USERS="$UTUNNEL_USERS" \
-        python3 - "$UTUNNEL_CONFIG" "$tmp" << 'PYEOF' 2>/dev/null
-import json, os, sqlite3, sys
-from datetime import date
-
-cfg_path, tmp = sys.argv[1], sys.argv[2]
-with open(cfg_path) as f:
-    cfg = json.load(f)
-
-# PSK utunnel actifs (fichier users.list: uuid|secret|expire)
-ours = set()
-today = date.today().isoformat()
-try:
-    with open(os.environ["UTUNNEL_USERS"]) as f:
-        for line in f:
-            parts = line.strip().split("|")
-            if len(parts) >= 3 and parts[1] and parts[2] >= today:
-                ours.add(parts[1])
-except Exception:
-    pass
-try:
-    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
-    rows = conn.execute("""
-        SELECT v.utunnel_secret FROM vpn_configs v
-        JOIN users u ON v.user_id = u.id
-        WHERE v.mode = 'utunnel' AND v.utunnel_secret != ''
-          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
-    """).fetchall()
-    conn.close()
-    ours |= {r[0] for r in rows if r[0]}
-except Exception:
-    pass
-
-# PSK statiques du serveur custom historique (server.psk) : toujours acceptées.
-try:
-    with open(os.environ.get("UTUNNEL_PSK", "/etc/utunnel/server.psk")) as f:
-        for line in f:
-            psk = line.strip()
-            if psk:
-                ours.add(psk)
-except Exception:
-    pass
-
-existing = cfg.get("auth", {}).get("config", [])
-if not isinstance(existing, list):
-    existing = []
-merged = sorted(set(existing) | ours)
-cfg.setdefault("auth", {})["config"] = merged
-
-# Quota par PSK (comme le zivpn) : les quotas des comptes actifs.
-quota = cfg.get("quota") or {}
-try:
-    conn = sqlite3.connect(os.environ["STIVAROS_DB"])
-    rows = conn.execute("""
-        SELECT v.utunnel_secret, u.quota_mb FROM vpn_configs v
-        JOIN users u ON v.user_id = u.id
-        WHERE v.mode = 'utunnel' AND v.utunnel_secret != ''
-          AND u.active = 1 AND (u.expires_at IS NULL OR u.expires_at >= DATE('now'))
-    """).fetchall()
-    conn.close()
-    for psk, mb in rows:
-        if psk and mb and mb > 0:
-            quota[psk] = f"{(mb + 1023) // 1024}GB"
-except Exception:
-    pass
-cfg["quota"] = quota
-
-with open(tmp, "w") as f:
-    json.dump(cfg, f, indent=2)
-PYEOF
-    if [[ -s "$tmp" ]]; then
-        local cur
-        cur=$(sha256sum "$UTUNNEL_CONFIG" 2>/dev/null | awk '{print $1}')
-        new=$(sha256sum "$tmp" | awk '{print $1}')
-        if [[ "$cur" != "$new" ]]; then
-            mv "$tmp" "$UTUNNEL_CONFIG"
-            chmod 600 "$UTUNNEL_CONFIG"
-            systemctl restart utunnel 2>/dev/null || true
-        else
-            rm -f "$tmp"
-        fi
-    else
-        rm -f "$tmp"
-    fi
-}
 
 zivpn_update_passwords() {
     zivpn_cleanup_expired
@@ -1427,7 +1314,6 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
-                     ("utunnel_secret", "TEXT DEFAULT ''"), ("utunnel_hop", "INTEGER DEFAULT 0"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
         # quota_mb/bytes_used ciblent la table users
         table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
@@ -1637,8 +1523,6 @@ class APIHandler(BaseHTTPRequestHandler):
                 tier = cfg["tier"] or "150"
                 if mode == "zivpn":
                     label = "Camtel UDP"
-                elif mode == "utunnel":
-                    label = "Utunnel UDP"
                 elif mode == "v2raydns":
                     label = "V2Ray + SlowDNS"
                 elif mode == "sshslowdns":
@@ -1694,17 +1578,6 @@ class APIHandler(BaseHTTPRequestHandler):
                             entry["wg_remote_dns"] = wg_obj.get("wg_remote_dns", "1.1.1.1,8.8.8.8")
                     except Exception:
                         pass
-                if mode == "utunnel":
-                    # Clé client PRÉ-CALCULÉE (64 hex) : le serveur utunnel
-                    # dérive SHA256(uuid:secret) — la même formule est servie
-                    # ici, l'app n'a rien à calculer. server_port = port RÉEL
-                    # d'écoute (:5669), la plage est DNAT-ée côté serveur.
-                    entry["utunnel_secret"] = cfg["utunnel_secret"] or ""
-                    entry["utunnel_hop"] = cfg["utunnel_hop"] or 0
-                    # Plage DNAT servie aussi : le journal de l'app
-                    # (kighmu.txt) l'affiche — "plage absente" dans le log
-                    # = cause n°1 du "dial: aucune réponse du serveur".
-                    entry["port_range"] = cfg["port_range"] or "50000-59999"
                 if mode in ("v2raydns", "sshslowdns"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""
@@ -2054,24 +1927,22 @@ create_user() {
     echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
-    echo -e "   ${CYAN}5${NC}) UTUNNEL (UDP propriétaire ARQ+XChaCha)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-4,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_utunnel=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
-    if want 5; then want_utunnel=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_utunnel)) -ge 1 ]] \
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -2083,21 +1954,15 @@ create_user() {
     if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
     # slowdns implique ssh + v2ray
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
-    if (( want_utunnel )); then ensure_tunnel utunnel || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
-    local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub utunnel_pass utunnel_key
+    local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
     domain=$(get_domain)
     server_addr=${domain:-$(hostname -I | awk '{print $1}')}
     code=$(gen_code)
     xray_uuid=$(gen_uuid)
     zivpn_pass=$(gen_pass 12)
     ssh_pass=$(gen_pass 12)
-    utunnel_pass=$(gen_pass 16)
-    # Clé client PRÉ-CALCULÉE (SHA256(uuid:secret), hex) : le serveur
-    # utunnel dérive exactement cette formule depuis users.list — l'app
-    # n'a rien à calculer, la clé sert telle quelle au binaire.
-    utunnel_key=$(printf '%s:%s' "$uuid" "$utunnel_pass" | sha256sum | awk '{print $1}')
     ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
     ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
     nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
@@ -2167,16 +2032,6 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
 SQL
     fi
-    if (( want_utunnel )); then
-    cat << SQL
--- Utunnel UDP propriétaire : port RÉEL d'écoute (:5669), la plage clients
--- (50000-59999) est DNAT-ée côté serveur. Clé = SHA256(uuid:secret) hex.
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
-SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '150', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, utunnel_secret, utunnel_hop, port_range)
-SELECT id, '$e_srv', $UTUNNEL_PORT, 'utunnel', 'udp', 0, '$e_srv', '$e_srv', '', 'utunnel', '100', '$utunnel_key', 0, '$UTUNNEL_RANGE' FROM users WHERE uuid='$uuid';
-SQL
-    fi
     } | sqlite3 -batch "$DB_PATH" 2> "$sql_err" || true
     if [[ -s "$sql_err" ]]; then
         error "Erreurs SQL pendant la création des configs :"
@@ -2187,13 +2042,12 @@ SQL
     # Vérification par famille : compte les lignes réellement insérées et
     # signale toute famille incomplète (l'utilisateur voit immédiatement
     # ce qui manque dans l'app au lieu d'un spinner silencieusement vide).
-    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_utunnel=0
+    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0
     cnt() { sqlite3 -batch "$DB_PATH" "SELECT COUNT(*) FROM vpn_configs WHERE user_id=(SELECT id FROM users WHERE uuid='$uuid') AND $1;"; }
     cnt_xray=$(cnt "mode IN ('', 'xray')")
     cnt_zivpn=$(cnt "mode='zivpn'")
     cnt_sshdns=$(cnt "mode='sshslowdns'")
     cnt_v2dns=$(cnt "mode='v2raydns'")
-    cnt_utunnel=$(cnt "mode='utunnel'")
     local ok_cfgs=1
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2207,11 +2061,8 @@ SQL
     if (( want_v2dns )) && (( cnt_v2dns < 2 )); then
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
-    if (( want_utunnel )) && (( cnt_utunnel < 2 )); then
-        error "UTUNNEL : $cnt_utunnel/2 configs insérées — famille incomplète"; ok_cfgs=0
-    fi
     if (( ok_cfgs )); then
-        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 UTUNNEL:$cnt_utunnel/2)"
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2)"
     else
         warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
     fi
@@ -2219,10 +2070,6 @@ SQL
     # Provisionne les identifiants côté tunnels.
     if (( want_sshdns )); then
         ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
-    fi
-
-    if (( want_utunnel )); then
-        utunnel_provision "$uuid" "$utunnel_pass" "$expires"
     fi
 
     if (( want_zivpn )) && tunnel_active zivpn; then
@@ -2261,9 +2108,6 @@ SQL
     fi
     if (( want_v2dns )); then
         echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
-    fi
-    if (( want_utunnel )); then
-        echo -e "${CYAN}  UTUNNEL    : $server_addr:$UTUNNEL_PORT clé=$utunnel_key hop=10s${NC}"
     fi
     if (( want_sshdns || want_v2dns )); then
         echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
@@ -2721,7 +2565,7 @@ quotas_menu() {
             local phone
             phone=$(sqlite3 -batch "$DB_PATH" "SELECT phone FROM users WHERE id=$id;")
             ssh_account_delete_lock "${phone#+}" 2>/dev/null || true
-            xray_sync_uuids; v2ray_sync_users; zivpn_update_passwords; utunnel_update_passwords
+            xray_sync_uuids; v2ray_sync_users; zivpn_update_passwords
             msg "Compte #$id débloqué, compteur remis à zéro"
             ;;
     esac
@@ -2767,7 +2611,6 @@ tunnel_menu() {
         box_line "  $(tunnel_state ssh     >/dev/null; tun_dot ssh)    ${WHITE}SSH${NC}       ${GRAY}(base SSH+SlowDNS, :22)${NC}"
         box_line "  $(tunnel_state v2ray   >/dev/null; tun_dot v2ray)    ${WHITE}V2Ray-DNS${NC} ${GRAY}(base V2Ray+SlowDNS, :${V2RAY_PORT})${NC}"
         box_line "  $(tunnel_state slowdns >/dev/null; tun_dot slowdns)    ${WHITE}SlowDNS${NC}   ${GRAY}(dnstt + dnsdist :${DNSDIST_PORT})${NC}"
-        box_line "  $(tunnel_state utunnel >/dev/null; tun_dot utunnel)    ${WHITE}Utunnel${NC}   ${GRAY}(UDP ARQ :${UTUNNEL_PORT}, DNAT ${UTUNNEL_RANGE})${NC}"
         box_bot
         echo
         box_top
@@ -2778,10 +2621,9 @@ tunnel_menu() {
         box_line "  ${GOLD}${BOLD}3${NC}${WHITE})${NC} Installer / réparer ${CYAN}SSH${NC}"
         box_line "  ${GOLD}${BOLD}4${NC}${WHITE})${NC} Installer / réparer ${CYAN}V2Ray-DNS${NC}"
         box_line "  ${GOLD}${BOLD}5${NC}${WHITE})${NC} Installer / réparer ${CYAN}SlowDNS${NC} ${GRAY}(SSH+V2Ray/DNS)${NC}"
-        box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} Installer / réparer ${CYAN}Utunnel${NC} ${GRAY}(UDP ARQ+XChaCha)${NC}"
-        box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
-        box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} État détaillé"
-        box_line "  ${GOLD}${BOLD}9${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
+        box_line "  ${GOLD}${BOLD}6${NC}${WHITE})${NC} ${LIME}Tout installer${NC} ${GRAY}(dans l'ordre)${NC}"
+        box_line "  ${GOLD}${BOLD}7${NC}${WHITE})${NC} État détaillé"
+        box_line "  ${GOLD}${BOLD}8${NC}${WHITE})${NC} ${RED}Désinstaller un tunnel${NC}"
         box_line "  ${GOLD}${BOLD}0${NC}${WHITE})${NC} Retour"
         box_bot
         echo
@@ -2794,18 +2636,16 @@ tunnel_menu() {
             3) install_ssh || true ;;
             4) install_v2ray || true ;;
             5) install_slowdns || true ;;
-            6) install_utunnel || true ;;
-            7) for t in xray zivpn ssh v2ray slowdns utunnel; do ensure_tunnel "$t" || true; done; pause ;;
-            8) tunnels_status || true ;;
-            9)
+            6) for t in xray zivpn ssh v2ray slowdns; do ensure_tunnel "$t" || true; done; pause ;;
+            7) tunnels_status || true ;;
+            8)
                 local t=""
-                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns/utunnel): " t || true
+                read -r -p "Tunnel à supprimer (xray/zivpn/ssh/v2ray/slowdns): " t || true
                 case "$t" in
                     xray)    xray_uninstall ;;
                     zivpn)   zivpn_uninstall ;;
                     v2ray)   v2ray_uninstall ;;
                     slowdns) slowdns_uninstall ;;
-                    utunnel) utunnel_uninstall ;;
                     *) warn "Inconnu: $t" ;;
                 esac
                 pause ;;
@@ -2864,7 +2704,7 @@ EOF
     # Un tunnel en échec ne doit pas faire quitter le script: on enchaîne
     # et on rapporte à la fin.
     local failed=0
-    for t in xray zivpn ssh v2ray slowdns utunnel; do
+    for t in xray zivpn ssh v2ray slowdns; do
         ensure_tunnel "$t" || { error "Tunnel $t: KO"; failed=1; }
     done
     ((failed)) && warn "Certains tunnels n'ont pas abouti (voir ci-dessus)"
@@ -2890,7 +2730,6 @@ uninstall_all() {
     zivpn_uninstall_silent 2>/dev/null || true
     v2ray_uninstall_silent 2>/dev/null || true
     slowdns_uninstall_silent 2>/dev/null || true
-    utunnel_uninstall_silent 2>/dev/null || true
     systemctl daemon-reload
     rm -rf "$INSTALL_DIR"
     msg "Stivaros complètement désinstallé"
@@ -2901,170 +2740,6 @@ xray_uninstall_silent()    { systemctl disable --now xray 2>/dev/null; rm -f /et
 zivpn_uninstall_silent()   { systemctl disable --now "$ZIVPN_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$ZIVPN_SERVICE"; rm -rf "$ZIVPN_HOME" /etc/nftables/stivaros-zivpn.nft; nft delete table inet stivaros_zivpn 2>/dev/null; }
 v2ray_uninstall_silent()   { systemctl disable --now "$V2RAY_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$V2RAY_SERVICE" "$V2RAY_BIN"; rm -rf "$V2RAY_DIR" /var/log/stivaros-v2ray; }
 slowdns_uninstall_silent() { systemctl disable --now slowdns-ns4 slowdns-nv4 dnsdist 2>/dev/null; rm -f /etc/systemd/system/slowdns-ns4.service /etc/systemd/system/slowdns-nv4.service "$DNSTT_BIN" /usr/local/bin/slowdns-ns4-start.sh /usr/local/bin/slowdns-nv4-start.sh; rm -rf "$SLOWDNS_DIR" /etc/nftables/slowdns.nft; nft delete table inet slowdns 2>/dev/null; }
-
-# ══════════════════════════════════════════════════════════════════════
-#  UTUNNEL (UDP propriétaire : ARQ + XChaCha, plage DNAT 50000-59999)
-# ══════════════════════════════════════════════════════════════════════
-
-install_utunnel() {
-    banner; echo -e "${BOLD}Tunnel Utunnel (UDP propriétaire ARQ+XChaCha)${NC}\n"
-
-    command -v nft &>/dev/null || apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nftables 2>/dev/null \
-        || die "Échec installation nftables"
-
-    if ! tunnel_installed utunnel; then
-        info "Téléchargement de utunnel-server…"
-        local arch; arch="$(uname -m)"
-        case "$arch" in
-            x86_64)  arch=amd64 ;;
-            aarch64) arch=arm64 ;;
-            armv7*)  arch=armv7 ;;
-            *) die "arch non supportée: $arch" ;;
-        esac
-        # Release GitHub (workflow build-utunnel.yml) sinon dist/ local.
-        if ! download_binary "$UTUNNEL_RELEASES/utunnel-server-$arch" "$UTUNNEL_BIN"; then
-            local src="$INSTALL_DIR/../utunnel/dist/utunnel-server-$arch"
-            [[ -f "$src" ]] || src="/root/Tasmol/utunnel/dist/utunnel-server-$arch"
-            [[ -f "$src" ]] && install -m 755 "$src" "$UTUNNEL_BIN" \
-                || die "Échec du téléchargement de utunnel-server (release absente ? créez le tag v1.0.0-utunnel)"
-            info "binaire depuis dist/ local"
-        fi
-    fi
-    setcap cap_net_bind_service=+ep "$UTUNNEL_BIN" 2>/dev/null || true
-
-    mkdir -p "$UTUNNEL_HOME"
-    if [[ ! -s "$UTUNNEL_PSK" ]]; then
-        generate_secret > "$UTUNNEL_PSK"
-        msg "PSK utunnel générée : $(head -1 "$UTUNNEL_PSK")"
-    fi
-    chmod 600 "$UTUNNEL_PSK"
-    [[ -f "$UTUNNEL_USERS" ]] || : > "$UTUNNEL_USERS"
-    chmod 600 "$UTUNNEL_USERS"
-
-    # ── Serveur QUIC (binaire zivpn) — le transport PROUVÉ ──────────────
-    # Le transport custom (ARQ+XChaCha) est remplacé par le serveur zivpn
-    # (QUIC/quic-go) : le même binaire que le tunnel ZIVPN, PROUVÉ sur les
-    # réseaux mobiles hostiles (le DPI bloquait l'ARQ custom après 1-2
-    # paquets — 715 paquets envoyés, aucun reçu). L'identité utunnel est
-    # PRÉSERVÉE : sa plage (50000-59999 -> :5669), sa PSK, SON obfs
-    # Salamander dédié ("ut9xhqb`c", distinct du zivpn), sa base users.
-    # Les auth = les PSK PRÉ-CALCULÉES (SHA256(uuid:secret)) des comptes
-    # actifs — l'app les sert telles quelles (champ utunnel_secret 64 hex).
-    # Certs TLS auto-signés (le serveur zivpn exige cert/key même si le
-    # client tourne en insecure).
-    if [[ ! -s "$UTUNNEL_HOME/zivpn.crt" ]]; then
-        local udomain; udomain=$(ask_domain 2>/dev/null || echo "$(hostname)")
-        self_signed "$UTUNNEL_HOME/zivpn.key" "$UTUNNEL_HOME/zivpn.crt" "$udomain"
-    fi
-    local stats_token
-    stats_token=$(generate_secret)
-    cat > "$UTUNNEL_CONFIG" << EOF
-{
-  "listen": ":$UTUNNEL_PORT",
-  "cert": "$UTUNNEL_HOME/zivpn.crt",
-  "key": "$UTUNNEL_HOME/zivpn.key",
-  "obfs": "ut9\`\`hqb\`c",
-  "recv_window_conn": 15728640,
-  "recv_window_client": 67108864,
-  "disable_mtu_discovery": false,
-  "max_conn_client": 4096,
-  "exclude_port": [53, 5300, 4466, 36712, 5667, 5668, 20000],
-  "quotaStateFile": "$UTUNNEL_HOME/quota-state.json",
-  "statsAPI": { "listen": "127.0.0.1:10095", "token": "$stats_token" },
-  "quota": {},
-  "auth": { "mode": "passwords", "config": [] }
-}
-EOF
-    chmod 600 "$UTUNNEL_CONFIG"
-
-    # Le heredoc est déquoté (EOF, pas 'EOF') pour injecter le chemin nft;
-    # la ligne contient « $UTUNNEL_RANGE » encodée comme chaîne littérale.
-    cat > "/etc/systemd/system/$UTUNNEL_SERVICE" << EOF
-[Unit]
-Description=Stivaros utunnel UDP Server (QUIC/zivpn transport, plage ${UTUNNEL_RANGE})
-After=network-online.target
-Wants=network-online.target
-StartLimitIntervalSec=0
-
-[Service]
-Type=simple
-# Recharge la table DNAT (50000-59999 -> 5669) à chaque (re)démarrage :
-# les tables nft ne survivent pas au reboot.
-ExecStartPre=/bin/sh -c 'nft -f /etc/nftables/utunnel.nft 2>/dev/null || true'
-ExecStart=/usr/local/bin/zivpn server -c $UTUNNEL_CONFIG
-WorkingDirectory=$UTUNNEL_HOME
-Restart=always
-RestartSec=5
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_NET_RAW
-LimitNOFILE=1048576
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    # nftables : plage DISTINCTE de ZIVPN (34000-49999).
-    local iface; iface="$(ip route show default 2>/dev/null | awk '/default/{print $5; exit}')"
-    iface="${iface:-eth0}"
-    local tmp; tmp=$(mktemp)
-    cat > "$tmp" << EOF
-destroy table inet utunnel
-table inet utunnel {
-    chain input {
-        type filter hook input priority 0; policy accept;
-        udp dport $UTUNNEL_PORT accept
-        udp dport $UTUNNEL_RANGE accept
-    }
-    chain prerouting {
-        type nat hook prerouting priority -100;
-        iifname "$iface" udp dport $UTUNNEL_RANGE dnat to :$UTUNNEL_PORT
-    }
-}
-EOF
-    if nft -c -f "$tmp" 2>/dev/null; then
-        mkdir -p /etc/nftables
-        cp "$tmp" "$UTUNNEL_NFT"
-        nft -f "$UTUNNEL_NFT" 2>/dev/null || true
-        msg "DNAT nftables : $UTUNNEL_RANGE -> :$UTUNNEL_PORT sur $iface"
-    else
-        warn "règles nftables invalides — ignorées"
-    fi
-    rm -f "$tmp"
-
-    systemctl daemon-reload
-    systemctl enable --now "$UTUNNEL_SERVICE"
-    systemctl restart "$UTUNNEL_SERVICE"
-    if tunnel_active utunnel; then
-        msg "Utunnel actif (:${UTUNNEL_PORT}, plage ${UTUNNEL_RANGE})"
-        echo -e "  ${CYAN}Clé client = hex(sha256(PSK ou uuid:secret))${NC}"
-    else
-        error "Utunnel ne démarre pas"; journalctl -u "$UTUNNEL_SERVICE" -n 10 --no-pager; return 1
-    fi
-    pause
-}
-
-utunnel_uninstall() {
-    confirm "Supprimer complètement Utunnel ?" || return 0
-    systemctl disable --now "$UTUNNEL_SERVICE" 2>/dev/null || true
-    rm -f "/etc/systemd/system/$UTUNNEL_SERVICE" "$UTUNNEL_BIN" "$UTUNNEL_NFT"
-    rm -rf "$UTUNNEL_HOME"
-    nft delete table inet utunnel 2>/dev/null || true
-    systemctl daemon-reload
-    msg "Utunnel désinstallé"
-}
-
-utunnel_uninstall_silent() { systemctl disable --now "$UTUNNEL_SERVICE" 2>/dev/null; rm -f "/etc/systemd/system/$UTUNNEL_SERVICE" "$UTUNNEL_BIN" "$UTUNNEL_NFT"; rm -rf "$UTUNNEL_HOME"; nft delete table inet utunnel 2>/dev/null; }
-
-# Provisionne la PSK d'un compte côté serveur utunnel (users.list
-# uuid|secret|expire) puis recharge : le serveur dérive la clé client
-# SHA256(uuid:secret) — la même formule que l'API sert à l'app.
-utunnel_provision() { # $1 uuid $2 secret $3 expire
-    [[ -f "$UTUNNEL_USERS" ]] || : > "$UTUNNEL_USERS"
-    grep -v "^$1|" "$UTUNNEL_USERS" > "$UTUNNEL_USERS.tmp" 2>/dev/null || true
-    echo "$1|$2|$3" >> "$UTUNNEL_USERS.tmp"
-    mv "$UTUNNEL_USERS.tmp" "$UTUNNEL_USERS"; chmod 600 "$UTUNNEL_USERS"
-    tunnel_active utunnel && systemctl restart "$UTUNNEL_SERVICE"
-}
 
 # ── Appareils & verrouillage UUID ────────────────────────────────────
 # Gestion fine du verrou par compte :
@@ -3206,7 +2881,6 @@ main() {
         --list)      list_users || true ;;
         --tunnels)   tunnel_menu || true ;;
         --zivpn)     install_zivpn || true ;;
-        --utunnel)   install_utunnel || true ;;
         --sync-only)
             # Appelé par le moteur de quota après un blocage.
             xray_sync_uuids 2>/dev/null || true

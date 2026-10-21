@@ -8,7 +8,6 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -305,45 +304,14 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 			t.setError(err.Error())
 			return err
 		}
-		// Config par FICHIER 0600 (plus par argv) : le mot de passe d'auth
-		// et l'obfs ne sont plus lisibles via /proc/<pid>/cmdline. Les
-		// fichiers résiduels d'une session précédente sont purgés ici.
-		for _, old := range uzStaleConfigs(TmpDir) {
-			_ = os.Remove(old)
-		}
-		cfgFile, err := os.CreateTemp(TmpDir, "uz-*.json")
-		if err != nil {
-			Errorf("zivpn", "mktemp: %v", err)
-			t.killProcsLocked(procs)
-			t.status = StatusError
-			t.setError(err.Error())
-			return err
-		}
-		cfgPath := cfgFile.Name()
-		if _, err := cfgFile.WriteString(cfgJSON); err != nil {
-			cfgFile.Close()
-			_ = os.Remove(cfgPath)
-			Errorf("zivpn", "write config: %v", err)
-			t.killProcsLocked(procs)
-			t.status = StatusError
-			t.setError(err.Error())
-			return err
-		}
-		if err := cfgFile.Chmod(0600); err != nil {
-			cfgFile.Close()
-			_ = os.Remove(cfgPath)
-			Errorf("zivpn", "chmod config: %v", err)
-			t.killProcsLocked(procs)
-			t.status = StatusError
-			t.setError(err.Error())
-			return err
-		}
-		cfgFile.Close()
-		// -s conservé (compatibilité binaire uz_core) : même valeur que
-		// config.obfs, le comportement est inchangé.
-		Tracef("[zivpn][%d] cmd=%q -s **** --config <file 0600>", i, bin)
+		// REVERT file-based config : uz_core parse la valeur de --config
+		// comme JSON INLINE (comportement de production validé) — un chemin
+		// de fichier n'est pas supporté et faisait échouer CHAQUE connexion
+		// ZIVPN (Camtel UDP). Le secret repasse donc dans argv (limite
+		// connue : /proc/<pid>/cmdline, même UID uniquement sur Android).
+		Tracef("[zivpn][%d] cmd=%q -s **** --config <json inline>", i, bin)
 
-		cmd := exec.CommandContext(ctx, bin, "-s", DefaultZivpnObfsPassword, "--config", cfgPath)
+		cmd := exec.CommandContext(ctx, bin, "-s", DefaultZivpnObfsPassword, "--config", cfgJSON)
 		cmd.Dir = workDir
 		cmd.Env = append(os.Environ(),
 			"LD_LIBRARY_PATH="+BinDir,
@@ -595,25 +563,6 @@ func indexNewline(b []byte) int {
 		}
 	}
 	return -1
-}
-
-// uzStaleConfigs liste les fichiers de config uz résiduels (sessions
-// précédentes crashées) dans le répertoire temporaire.
-func uzStaleConfigs(dir string) []string {
-	if dir == "" {
-		return nil
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), "uz-") && strings.HasSuffix(e.Name(), ".json") {
-			out = append(out, filepath.Join(dir, e.Name()))
-		}
-	}
-	return out
 }
 
 func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
