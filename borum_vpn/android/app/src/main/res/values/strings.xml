@@ -78,18 +78,18 @@
     <string name="copied_to_clipboard">Copied to clipboard</string>
     <string name="share_via">Share via</string>
     <string name="settings_boot_short">Démarrer au lancement</string>
-    <string name="settings_boot_desc">Proposer la dernière session à l'ouverture</string>
+    <string name="settings_boot_desc">Proposer la dernière session à l\'ouverture</string>
     <string name="settings_delay_label">Délai entre essais (s)</string>
     <string name="settings_mtu">MTU tunnel</string>
     <string name="settings_wakelock_short">Wakelock session</string>
     <string name="settings_wakelock_desc">Garder le CPU actif pendant le VPN</string>
     <string name="settings_boost_short">Boost SlowDNS (TCP)</string>
-    <string name="settings_boost_desc">DNS du tunnel via TCP si l'UDP est filtré</string>
+    <string name="settings_boost_desc">DNS du tunnel via TCP si l\'UDP est filtré</string>
     <string name="settings_tcp_short">TCP No Delay</string>
     <string name="settings_tcp_desc">Latence réduite sur les relais</string>
     <string name="settings_interface">INTERFACE</string>
     <string name="settings_diag_short">Diagnostic détaillé</string>
     <string name="settings_diag_desc">Onglet Logs en mode Verbose par défaut</string>
-    <string name="settings_confirm_desc">Demander avant d'arrêter une session</string>
+    <string name="settings_confirm_desc">Demander avant d\'arrêter une session</string>
     <string name="settings_reset">Réinitialiser les réglages</string>
 </resources>
