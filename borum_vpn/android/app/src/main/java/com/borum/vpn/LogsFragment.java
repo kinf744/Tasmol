@@ -197,11 +197,10 @@ public class LogsFragment extends Fragment {
     /** Levels kept in the filtered "Journal" view: the session block plus
      *  anything the user must not miss (failures, warnings). */
     private static boolean isJournalLine(String level) {
-        // Journal minimal : uniquement les jalons de connexion
-        // (connecté/déconnecté/échec), les avertissements et les erreurs.
-        // Toutes les étapes techniques restent en mode Verbose.
-        return level.equals("connection") || level.equals("error")
-                || level.equals("warning");
+        // Journal HYPER court : uniquement les jalons de connexion
+        // (connecté / déconnecté / échec) et les erreurs — rien d'autre.
+        // Tout le reste reste visible en mode Verbose.
+        return level.equals("connection") || level.equals("error");
     }
 
     private CharSequence renderJournal(String raw) {
@@ -248,14 +247,26 @@ public class LogsFragment extends Fragment {
             // "[session] starting helper ...", "[app] connected (id)" — est
             // du bruit technique demande par personne : il reste accessible
             // en mode Verbose, qui affiche le flux complet.
-            if (!verbose && !isJournalLine(level)) {
-                continue;
+            // Journal HYPER court : les jalons de connexion sont encore
+            // resserrés sur les lignes « connect… » (connecté, déconnecté,
+            // échec) — les sous-étapes techniques ne passent pas.
+            if (!verbose) {
+                if (!isJournalLine(level)) {
+                    continue;
+                }
+                if (level.equals("connection") && !msg.toLowerCase(java.util.Locale.US).contains("connect")) {
+                    continue;
+                }
+                if (level.equals("error")) {
+                    msg = TasVpnService.shortReason(msg);
+                }
             }
             rows.add(new String[]{time, level, comp, msg});
         }
-        // Cap journal volume (Picko-style): last 300 relevant rows.
-        if (!verbose && rows.size() > 300) {
-            rows = new java.util.ArrayList<>(rows.subList(rows.size() - 300, rows.size()));
+        // Cap journal volume : les 15 DERNIERS événements seulement
+        // (connecté / déconnecté / échec) — un écran, pas un fleuve.
+        if (!verbose && rows.size() > 15) {
+            rows = new java.util.ArrayList<>(rows.subList(rows.size() - 15, rows.size()));
         }
         SpannableStringBuilder sb = new SpannableStringBuilder();
         boolean firstBlockLine = true;

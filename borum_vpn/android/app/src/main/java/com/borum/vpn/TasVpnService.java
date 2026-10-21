@@ -97,7 +97,47 @@ public class TasVpnService extends VpnService {
     private static volatile int startAttempt = 0;
 
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
-    private static final int MAX_LOG_LINES = 200;
+    private static final int MAX_LOG_LINES = 40;
+
+    /**
+     * Raison courte et non technique (affichage/toast/journal) : les
+     * erreurs brutes Go (dial, TLS, stack) ne vont plus à l'écran.
+     */
+    public static String shortReason(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String l = raw.toLowerCase(java.util.Locale.US);
+        if (l.contains("serveur injoignable") || l.contains("refused")
+                || l.contains("all endpoints")) {
+            return "serveur injoignable";
+        }
+        if (l.contains("timeout") || l.contains("deadline")) {
+            return "délai dépassé";
+        }
+        if (l.contains("unreachable") || l.contains("no route")
+                || l.contains("network")) {
+            return "réseau indisponible";
+        }
+        if (l.contains("auth") || l.contains("password") || l.contains("denied")
+                || l.contains("permission")) {
+            return "accès refusé";
+        }
+        if (l.contains("tls") || l.contains("x509") || l.contains("certificate")
+                || l.contains("pin")) {
+            return "connexion sécurisée échouée";
+        }
+        if (l.contains("binary") || l.contains("executable")
+                || l.contains("not found")) {
+            return "composant manquant";
+        }
+        String s = raw.trim();
+        int nl = s.indexOf('\n');
+        if (nl > 0) {
+            s = s.substring(0, nl);
+        }
+        return s.length() > 60 ? s.substring(0, 60) + "…" : s;
+    }
 
     /** Append a timestamped event to the in-memory connection log. */
     public static synchronized void logEvent(String msg) {
@@ -404,9 +444,8 @@ public class TasVpnService extends VpnService {
                 }
             }
             if (!isSuperseded(gen) && lastFailure != null) {
-                lastError = lastFailure.getMessage();
-                logEvent("error", "app", "connect failed after " + attempt
-                        + " attempts: " + lastFailure.getMessage());
+                lastError = shortReason(lastFailure.getMessage());
+                logEvent("error", "app", "échec de connexion : " + lastError);
                 stopForeground(true);
                 cancelNotification();
                 releaseWakeLock();

@@ -130,15 +130,19 @@ public class AuthActivity extends AppCompatActivity {
         PhoHelper.activate(phone, code, uuid, (resp, err) -> {
             validateBtn.setEnabled(true);
             if (err != null) {
+                // Message volontairement générique : ni le domaine, ni le
+                // mécanisme de sécurité, ni la stack ne sont affichés.
+                String friendly = "Connexion au serveur impossible. Vérifiez votre réseau.";
                 statusText.setTextColor(getColor(R.color.npv_red));
-                statusText.setText("Réseau: " + err.getMessage());
+                statusText.setText(friendly);
+                TasVpnService.logEvent("error", "api", "[activation] " + friendly);
                 return;
             }
             boolean ok = resp != null && resp.optBoolean("success", false);
             if (!ok) {
-                String msg = resp != null ? resp.optString("message", "Activation refusée")
-                        : "Réponse vide";
-                TasVpnService.logEvent("error", "api", "[activation] refusé: " + msg);
+                String msg = friendlyActivationError(resp != null
+                        ? resp.optString("message", "") : "");
+                TasVpnService.logEvent("error", "api", "[activation] " + msg);
                 statusText.setTextColor(getColor(R.color.npv_red));
                 statusText.setText(msg);
                 hideCard();
@@ -206,7 +210,10 @@ public class AuthActivity extends AppCompatActivity {
                 hideCard();
                 ApiSession.clearAccountCard(this);
                 statusText.setTextColor(getColor(R.color.npv_red));
-                statusText.setText(resp.optString("message", "Compte inactif ou expiré"));
+                // Message générique : le motif réel (verrou, preuve, quota)
+                // n'est jamais affiché.
+                statusText.setText(friendlyActivationError(
+                        resp != null ? resp.optString("message", "") : ""));
             }
         });
     }
@@ -266,5 +273,36 @@ public class AuthActivity extends AppCompatActivity {
 
     private void toast(String m) {
         Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
+    }
+
+    /**
+     * Message d'échec d'activation volontairement GÉNÉRIQUE : les messages
+     * serveur bruts révèlent le fonctionnement interne (verrou d'appareil,
+     * preuve matérielle, quotas, tentatives) — on ne montre au client que
+     * la décision, jamais le mécanisme.
+     */
+    private String friendlyActivationError(String raw) {
+        String l = raw == null ? "" : raw.toLowerCase(java.util.Locale.US);
+        if (l.contains("too many") || l.contains("trop de")) {
+            return "Trop de tentatives. Réessayez dans quelques minutes.";
+        }
+        if (l.contains("expired") || l.contains("expiré")) {
+            return "Compte expiré. Contactez votre revendeur.";
+        }
+        if (l.contains("disabled") || l.contains("désactiv")) {
+            return "Compte désactivé. Contactez votre revendeur.";
+        }
+        if (l.contains("verrouill") || l.contains("cloné") || l.contains("autre appareil")
+                || l.contains("preuve") || l.contains("mise à jour de l'application")) {
+            return "Compte lié à un autre appareil. Contactez votre revendeur.";
+        }
+        if (l.contains("invalid") || l.contains("not registered") || l.contains("not found")
+                || l.contains("invalide") || l.contains("introuvable")) {
+            return "Numéro ou code incorrect.";
+        }
+        if (l.contains("environnement non autorisé")) {
+            return "Environnement non autorisé.";
+        }
+        return "Activation refusée. Contactez votre revendeur.";
     }
 }

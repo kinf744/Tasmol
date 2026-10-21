@@ -499,7 +499,7 @@ public class MainActivity extends AppCompatActivity {
         handler.postDelayed(() -> {
             String err = TasVpnService.getLastError();
             if (err != null) {
-                showToast("Failed: " + err);
+                showToast("Échec : " + TasVpnService.shortReason(err));
             }
         }, 2500);
     }

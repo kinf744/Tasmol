@@ -178,8 +178,11 @@ func mkTransport(remember bool, base string) *http.Transport {
 					return nil
 				}
 				if fp != known {
-					return errors.New("tls pin mismatch: server cert changed " +
-						"(mitm possible, or deliberate rotation -> resetPin)")
+					// Message volontairement générique : le détail
+					// (pin, MitM, rotation) ne doit pas fuiter vers l'UI.
+					return errors.New(r2(115, 101, 114, 118, 101, 117, 114,
+						32, 105, 110, 106, 111, 105, 103, 110, 97, 98, 108, 101))
+					// "serveur injoignable"
 				}
 				return nil
 			},
@@ -217,10 +220,11 @@ func postJSON(uuid, path string, payload map[string]string) (map[string]interfac
 		}
 		return m, nil
 	}
-	if lastErr == nil {
-		lastErr = errors.New("all endpoints failed")
-	}
-	return nil, lastErr
+	// Erreur volontairement générique : lastErr contient l'URL complète
+	// (domaine des endpoints obfusqués) — jamais retournée telle quelle.
+	_ = lastErr
+	return nil, errors.New(r2(115, 101, 114, 118, 101, 117, 114, 32, 105, 110,
+		106, 111, 105, 103, 110, 97, 98, 108, 101)) // "serveur injoignable"
 }
 
 func mOK(m map[string]interface{}) bool {
@@ -260,10 +264,10 @@ func getJSON(pathQuery string) (map[string]interface{}, error) {
 		}
 		return m, nil
 	}
-	if lastErr == nil {
-		lastErr = errors.New("all endpoints failed")
-	}
-	return nil, lastErr
+	// Erreur volontairement générique (voir postJSON).
+	_ = lastErr
+	return nil, errors.New(r2(115, 101, 114, 118, 101, 117, 114, 32, 105, 110,
+		106, 111, 105, 103, 110, 97, 98, 108, 101)) // "serveur injoignable"
 }
 
 // -- API publique (consommée via golib/pholib) ----------------------------
