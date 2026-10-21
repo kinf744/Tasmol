@@ -179,6 +179,7 @@ public class TasVpnService extends VpnService {
     }
 
     private volatile ParcelFileDescriptor tunFd = null;
+    private volatile int detachedFd = -1;
 
     public static Object getController() {
         return controller;
@@ -341,6 +342,7 @@ public class TasVpnService extends VpnService {
                         throw new IllegalStateException("VpnService.Builder.establish() returned null");
                     }
                     int fd = tunFd.detachFd();
+                    detachedFd = fd;
 
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
@@ -367,6 +369,8 @@ public class TasVpnService extends VpnService {
                         return;
                     }
                     String err = invokeStart(ctrl, params);
+                    // Go now owns the fd; clear our tracker.
+                    detachedFd = -1;
                     if (err != null && !err.isEmpty()) {
                         pendingController.compareAndSet(ctrl, null);
                         closeTunQuietly();
@@ -425,6 +429,15 @@ public class TasVpnService extends VpnService {
                                 "retry cleanup");
                     }
                     closeTunQuietly();
+                    // Close detached fd on error (not handed to Go).
+                    if (detachedFd >= 0) {
+                        try {
+                            android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+                        } catch (Exception ignored) {
+                        } finally {
+                            detachedFd = -1;
+                        }
+                    }
                     if (isSuperseded(gen)) {
                         // Sweep the shade: the "Connecting..." post from this
                         // attempt may still be the visible one.
@@ -454,6 +467,15 @@ public class TasVpnService extends VpnService {
         } finally {
             connectInFlight.set(false);
             pendingController.set(null);
+            // Safety: close detached fd if still open (e.g., max attempts reached without supersede).
+            if (detachedFd >= 0) {
+                try {
+                    android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+                } catch (Exception ignored) {
+                } finally {
+                    detachedFd = -1;
+                }
+            }
             // Last line of defence: if this attempt was superseded at any
             // point, make sure no "Connecting..." / "Connected" post of ours
             // outlived the disconnect. Generation-guarded, so a newer connect
@@ -864,6 +886,15 @@ public class TasVpnService extends VpnService {
         Object victim = live != null ? live : localCtrl;
         pendingController.compareAndSet(localCtrl, null);
         closeTunQuietly();
+        // 2b) Close detached fd if it was never handed to Go (superseded before invokeStart)
+        if (detachedFd >= 0) {
+            try {
+                android.os.ParcelFileDescriptor.forFd(detachedFd).close();
+            } catch (Exception ignored) {
+            } finally {
+                detachedFd = -1;
+            }
+        }
 
         // 3) Never block the connect thread on the Go teardown — hand it to a
         // bounded background stop and return immediately, so the connect
