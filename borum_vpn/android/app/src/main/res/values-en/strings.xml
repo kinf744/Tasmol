@@ -65,7 +65,7 @@
     <string name="settings_dns_secondary">Secondary DNS</string>
     <string name="settings_stop_loss_short">Stop on network loss</string>
     <string name="settings_stop_loss_desc">Kill the VPN if the network disappears</string>
-    <string name="settings_conn_perf">CONNECTION & PERFORMANCE</string>
+    <string name="settings_conn_perf">CONNECTION &amp; PERFORMANCE</string>
     <string name="settings_reconnect_desc">Automatic reconnection</string>
     <string name="settings_reconnect_desc2">10 attempts, else a single try</string>
 

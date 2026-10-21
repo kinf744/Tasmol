@@ -683,15 +683,6 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
-            <!-- Dark mode -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                
             <!-- Port management -->
             <LinearLayout
                 android:layout_width="match_parent"
