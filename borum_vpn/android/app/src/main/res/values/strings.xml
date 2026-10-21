@@ -7,6 +7,7 @@
     <string name="nav_profiles">Profils</string>
     <string name="nav_logs">Journal</string>
     <string name="nav_settings">Réglages</string>
+    <string name="nav_more">Plus</string>
 
     <!-- Home -->
     <string name="home_connecting">[ CONNEXION ]</string>

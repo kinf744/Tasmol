@@ -34,6 +34,11 @@ public class VPNApplication extends Application {
             }
             android.os.Process.killProcess(android.os.Process.myPid());
         });
+        // Thème + langue persistés (Système/Clair/Sombre — Système/FR/EN)
+        // appliqués AVANT la première activité.
+        UiPrefs.applySavedTheme(this);
+        UiPrefs.applySavedLang(this);
+
         // Initialise le coffre chiffré + client API durci (libpho).
         PhoHelper.init(this);
         // RASP : surveillance continue anti-analyse dynamique (Frida, hooks,
@@ -539,11 +544,4 @@ public class VPNApplication extends Application {
                 .apply();
     }
 
-    public boolean isDarkModeEnabled() {
-        return prefs.getBoolean("dark_mode", true);
-    }
-
-    public void setDarkModeEnabled(boolean enabled) {
-        prefs.edit().putBoolean("dark_mode", enabled).apply();
-    }
 }

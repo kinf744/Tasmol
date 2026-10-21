@@ -59,35 +59,47 @@ public class SettingsFragment extends Fragment {
         VPNApplication app = VPNApplication.getInstance();
         View portInput = v.findViewById(R.id.settings_port);
 
-        // Device identity (no permission needed).
-        String androidId = "";
-        try {
-            androidId = Settings.Secure.getString(
-                    requireContext().getContentResolver(), Settings.Secure.ANDROID_ID);
-        } catch (Exception ignored) {
-        }
-        if (androidId == null) {
-            androidId = "";
-        }
-        final String aid = androidId;
-        ((TextView) v.findViewById(R.id.settings_android_id))
-                .setText(aid.isEmpty() ? "—" : aid);
-        ((TextView) v.findViewById(R.id.settings_root)).setText(
-                "Intégrité : " + (ProfileTransfer.isRooted() ? "root détecté" : "aucun root détecté"));
-        v.findViewById(R.id.settings_copy_id).setOnClickListener(view -> {
-            if (aid.isEmpty()) {
-                toast("ID indisponible");
-                return;
+        // Intégrité seule (le bloc Android ID est retiré : l'identité est
+        // désormais dérivée nativement et ne doit plus être affichée).
+        String integrity = getString(R.string.settings_integrity,
+                ProfileTransfer.isRooted()
+                        ? getString(R.string.settings_root_detected)
+                        : getString(R.string.settings_no_root));
+        ((TextView) v.findViewById(R.id.settings_root)).setText(integrity);
+
+        // ── Thème : Système / Clair / Sombre ────────────────────────────
+        String theme = UiPrefs.getTheme(requireContext());
+        bindPill(v, R.id.settings_theme_system, "system".equals(theme));
+        bindPill(v, R.id.settings_theme_light, "light".equals(theme));
+        bindPill(v, R.id.settings_theme_dark, "dark".equals(theme));
+        android.view.View.OnClickListener themePick = view -> {
+            String mode = view.getId() == R.id.settings_theme_light ? "light"
+                    : view.getId() == R.id.settings_theme_dark ? "dark" : "system";
+            UiPrefs.setTheme(requireContext(), mode);
+            if (getActivity() != null) {
+                getActivity().recreate();
             }
-            try {
-                ClipboardManager cm = (ClipboardManager) requireContext()
-                        .getSystemService(Context.CLIPBOARD_SERVICE);
-                cm.setPrimaryClip(ClipData.newPlainText("Android ID", aid));
-                toast("ID copié");
-            } catch (Exception e) {
-                toast("Copie impossible");
+        };
+        v.findViewById(R.id.settings_theme_system).setOnClickListener(themePick);
+        v.findViewById(R.id.settings_theme_light).setOnClickListener(themePick);
+        v.findViewById(R.id.settings_theme_dark).setOnClickListener(themePick);
+
+        // ── Langue : Système / Français / English ───────────────────────
+        String lang = UiPrefs.getLang(requireContext());
+        bindPill(v, R.id.settings_lang_system, "system".equals(lang));
+        bindPill(v, R.id.settings_lang_fr, "fr".equals(lang));
+        bindPill(v, R.id.settings_lang_en, "en".equals(lang));
+        android.view.View.OnClickListener langPick = view -> {
+            String mode = view.getId() == R.id.settings_lang_fr ? "fr"
+                    : view.getId() == R.id.settings_lang_en ? "en" : "system";
+            UiPrefs.setLang(requireContext(), mode);
+            if (getActivity() != null) {
+                getActivity().recreate();
             }
-        });
+        };
+        v.findViewById(R.id.settings_lang_system).setOnClickListener(langPick);
+        v.findViewById(R.id.settings_lang_fr).setOnClickListener(langPick);
+        v.findViewById(R.id.settings_lang_en).setOnClickListener(langPick);
 
         bindSwitch(v, R.id.settings_dns, app.isDnsProtectionEnabled(),
                 app::setDnsProtectionEnabled);
@@ -107,18 +119,6 @@ public class SettingsFragment extends Fragment {
                 app::setSlowDnsBoostEnabled);
         bindSwitch(v, R.id.settings_tcpnodelay, app.isTcpNoDelayEnabled(),
                 app::setTcpNoDelayEnabled);
-
-        Switch dark = v.findViewById(R.id.settings_dark);
-        dark.setChecked(app.isDarkModeEnabled());
-        dark.setOnCheckedChangeListener((btn, checked) -> {
-            app.setDarkModeEnabled(checked);
-            AppCompatDelegate.setDefaultNightMode(checked
-                    ? AppCompatDelegate.MODE_NIGHT_YES
-                    : AppCompatDelegate.MODE_NIGHT_NO);
-            if (getActivity() != null) {
-                getActivity().recreate();
-            }
-        });
 
         delayText = v.findViewById(R.id.settings_delay);
         delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));

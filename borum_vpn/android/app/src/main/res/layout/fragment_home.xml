@@ -253,9 +253,22 @@
                 android:layout_gravity="center_horizontal"
                 android:layout_marginTop="6dp"
                 android:background="@android:color/transparent"
-                android:text="PING"
+                android:text="@string/home_ping"
                 android:textColor="@color/npv_green"
                 android:textSize="14sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <!-- Valeur de ping EN TEMPS RÉEL : ≤ 215 ms en vert, > en rouge -->
+            <TextView
+                android:id="@+id/home_ping_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="2dp"
+                android:text="@string/home_ping_none"
+                android:textColor="@color/npv_dim"
+                android:textSize="13sp"
                 android:textStyle="bold"
                 android:typeface="monospace" />
 

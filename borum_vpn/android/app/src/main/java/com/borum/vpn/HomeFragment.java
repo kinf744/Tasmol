@@ -30,6 +30,10 @@ public class HomeFragment extends Fragment {
     private TextView downText;
     private TextView upText;
     private Button pingBtn;
+    private TextView pingValue;
+    private volatile boolean livePingBusy = false;
+    private JSONObject cachedPingTarget = null;
+    private String cachedPingKey = "";
     private View apiSection;
     private android.widget.Spinner apiSpinner;
     // Rangées visibles du spinner (paires SlowDNS fusionnées en une entrée).
@@ -53,6 +57,7 @@ public class HomeFragment extends Fragment {
         downText = v.findViewById(R.id.home_down);
         upText = v.findViewById(R.id.home_up);
         pingBtn = v.findViewById(R.id.home_ping);
+        pingValue = v.findViewById(R.id.home_ping_value);
 
         connectBtn.setOnClickListener(view -> {
             if (getActivity() instanceof MainActivity) {
@@ -144,12 +149,19 @@ public class HomeFragment extends Fragment {
         int green = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_green);
         int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
         boolean running = TasVpnService.isRunning();
+        // PING temps réel sous le bouton PING : mesure continue tant que le
+        // VPN tourne (une mesure à la fois). ≤215 ms = vert, > = rouge.
+        if (running) {
+            maybeLivePing();
+        } else {
+            showPingIdle();
+        }
         if (!running) {
             // Launching / (re)connecting: stay on CONNECTING in red,
             // with the attempt counter across the retry loop.
             if (TasVpnService.isStarting()) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
-                statusText.setText("[ CONNECTING ]");
+                statusText.setText(getString(R.string.home_connecting));
                 statusText.setTextColor(red);
                 uptimeText.setText("--:--:--");
                 downText.setText("0 B");
@@ -182,12 +194,12 @@ public class HomeFragment extends Fragment {
             boolean ctrlRunning = st.optBoolean("running", false);
             if (!ctrlRunning) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
-                statusText.setText("[ CONNECTING ]");
+                statusText.setText(getString(R.string.home_connecting));
                 statusText.setTextColor(red);
                 return;
             }
             ring.setBackgroundResource(R.drawable.ring_power_on);
-            statusText.setText("[ CONNECTED ]");
+            statusText.setText(getString(R.string.home_connected));
             statusText.setTextColor(green);
 
             String activeId = st.optString("active_tunnel", "");
@@ -214,7 +226,7 @@ public class HomeFragment extends Fragment {
             }
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);
-            statusText.setText("[ CONNECTED ]");
+            statusText.setText(getString(R.string.home_connected));
             try {
                 statusText.setTextColor(androidx.core.content.ContextCompat.getColor(
                         requireContext(), R.color.npv_green));
@@ -305,6 +317,84 @@ public class HomeFragment extends Fragment {
         }
     }
 
+    // ── PING temps réel ──────────────────────────────────────────────────
+
+    /** Seuil d'affichage : ≤ 215 ms en vert, au-delà en rouge. */
+    private static final long PING_GOOD_MS = 215;
+
+    private void showPingIdle() {
+        if (pingValue == null) {
+            return;
+        }
+        pingValue.setText(getString(R.string.home_ping_none));
+        pingValue.setTextColor(androidx.core.content.ContextCompat
+                .getColor(requireContext(), R.color.npv_dim));
+        cachedPingKey = "";
+        cachedPingTarget = null;
+    }
+
+    /** Profil actif (cache anti-reliste à chaque tick 2 s). */
+    private JSONObject findActiveTarget() {
+        String active = VPNApplication.getInstance().getActiveTunnelId();
+        String key = active == null ? "" : active;
+        if (cachedPingTarget != null && key.equals(cachedPingKey)) {
+            return cachedPingTarget;
+        }
+        JSONObject target = null;
+        try {
+            String cfgPath = BinaryManager.configPath(requireContext()).getAbsolutePath();
+            JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath));
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject t = arr.getJSONObject(i);
+                if ((active != null && !active.isEmpty() && !t.optString("id", "").equals(active))
+                        || (active == null || active.isEmpty()) && i > 0) {
+                    continue;
+                }
+                target = t;
+                break;
+            }
+        } catch (Exception ignored) {
+        }
+        cachedPingTarget = target;
+        cachedPingKey = key;
+        return target;
+    }
+
+    /** Lance une mesure si aucune n'est en vol ; le résultat colore la ligne. */
+    private void maybeLivePing() {
+        if (pingValue == null || livePingBusy || !isAdded()) {
+            return;
+        }
+        JSONObject target = findActiveTarget();
+        if (target == null) {
+            return;
+        }
+        livePingBusy = true;
+        final String tid = target.optString("id", "");
+        TunnelPing.ping(requireContext(), target, (ms, via) -> {
+            livePingBusy = false;
+            if (pingValue == null || !isAdded()) {
+                return;
+            }
+            if (ms >= 0) {
+                if (!tid.isEmpty()) {
+                    VPNApplication.getInstance().setTunnelPing(tid, ms);
+                }
+                pingValue.setText(ms + " ms");
+                pingValue.setTextColor(androidx.core.content.ContextCompat.getColor(
+                        requireContext(), ms <= PING_GOOD_MS ? R.color.npv_green : R.color.npv_red));
+            } else if (ms == -2) {
+                // Serveur UDP-only sans session : rien d'affichable.
+                pingValue.setText(getString(R.string.home_ping_none));
+                pingValue.setTextColor(androidx.core.content.ContextCompat
+                        .getColor(requireContext(), R.color.npv_dim));
+            } else {
+                // Échec de mesure : on garde la valeur précédente, on réessaie
+                // au prochain tick.
+            }
+        });
+    }
+
     private void pingActive() {
         pingBtn.setEnabled(false);
         pingBtn.setText("...");
@@ -327,7 +417,7 @@ public class HomeFragment extends Fragment {
         if (target == null) {
             pingBtn.setEnabled(true);
             pingBtn.setText("PING");
-            Toast.makeText(getContext(), "No server selected", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), getString(R.string.home_no_server), Toast.LENGTH_SHORT).show();
             return;
         }
         final String tid = target.optString("id", "");
@@ -341,9 +431,9 @@ public class HomeFragment extends Fragment {
                 }
                 Toast.makeText(getContext(), label + ": " + ms + " ms", Toast.LENGTH_SHORT).show();
             } else if (ms == -2) {
-                Toast.makeText(getContext(), "UDP-only server and VPN not connected: connect first, then PING shows live latency.", Toast.LENGTH_LONG).show();
+                Toast.makeText(getContext(), getString(R.string.home_ping_udp_hint), Toast.LENGTH_LONG).show();
             } else {
-                Toast.makeText(getContext(), "Ping failed", Toast.LENGTH_SHORT).show();
+                Toast.makeText(getContext(), getString(R.string.home_ping_failed), Toast.LENGTH_SHORT).show();
             }
         });
     }
@@ -492,7 +582,7 @@ public class HomeFragment extends Fragment {
                     return;
                 }
                 Toast.makeText(getContext(),
-                        "2 profils requis pour le round-robin — mode simple",
+                        getString(R.string.home_need_two_profiles),
                         Toast.LENGTH_LONG).show();
             }
             ApiSession.activate(requireContext(), c);

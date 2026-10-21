@@ -59,11 +59,7 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        if (app.isDarkModeEnabled()) {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES);
-        } else {
-            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO);
-        }
+        // Thème déjà appliqué par UiPrefs (VPNApplication.onCreate).
 
         setContentView(R.layout.activity_main);
 
