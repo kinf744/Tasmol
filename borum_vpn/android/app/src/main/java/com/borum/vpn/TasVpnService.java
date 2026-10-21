@@ -639,6 +639,15 @@ public class TasVpnService extends VpnService {
         } finally {
             tunFd = null;
         }
+        // Also close detached fd if it was never handed to Go (CONNECTING abort path).
+        if (detachedFd >= 0) {
+            try {
+                android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
+            } catch (Exception ignored) {
+            } finally {
+                detachedFd = -1;
+            }
+        }
         try {
             stopForeground(true);
         } catch (Exception ignored) {
