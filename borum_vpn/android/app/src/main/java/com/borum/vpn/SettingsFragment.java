@@ -275,4 +275,13 @@ public class SettingsFragment extends Fragment {
     private void toast(String msg) {
         Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
     }
+
+    /** État visuel d'une option pilule (Thème/Langue). */
+    private void bindPill(View v, int id, boolean selected) {
+        TextView t = v.findViewById(id);
+        int color = selected ? R.color.npv_green : R.color.npv_grey;
+        t.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), color));
+        t.setTypeface(null, selected ? android.graphics.Typeface.BOLD
+                : android.graphics.Typeface.NORMAL);
+    }
 }

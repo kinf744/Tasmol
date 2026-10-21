@@ -37,14 +37,14 @@ public class ProfilsFragment extends Fragment {
 
     private void loadPalette() {
         android.content.Context c = requireContext().getApplicationContext();
-        BG = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_bg, c.getTheme());
-        CARD_BG = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_card, c.getTheme());
-        CARD_STROKE = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_border, c.getTheme());
-        TXT = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_text, c.getTheme());
-        TXT_DIM = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_grey, c.getTheme());
-        GREEN = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_green, c.getTheme());
-        CYAN = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_cyan, c.getTheme());
-        RED = android.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_red, c.getTheme());
+        BG = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_bg, c.getTheme());
+        CARD_BG = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_card, c.getTheme());
+        CARD_STROKE = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_border, c.getTheme());
+        TXT = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_text, c.getTheme());
+        TXT_DIM = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_grey, c.getTheme());
+        GREEN = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_green, c.getTheme());
+        CYAN = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_cyan, c.getTheme());
+        RED = androidx.core.content.res.ResourcesCompat.getColor(c.getResources(), R.color.npv_red, c.getTheme());
     }
 
     private LinearLayout list;
