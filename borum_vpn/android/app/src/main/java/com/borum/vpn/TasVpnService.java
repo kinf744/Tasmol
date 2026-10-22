@@ -72,12 +72,16 @@ public class TasVpnService extends VpnService {
     // process: Android always revokes the key of a dead VpnService.
     private static final long WATCHDOG_KILL_NORMAL_MS = 8000;
     private static final long WATCHDOG_KILL_NUCLEAR_MS = 5000;
-    // True from the moment a controller is handed to the Go stop until that
-    // call actually returns. This distinguishes "teardown finished" from "we
-    // stopped waiting for it", which is exactly what decides whether killing
-    // the process is warranted.
-    private static final java.util.concurrent.atomic.AtomicBoolean goStopHanging =
-            new java.util.concurrent.atomic.AtomicBoolean(false);
+    // Number of Go stop() calls currently in flight (refcount, NOT a boolean).
+    // Deux arrêts peuvent viser le même contrôleur en même temps : le stop
+    // async de stopSession ET le stop borné du catch du thread de connexion.
+    // Avec un simple booléen, le premier stop qui retourne effaçait le drapeau
+    // pendant que l'autre restait coincé sur le mutex Go — le watchdog était
+    // alors désarmé à tort et personne ne tuait le processus : la clé VPN
+    // restait collée (TUN fd détenu par Go). Le compteur ne tombe à zéro que
+    // lorsque TOUS les arrêts sont réellement terminés.
+    private static final java.util.concurrent.atomic.AtomicInteger goStopCount =
+            new java.util.concurrent.atomic.AtomicInteger(0);
     // Service-scoped main-thread handler: the nuclear watchdog must not depend
     // on any Activity, otherwise leaving the app while a teardown is stuck
     // leaves the key with nobody left able to remove it.
@@ -211,7 +215,7 @@ public class TasVpnService extends VpnService {
      * survive with nobody left to remove it.
      */
     public static boolean isTeardownHanging() {
-        return goStopHanging.get();
+        return goStopCount.get() > 0;
     }
 
     public static int getStartAttempt() {
@@ -722,13 +726,13 @@ public class TasVpnService extends VpnService {
      *
      * <p>{@code Future.cancel(true)} only sets a Java interrupt flag, which
      * cannot unwind a gomobile call: if the Go side is wedged the underlying
-     * thread stays blocked forever. That is exactly why {@link #goStopHanging}
+     * thread stays blocked forever. That is exactly why {@link #goStopCount}
      * is cleared inside the task and not by the waiting thread — the nuclear
      * watchdog must learn the truth about whether the teardown really
      * finished, not whether we stopped waiting for it.
      */
     private void stopControllerAsync(final Object target, long timeoutS, String what) {
-        goStopHanging.set(true);
+        goStopCount.incrementAndGet();
         new Thread(() -> {
             try {
                 java.util.concurrent.ExecutorService exec =
@@ -737,7 +741,7 @@ public class TasVpnService extends VpnService {
                     try {
                         invokeStop(target);
                     } finally {
-                        goStopHanging.set(false);
+                        goStopCount.decrementAndGet();
                     }
                 });
                 exec.shutdown();
@@ -766,11 +770,13 @@ public class TasVpnService extends VpnService {
             // retourné. En CONNECTING, Controller.stop() attend le mutex d'un
             // start() encore en vol (attentes SOCKS/dnstt jusqu'à ~20 s) : le
             // Future a expiré mais l'appel gomobile reste coincé et
-            // goStopHanging est toujours vrai. Désarmer ici supprimait le
+            // goStopCount reste > 0. Désarmer ici supprimait le
             // seul recours (kill du processus) et laissait le start()
             // construire la session jusqu'au bout — c'était la cause du
             // "nucléaire qui ne marche pas à tous les coups en CONNECTING".
-            if (!goStopHanging.get()) {
+            // (Refcount : un second stop concurrent qui se termine ne fait
+            // plus tomber le compteur du premier.)
+            if (goStopCount.get() <= 0) {
                 disarmNuclearWatchdog();
             }
         }, "borum-disconnect").start();
@@ -784,7 +790,7 @@ public class TasVpnService extends VpnService {
      * notification for good.
      */
     private void stopControllerBoundedSync(final Object target, long timeoutS, String what) {
-        goStopHanging.set(true);
+        goStopCount.incrementAndGet();
         java.util.concurrent.ExecutorService exec = null;
         try {
             exec = java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -792,7 +798,7 @@ public class TasVpnService extends VpnService {
                 try {
                     invokeStop(target);
                 } finally {
-                    goStopHanging.set(false);
+                    goStopCount.decrementAndGet();
                 }
             });
             f.get(timeoutS, java.util.concurrent.TimeUnit.SECONDS);
@@ -854,7 +860,7 @@ public class TasVpnService extends VpnService {
                 || starting
                 || pendingController.get() != null
                 || connectInFlight.get()
-                || goStopHanging.get();
+                || goStopCount.get() > 0;
     }
 
     private void armNuclearWatchdog(long delayMs) {
