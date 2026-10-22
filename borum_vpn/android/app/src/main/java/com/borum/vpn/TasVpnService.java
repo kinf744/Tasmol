@@ -73,6 +73,8 @@ public class TasVpnService extends VpnService {
     // process: Android always revokes the key of a dead VpnService.
     private static final long WATCHDOG_KILL_NORMAL_MS = 8000;
     private static final long WATCHDOG_KILL_NUCLEAR_MS = 5000;
+    // Délai de la seconde passe de déconnexion (double disconnect).
+    private static final long SECOND_PASS_DELAY_MS = 2000;
     // Number of Go stop() calls currently in flight (refcount, NOT a boolean).
     // Deux arrêts peuvent viser le même contrôleur en même temps : le stop
     // async de stopSession ET le stop borné du catch du thread de connexion.
@@ -279,9 +281,11 @@ public class TasVpnService extends VpnService {
             Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
-        // Une déconnexion récente a peut-être armé le watchdog kill (8s) :
-        // une nouvelle connexion légitime ne doit PAS être tuée par lui.
+        // Une déconnexion récente a peut-être armé le watchdog kill (8s) ou
+        // la seconde passe (2s) : une nouvelle connexion légitime ne doit
+        // PAS être tuée ni re-nettoyée par eux.
         disarmNuclearWatchdog();
+        cancelSecondPass();
         // RASP : instrumentation/débogage/re-signature détectés — aucune
         // session VPN (le plan de données ne doit pas tourner sous hook).
         if (IntegrityGuard.hardBlocked()) {
@@ -440,7 +444,7 @@ public class TasVpnService extends VpnService {
                     // Close detached fd on error (not handed to Go).
                     if (detachedFd >= 0) {
                         try {
-                            android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
+                            android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
                         } catch (Exception ignored) {
                         } finally {
                             detachedFd = -1;
@@ -478,7 +482,7 @@ public class TasVpnService extends VpnService {
             // Safety: close detached fd if still open (e.g., max attempts reached without supersede).
             if (detachedFd >= 0) {
                 try {
-                    android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
+                    android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
                 } catch (Exception ignored) {
                 } finally {
                     detachedFd = -1;
@@ -650,7 +654,7 @@ public class TasVpnService extends VpnService {
         // Also close detached fd if it was never handed to Go (CONNECTING abort path).
         if (detachedFd >= 0) {
             try {
-                android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
+                android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
             } catch (Exception ignored) {
             } finally {
                 detachedFd = -1;
@@ -694,6 +698,10 @@ public class TasVpnService extends VpnService {
             logEvent("warning", "app",
                     "watchdog armed (" + (nuclear ? "nuclear" : "normal") + ", no visible target)");
             armNuclearWatchdog(nuclear ? WATCHDOG_KILL_NUCLEAR_MS : WATCHDOG_KILL_NORMAL_MS);
+            // Double disconnect : même sans cible visible, un résidu peut
+            // survivre (course getAndSet/pendingController.set) — la seconde
+            // passe re-tue à 2s si hasSessionActivity() est encore vrai.
+            armSecondPass();
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
             cancelNotification();
@@ -710,6 +718,10 @@ public class TasVpnService extends VpnService {
             // leave the key in the shade with nobody left to remove it.
             armNuclearWatchdog(WATCHDOG_KILL_NORMAL_MS);
         }
+        // Double disconnect (déconnexion pro) : la seconde passe à 2s
+        // re-ferme le fd original (adoptFd), re-Stop le contrôleur et
+        // re-sweep la notification si la première passe a laissé un résidu.
+        armSecondPass();
         stopControllerAsync(target, timeoutS, nuclear ? "nuclear" : "disconnect");
         logEvent("connection", "app", "disconnected");
         releaseWakeLock();
@@ -879,6 +891,69 @@ public class TasVpnService extends VpnService {
         serviceHandler.removeCallbacks(nuclearKill);
     }
 
+    // --- Double passe de déconnexion (« double disconnect ») ---
+    //
+    // Ledisconnect professionnel ne compte pas sur une seule passe : ~2 s
+    // après la première, si quelque chose a survécu (fd TUN résiduel,
+    // contrôleur non arrêté, start Go encore en vol), une SECONDE passe
+    // complète re-tue : re-close du fd, re-Stop, re-sweep de la
+    // notification. Idempotent et générationnel : une nouvelle connexion
+    // légitime (sessionGen changé) neutralise la seconde passe.
+    private volatile int secondPassGen = -1;
+
+    private final Runnable secondPass = this::runSecondPass;
+
+    private void armSecondPass() {
+        secondPassGen = sessionGen.get();
+        serviceHandler.removeCallbacks(secondPass);
+        serviceHandler.postDelayed(secondPass, SECOND_PASS_DELAY_MS);
+    }
+
+    private void cancelSecondPass() {
+        secondPassGen = -1;
+        serviceHandler.removeCallbacks(secondPass);
+    }
+
+    private void runSecondPass() {
+        // Une nouvelle connexion a démarré depuis : rien à re-tuer ici.
+        if (secondPassGen != sessionGen.get()) {
+            return;
+        }
+        if (!hasSessionActivity()) {
+            return; // la première passe a tout nettoyé
+        }
+        Log.w(TAG, "disconnect second pass: residue detected");
+        logEvent("warning", "app", "second disconnect pass (residue after first pass)");
+        // 1) Re-fermer les fd résiduels (le true fix : adoptFd ferme le fd
+        // ORIGINAL, fromFd ne fermait qu'un dup — la clé survivait via le fd
+        // original toujours ouvert quand la stack gVisor retenait l'epoll).
+        closeTunQuietly();
+        if (detachedFd >= 0) {
+            try {
+                android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
+            } catch (Exception ignored) {
+            } finally {
+                detachedFd = -1;
+            }
+        }
+        // 2) Re-Stop le contrôleur survivant (idempotent côté Go : fast path
+        // ou contended → hard-kill du fd TUN).
+        final Object live = controller;
+        controller = null;
+        final Object inflight = pendingController.getAndSet(null);
+        final Object target = live != null ? live : inflight;
+        if (target != null) {
+            stopControllerAsync(target, STOP_TIMEOUT_S, "second pass");
+        }
+        // 3) Sweep final de la notification.
+        try {
+            stopForeground(true);
+        } catch (Exception ignored) {
+        }
+        cancelNotification();
+        releaseWakeLock();
+    }
+
     /**
      * A disconnect arrived while this connect attempt was still running:
      * tear the half-built session down and leave neither a notification nor a
@@ -911,7 +986,7 @@ public class TasVpnService extends VpnService {
         // 2b) Close detached fd if it was never handed to Go (superseded before invokeStart)
         if (detachedFd >= 0) {
             try {
-                android.os.ParcelFileDescriptor.fromFd(detachedFd).close();
+                android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
             } catch (Exception ignored) {
             } finally {
                 detachedFd = -1;
