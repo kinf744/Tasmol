@@ -41,6 +41,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sys/unix"
 	"gopkg.in/yaml.v3"
 
 	"gvisor.dev/gvisor/pkg/tcpip/stack"
@@ -123,6 +124,11 @@ type Controller struct {
 	// CONNECTING, la clé VPN reste à l'écran ».
 	abort        atomic.Bool
 	cancelHolder atomic.Value
+
+	// Garde le hard-kill du fd TUN idempotent : Stop() peut être appelé
+	// plusieurs fois (stop async + stop du retry Java) pendant qu'un
+	// Start() tient le mutex ; un seul unix.Close doit s'exécuter.
+	hardKilled atomic.Bool
 
 	cfgMgr *config.Manager
 	vpn    *core.VPNCore
@@ -498,32 +504,67 @@ func (c *Controller) Stop() (out string) {
 			cancel()
 		}
 	}
-	c.mu.Lock()
-	// cleanupLocked() must run even when the session never reached the
-	// running state: a failed or superseded Start() still leaves a TUN fd, a
-	// tun2socks stack, a config watcher and a file logger behind. Returning
-	// early here leaked all of them, and left the VPN key on screen.
-	wasRunning := c.running
-	// Signal loops to bail out, then release the mutex BEFORE waiting:
-	// followLoop needs c.mu to finish its tick, and its tick may run
-	// blocking restarts — waiting while holding the mutex deadlocks.
-	c.running = false
-	if c.cancel != nil {
-		c.cancel()
+	// FAST PATH : mutex libre (session idle ou déjà arrêtée) → teardown
+	// complet immédiat, comme avant.
+	if c.mu.TryLock() {
+		c.running = false
+		if c.cancel != nil {
+			c.cancel()
+		}
+		c.mu.Unlock()
+		// 1s, pas 3s : followLoop n'a qu'à finir son tick courant —
+		// déconnexion « pro » en < 2.5 s perçus.
+		waitBounded(c.wg.Wait, 1*time.Second, "followLoop exit")
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.cleanupLocked()
+		return ""
 	}
-	c.mu.Unlock()
-
-	if wasRunning {
-		// 3s, not 10: followLoop only has to finish its current tick, and
-		// this runs under the Android teardown budget (the Java side gives
-		// up and finally kills the process at 5s on the nuclear path).
-		waitBounded(c.wg.Wait, 3*time.Second, "followLoop exit")
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.cleanupLocked()
+	// CONTENDED PATH (déconnexion pendant CONNECTING) : un Start() tient le
+	// mutex. NE JAMAIS BLOQUER ici — c'est ce qui laissait l'appel gomobile
+	// coincé, forçait le watchdog Java à tuer le processus (crash perçu)
+	// et retardait la clé VPN de plusieurs secondes. À la place :
+	//   1. fermer le fd TUN IMMÉDIATEMENT (sans mutex) : le noyau détruit
+	//      l'interface VPN et la clé disparaît sur le champ — méthode
+	//      officielle AOSP : « MUST close the file descriptor when the VPN
+	//      connection is terminated » ;
+	//   2. retourner sans attendre : l'appel Java reprend en < 300 ms,
+	//      plus personne ne tue le processus ;
+	//   3. le Start() en vol s'effondre de lui-même (helpers SIGKILLés par
+	//      le ctx annulé, fd fermé) et exécute son propre cleanupLocked —
+	//      idempotent. Un goroutine détaché finalise le teardown complet
+	//      derrière, borné, sans bloquer personne.
+	c.hardKillTunFd()
+	go func() {
+		defer func() {
+			// Un panic survivant n'emporte jamais le processus.
+			_ = recover()
+		}()
+		c.mu.Lock()
+		c.running = false
+		if c.cancel != nil {
+			c.cancel()
+		}
+		c.mu.Unlock()
+		waitBounded(c.wg.Wait, 1*time.Second, "followLoop exit (deferred)")
+		c.mu.Lock()
+		c.cleanupLocked()
+		c.mu.Unlock()
+	}()
 	return ""
+}
+
+// hardKillTunFd ferme le fd TUN une seule fois, sans mutex. Le fd est
+// publié tôt dans Start() (c.tunFd = p.TunFd) ; la lecture sans mutex est
+// acceptable sur ce chemin kill : au pire fd=0 (pas encore publié) et
+// l'interface sera fermée par le cleanup du Start() lui-même.
+func (c *Controller) hardKillTunFd() {
+	if c.hardKilled.Swap(true) {
+		return
+	}
+	if fd := c.tunFd; fd > 0 {
+		_ = unix.Close(fd)
+	}
 }
 
 // waitBounded runs wait but gives up after d, logging the timeout.
@@ -570,7 +611,7 @@ func (c *Controller) cleanupLocked() {
 		st := c.stack
 		c.stack = nil
 		safeCall("stack.Close", func() { st.Close() })
-		waitBounded(st.Wait, 3*time.Second, "tun2socks drain")
+		waitBounded(st.Wait, 1*time.Second, "tun2socks drain")
 	}
 	if c.dev != nil {
 		d := c.dev
@@ -590,8 +631,8 @@ func (c *Controller) cleanupLocked() {
 		// simply stayed alive as orphans of a process Android still thought
 		// was running — holding their SOCKS ports, so the next session's
 		// helper could never bind and burned all its retry attempts.
-		stopCtx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
-		waitBounded(func() { _ = v.Stop(stopCtx) }, 6*time.Second, "tunnels stop")
+		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		waitBounded(func() { _ = v.Stop(stopCtx) }, 3*time.Second, "tunnels stop")
 		cancel()
 	}
 	if c.cfgMgr != nil {

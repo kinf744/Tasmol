@@ -51,15 +51,16 @@ public class TasVpnService extends VpnService {
     // after stopForeground(true) — the ghost VPN key the user reported.
     private static final java.util.concurrent.atomic.AtomicReference<Object> pendingController =
             new java.util.concurrent.atomic.AtomicReference<>(null);
-    // Bound on the Go controller.stop() call, in seconds. Nuclear uses a
-    // short one: the user asked for an immediate kill, so we should not sit
-    // there waiting on a wedged teardown before falling back to killing the
-    // process.
-    private static final long STOP_TIMEOUT_S = 15;
-    private static final long STOP_TIMEOUT_NUCLEAR_S = 4;
+    // Bornes d'attente Java. Le Stop() Go est désormais non bloquant
+    // (TryLock + hard-kill du fd TUN, retour < 300 ms même pendant un
+    // Start() en vol) : ces bornes ne servent que de plafond, la vraie
+    // déconnexion « pro » se joue en < 2.5 s. En cas de stop vraiment
+    // coincé, le watchdog ci-dessous reste le recours.
+    private static final long STOP_TIMEOUT_S = 3;
+    private static final long STOP_TIMEOUT_NUCLEAR_S = 2;
     // Cleanup between two retry attempts runs on the connect thread, so it gets
     // a much shorter bound than a user-initiated disconnect.
-    private static final long RETRY_STOP_TIMEOUT_S = 5;
+    private static final long RETRY_STOP_TIMEOUT_S = 2;
     // Hard deadline of the teardown, after which the process is ended outright
     // so the key cannot survive. Nuclear uses the short one (the user asked for
     // an immediate kill); the normal disconnect gets a longer grace so a
