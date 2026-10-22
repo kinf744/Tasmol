@@ -278,6 +278,9 @@ public class TasVpnService extends VpnService {
             Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
+        // Une déconnexion récente a peut-être armé le watchdog kill (8s) :
+        // une nouvelle connexion légitime ne doit PAS être tuée par lui.
+        disarmNuclearWatchdog();
         // RASP : instrumentation/débogage/re-signature détectés — aucune
         // session VPN (le plan de données ne doit pas tourner sous hook).
         if (IntegrityGuard.hardBlocked()) {
@@ -677,16 +680,19 @@ public class TasVpnService extends VpnService {
         final Object target = ctrl != null ? ctrl : inflight;
         if (target == null) {
             // Nothing visible to stop — mais une tentative peut être en vol
-            // (retry-sleep ou avant pendingController.set). En nucléaire, le
-            // watchdog est TOUJOURS armé : au moment où il tire (5s), toute
-            // activité restante (teardown coincé, thread de connexion encore
-            // vivant, contrôleur publié entre-temps) provoque la mort du
-            // processus ; si tout est propre, l'app survit (nucléaire
-            // « propre »).
-            if (nuclear) {
-                logEvent("warning", "app", "nuclear disconnect (watchdog armed)");
-                armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
-            }
+            // (retry-sleep ou entre newController() et pendingController.set :
+            // dans cette fenêtre getAndSet() retourne null alors qu'un start()
+            // va démarrer !). Le watchdog est DONC ARMÉ DANS TOUS LES CAS :
+            // au moment où il tire (5s nucléaire, 8s normal), toute activité
+            // restante (teardown coincé, thread de connexion encore vivant,
+            // contrôleur publié entre-temps) provoque la mort du processus —
+            // le noyau ferme alors TOUS les fd, l'interface VPN est détruite
+            // et la clé disparaît (méthode officielle AOSP : la clé ne
+            // survit jamais à un processus mort). Si tout est propre,
+            // hasSessionActivity() est faux et l'app survit.
+            logEvent("warning", "app",
+                    "watchdog armed (" + (nuclear ? "nuclear" : "normal") + ", no visible target)");
+            armNuclearWatchdog(nuclear ? WATCHDOG_KILL_NUCLEAR_MS : WATCHDOG_KILL_NORMAL_MS);
             logEvent("connection", "app", "disconnected");
             releaseWakeLock();
             cancelNotification();
@@ -916,6 +922,13 @@ public class TasVpnService extends VpnService {
         // thread reaches its own finally{} (which sweeps the shade again).
         if (victim != null) {
             stopControllerAsync(victim, STOP_TIMEOUT_S, "superseded start " + gen);
+            // Filet de sécurité OBLIGATOIRE : ce chemin n'arme aucun watchdog
+            // ailleurs. Si le stop() Go reste coincé sur le mutex d'un start()
+            // en vol, le fd TUN reste ouvert et la clé VPN avec lui. Un
+            // stop sain se termine en ~1-3s et désarme le watchdog (le
+            // compteur tombe à zéro) ; un stop coincé laisse le compteur > 0
+            // et le kill tire : le noyau ferme tous les fd, la clé disparaît.
+            armNuclearWatchdog(WATCHDOG_KILL_NORMAL_MS);
         }
         Log.i(TAG, "connect attempt " + gen + " superseded - session aborted");
         logEvent("connection", "app", "connect aborted (disconnected while connecting)");
