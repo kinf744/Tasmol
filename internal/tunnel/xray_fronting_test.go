@@ -8,9 +8,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// MTN-style fronting: SNI zero-rated, cert CN = real server host.
-// Xray 26.x: pinnedPeerCertSha256 is a STRING of comma-separated hex
-// SHA-256 digests (array -> config load aborts; base64 -> never matches).
 func TestFrontingTLSUsesChainPin(t *testing.T) {
 	tc := &config.TunnelConfig{
 		Name: "MTN 150Mo",
@@ -45,11 +42,8 @@ func TestFrontingTLSUsesChainPin(t *testing.T) {
 	}
 	t.Logf("pinned chain: %s", pinsStr)
 
-	// Probe failure path: closed port => probe fails => must fall back to
-	// verifyPeerCertByName (never strict CA verification, which breaks
-	// zero-rated fronting).
-	cp := *tc // copy: ne pas muter la config du premier cas
-	cp.Server.Port = 9 // discard port: closed
+	cp := *tc
+	cp.Server.Port = 9
 	bad := &cp
 	ob = TunnelOutbound(bad, bad.Server.Host, 9)
 	ss, _ = ob["streamSettings"].(map[string]interface{})
@@ -58,7 +52,7 @@ func TestFrontingTLSUsesChainPin(t *testing.T) {
 		t.Logf("probe unexpectedly succeeded, pins present")
 		return
 	}
-	name, _ := tlsm["verifyPeerCertByName"].(string) // string CSV en 26.x
+	name, _ := tlsm["verifyPeerCertByName"].(string)
 	if name != bad.Server.Host {
 		t.Fatalf("expected verifyPeerCertByName fallback, got %v", tlsm["verifyPeerCertByName"])
 	}

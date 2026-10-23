@@ -11,16 +11,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// SSHSlowDNSTunnel chains the official dnstt SlowDNS client with an SSH
-// dynamic forward:
-//
-//	slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
-//	ssh -p <fwdPort> -D 127.0.0.1:<socksPort> user@127.0.0.1
-//
-// The dnstt client exposes the remote SSH service on localhost; SSH then
-// connects THROUGH the DNS tunnel. Defaults: fwdPort 2222 (ecosystem
-// convention), socksPort 10802, resolver 8.8.8.8. All overridable via the
-// tunnel Advanced map ("fwd_port", "socks_port", "dns_resolver").
 type SSHSlowDNSTunnel struct {
 	mu          sync.RWMutex
 	config      *config.TunnelConfig
@@ -85,8 +75,6 @@ func (t *SSHSlowDNSTunnel) nsDomain() string {
 	return DnsttDomain(t.config)
 }
 
-// buildSSHArgs connects SSH through the local dnstt forward and exposes a
-// SOCKS5 proxy for the device traffic.
 func (t *SSHSlowDNSTunnel) buildSSHArgs() []string {
 	args := []string{
 		"-o", "StrictHostKeyChecking=no",
@@ -141,7 +129,6 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Fresh random forward + SOCKS ports per session (overrides respected).
 	ClearLiveForward(t.config.ID)
 	ClearLiveSocksAddr(t.config.ID)
 	fwd, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
@@ -164,7 +151,6 @@ func (t *SSHSlowDNSTunnel) Start(ctx context.Context) error {
 	Tracef("[ssh-slowdns-proc] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
 	logSSHProfile(t.config, "openssh process + dnstt (DNS tunnel)", socksPort)
 
-	// dnstt first (shared helper with output capture), then SSH through it.
 	Tracef("[ssh-slowdns-proc] phase 1/2: starting dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())

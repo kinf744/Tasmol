@@ -17,27 +17,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// ZivpnTunnel drives the official uz_core binary (the Zivpn UDP client,
-// shipped in the repository bundle as bin/armv7/zivpn) exactly like the
-// proven reference implementation:
-//
-//	uz -s <obfs> --config '<inline-json>'
-//
-// Per port range (comma-separated, e.g. "6000-19999" or
-// "6000-6999,7000-7999") one uz_core process is spawned exposing SOCKS5 on
-// 127.0.0.1:<uzPort>; a round-robin TCP load balancer unifies them on the
-// tunnel SOCKS port (default 127.0.0.1:10810) used as the device upstream.
-//
-// The inline client JSON (flat, binary-native):
-//
-//	{"server":"<ip>:<range>","obfs":"<obfs>","auth":"<password>",
-//	 "socks5":{"listen":"127.0.0.1:<uzPort>"},"insecure":true,
-//	 "recvwindowconn":65536,"recvwindow":262144,
-//	 "disable_mtu_discovery":true,"down_mbps":50,"up_mbps":10}
-//
-// The server hostname is resolved to an IP before spawning (fallback: the
-// hostname itself). The obfs value is hardcoded (DefaultZivpnObfsPassword,
-// no UI field).
 type ZivpnTunnel struct {
 	mu        sync.RWMutex
 	config    *config.TunnelConfig
@@ -60,16 +39,8 @@ type uzProc struct {
 	started bool
 }
 
-// DefaultZivpnObfsPassword is the fixed obfs value for the Zivpn UDP
-// tunnel (no UI field). Construit à l'exécution depuis des code points :
-// la valeur n'existe jamais en clair dans le binaire (anti strings/grep,
-// cf. internal/pho).
 var DefaultZivpnObfsPassword = string([]rune{104, 117, 96, 96, 104, 113, 98, 96, 99})
 
-// DefaultZivpnPortRange is used when no range is configured: the full
-// client range split into 8 sub-ranges, one uz_core process each,
-// load-balanced by the round-robin front for higher throughput.
-// 3 plages (au lieu de 8) : moins de processus uz_core -> moins de RAM/CPU.
 const DefaultZivpnPortRange = "6000-9499,9500-12999,13000-16499,16500-19999"
 
 func NewZivpnTunnel(cfg *config.TunnelConfig) *ZivpnTunnel {
@@ -112,15 +83,8 @@ func (t *ZivpnTunnel) authPassword() string {
 	return "zi"
 }
 
-// maxUzRanges caps uz_core processes per zivpn profile (one per range).
 const maxUzRanges = 16
 
-// normalizePortRanges parses the port field into clean "A-B" ranges:
-// "6000-7750,7751-9500" (multi-range, one uz_core process each),
-// "6000-19999" (single range) or "5667" (single port). Spaces are
-// tolerated, reversed bounds are swapped, duplicates dropped. It errors
-// when nothing usable remains, so a typo fails fast with a clear message
-// instead of spawning uz_core with a garbage server string.
 func normalizePortRanges(pr string) ([]string, error) {
 	var out []string
 	seen := make(map[string]bool)
@@ -169,8 +133,6 @@ func normalizePortRanges(pr string) ([]string, error) {
 	return out, nil
 }
 
-// portRanges returns the configured ranges (comma-separated supported,
-// one uz_core process per range, unified by the round-robin balancer).
 func (t *ZivpnTunnel) portRanges() ([]string, error) {
 	pr := strings.TrimSpace(t.config.Server.PortRange)
 	if pr == "" && t.config.Server.Port != 0 {
@@ -182,8 +144,6 @@ func (t *ZivpnTunnel) portRanges() ([]string, error) {
 	return normalizePortRanges(pr)
 }
 
-// resolveServerIP resolves the server hostname to an IP, falling back to
-// the hostname itself when resolution fails.
 func (t *ZivpnTunnel) resolveServerIP() string {
 	host := strings.TrimSpace(t.config.Server.Host)
 	if host == "" {
@@ -198,9 +158,6 @@ func (t *ZivpnTunnel) resolveServerIP() string {
 	return host
 }
 
-// pickFreePort asks the kernel for a free loopback TCP port (bind :0),
-// so every session gets fresh uz listener ports: no stale-port clashes on
-// immediate reconnect, no collision between parallel tunnels.
 func pickFreePort() (int, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -223,9 +180,7 @@ func buildUzConfig(ip, portRange, password, obfs string, uzPort int) (string, er
 		"recvwindowconn":        131072,
 		"recvwindow":            1048576,
 		"disable_mtu_discovery": true,
-		// Generous client-side caps so multi-range / multi-profile
-		// round-robin can actually scale: the old 50/10 Mbps ceiling
-		// throttled every uz process and hid any fan-out gain.
+
 		"down_mbps": 500,
 		"up_mbps":   100,
 	}
@@ -253,8 +208,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 
 	t.status = StatusStarting
 	t.setError("")
-	// Drop any stale live-port entry immediately: a previous session's
-	// dead port must never be dialed while this start is in flight.
+
 	ClearLiveSocksAddr(t.config.ID)
 
 	ctx, t.cancel = context.WithCancel(ctx)
@@ -274,21 +228,18 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	password := t.authPassword()
 	Journalf("zivpn", "udp %s (%d range(s))", ip, len(ranges))
 
-	// HOME/TMPDIR must be writable; nativeLibraryDir is read-only.
 	workDir := TmpDir
 	homeDir := TmpDir
 
 	procs := make([]*uzProc, 0, len(ranges))
 	for i, rng := range ranges {
-		// Fresh random listener port per session: a previous session's
-		// sockets can never collide, even on immediate reconnect.
+
 		uzPort, err := pickFreePort()
 		if err != nil {
 			Tracef("[zivpn][%d] pickFreePort failed, fallback: %v", i, err)
 			uzPort = basePort + 1 + i
 		}
-		// A previous session may still be releasing a port on an
-		// immediate reconnect: wait for it instead of failing.
+
 		if err := waitPortFreeCtx(ctx, uzPort, 4*time.Second); err != nil {
 			Errorf("zivpn", "[%d] %v", i, err)
 			t.killProcsLocked(procs)
@@ -304,11 +255,7 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 			t.setError(err.Error())
 			return err
 		}
-		// REVERT file-based config : uz_core parse la valeur de --config
-		// comme JSON INLINE (comportement de production validé) — un chemin
-		// de fichier n'est pas supporté et faisait échouer CHAQUE connexion
-		// ZIVPN (Camtel UDP). Le secret repasse donc dans argv (limite
-		// connue : /proc/<pid>/cmdline, même UID uniquement sur Android).
+
 		Tracef("[zivpn][%d] cmd=%q -s **** --config <json inline>", i, bin)
 
 		cmd := exec.CommandContext(ctx, bin, "-s", DefaultZivpnObfsPassword, "--config", cfgJSON)
@@ -341,9 +288,6 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		go t.watchOutput(up)
 	}
 
-	// Readiness PARALLÈLE : on attend tous les SOCKS en même temps au lieu
-	// de les attendre l'un après l'autre — avec 4 plages, la session monte
-	// en ~1 s au lieu de ~2,5-4 s.
 	if len(procs) > 0 {
 		errc := make(chan error, len(procs))
 		for i, up := range procs {
@@ -373,11 +317,6 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		}
 	}
 
-	// Round-robin balancer unifying the uz SOCKS endpoints. The LB port is
-	// fresh per session (never the fixed default): a previous session's
-	// listener — still draining after a slow teardown, or leaked by a
-	// wedged one — can never block a reconnect. On collision, repick a
-	// new random port instead of failing the session.
 	var ln net.Listener
 	lbPort := 0
 	for attempt := 1; attempt <= 3; attempt++ {
@@ -413,7 +352,6 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	SetLiveSocksAddr(t.config.ID, fmt.Sprintf("127.0.0.1:%d", lbPort))
 	go t.serveBalancer(ctx, ln)
 
-	// Balancer readiness probe.
 	if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", lbPort), 3*time.Second); err != nil {
 		t.killProcsLocked(procs)
 		ln.Close()
@@ -436,7 +374,6 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 	return nil
 }
 
-// serveBalancer round-robins TCP connections over the uz upstreams.
 func (t *ZivpnTunnel) serveBalancer(ctx context.Context, ln net.Listener) {
 	for {
 		client, err := ln.Accept()
@@ -445,7 +382,7 @@ func (t *ZivpnTunnel) serveBalancer(ctx context.Context, ln net.Listener) {
 			case <-ctx.Done():
 				return
 			default:
-				// Listener closed on Stop.
+
 				if t.Status() != StatusRunning {
 					return
 				}
@@ -499,8 +436,7 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 		done <- struct{}{}
 	}()
 	<-done
-	// Half-close dance instead of a brutal full close, so neither side
-	// observes an RST while data may still be in flight.
+
 	closeWrite(client)
 	closeWrite(upstream)
 	<-done
@@ -517,7 +453,6 @@ func (t *ZivpnTunnel) relayClient(client net.Conn) {
 	}
 }
 
-// watchOutput logs every uz process output line (maximal detail).
 func (t *ZivpnTunnel) watchOutput(up *uzProc) {
 	buf := make([]byte, 0, 8192)
 	tmp := make([]byte, 1024)
@@ -566,9 +501,7 @@ func indexNewline(b []byte) int {
 }
 
 func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
-	// Signal every process first, then reap concurrently: sequential
-	// kill+wait costs up to 2s per range (16s+ for 8 ranges) and that
-	// delay once tripped the stuck-disconnect watchdog on teardown.
+
 	for _, up := range procs {
 		if up.cmd != nil && up.cmd.Process != nil {
 			_ = up.cmd.Process.Kill()
@@ -583,8 +516,7 @@ func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// Reap the zombie so kernel sockets are fully released
-			// before any immediate reconnect rebinds the ports.
+
 			_ = up.cmd.Wait()
 		}()
 	}
@@ -599,21 +531,16 @@ func (t *ZivpnTunnel) killProcsLocked(procs []*uzProc) {
 	}
 }
 
-// waitPortFree waits until nothing listens on 127.0.0.1:port (a previous
-// session shutting down). Without this, an immediate reconnect can race
-// the dying processes still holding uz/LB ports.
 func waitPortFree(port int, timeout time.Duration) error {
 	return waitPortFreeCtx(context.Background(), port, timeout)
 }
 
-// waitPortFreeCtx aborts promptly on ctx cancel: a disconnect racing an
-// in-flight start must not sit out the whole budget.
 func waitPortFreeCtx(ctx context.Context, port int, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
 		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 300*time.Millisecond)
 		if err != nil {
-			return nil // nobody listening: free
+			return nil
 		}
 		conn.Close()
 		if ctx.Err() != nil {

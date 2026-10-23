@@ -23,12 +23,7 @@ type VPNCore struct {
 	wg             sync.WaitGroup
 }
 
-// Options tunes VPNCore behaviour per platform.
 type Options struct {
-	// EnableFeatures turns on netlink-based professional features
-	// (kill switch, split tunneling, DNS leak protection). They require
-	// root; keep enabled on servers/Termux, disabled in mobile (Android
-	// VpnService) mode where traffic capture replaces them.
 	EnableFeatures bool
 }
 
@@ -39,7 +34,6 @@ func NewVPNCore(configManager *config.Manager) (*VPNCore, error) {
 func NewVPNCoreWithOptions(configManager *config.Manager, opts Options) (*VPNCore, error) {
 	cfg := configManager.Get()
 
-	// Point tunnel engines at the repository-bundled official binaries.
 	tunnel.BinDir = cfg.App.BinDir
 
 	tunnelManager := tunnel.NewManager(cfg.UDPGW)
@@ -118,13 +112,7 @@ func (v *VPNCore) Start(ctx context.Context) error {
 
 func (v *VPNCore) Stop(ctx context.Context) error {
 	v.mu.Lock()
-	// "wasRunning" only gates what Start() actually set up (features, stats
-	// collector). The tunnel teardown must NOT be gated on it: the Android
-	// Controller (golib/vpnlib) creates this core but never calls Start() —
-	// it starts the tunnels one by one itself — so v.running stayed false and
-	// the early return below turned the whole teardown into a no-op. No
-	// helper process (xray, hysteria, uz_core, openssh, dnstt/slowdns) was
-	// ever killed on mobile, and they piled up across reconnections.
+
 	wasRunning := v.running
 	v.running = false
 	cancel := v.cancel
@@ -165,8 +153,6 @@ func (v *VPNCore) GetFeatureManager() *features.FeatureManager {
 	return v.featureManager
 }
 
-// FeatureStatus reports professional-feature states. It returns an empty
-// map when features are disabled (mobile mode) instead of nil-dereferencing.
 func (v *VPNCore) FeatureStatus() map[string]bool {
 	v.mu.RLock()
 	fm := v.featureManager
@@ -207,6 +193,6 @@ func (v *VPNCore) collectStats() {
 	tunnels := v.tunnelManager.List()
 	for _, t := range tunnels {
 		_ = t.Stats()
-		// Stats are exposed via the API; persistence happens on tunnel update
+
 	}
 }

@@ -18,29 +18,20 @@ import (
 	"vpn-app/internal/config"
 )
 
-// Advanced map keys used by Xray tunnels.
 const (
-	// OutboundJSONKey holds a complete Xray outbound object (JSON string or
-	// map) used verbatim, e.g. produced from vmess/vless/trojan/shadowsocks
-	// links or pasted by the user. It takes precedence over the structured
-	// fields and unlocks protocols/transports beyond manual VLESS.
 	OutboundJSONKey = "outbound_json"
-	// LinkKey keeps the original subscription link for reference.
+
 	LinkKey = "link"
 )
 
-// Supported transports for Xray/Xray-SlowDNS tunnels (manual fields,
-// links and raw JSON outbounds).
 var supportedTransports = []string{"tcp", "ws", "grpc", "xhttp", "httpupgrade", "kcp", "http", "quic", "hysteria"}
 
-// SupportedTransports returns the transport list for UI dropdowns.
 func SupportedTransports() []string {
 	out := make([]string, len(supportedTransports))
 	copy(out, supportedTransports)
 	return out
 }
 
-// firstNonEmpty returns the first non-empty (trimmed) argument.
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
 		if t := strings.TrimSpace(v); t != "" {
@@ -50,14 +41,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// allowInsecureTLS reports whether the profile accepts a certificate that
-// does not validate against a public CA (self-signed VPS certs, raw IP
-// endpoints). Xray 26.x removed the historical "allowInsecure" key and
-// aborts when it is present, so the editor's "Allow Insecure" switch is
-// implemented the only way that survives: true keeps the live cert-chain
-// pinning (the chain is probed and pinned, so a swapped certificate is
-// still rejected), false disables pinning entirely and lets Xray perform
-// its default strict verification.
 func allowInsecureTLS(cfg *config.TunnelConfig) bool {
 	if cfg == nil || cfg.Advanced == nil {
 		return true
@@ -76,10 +59,6 @@ func allowInsecureTLS(cfg *config.TunnelConfig) bool {
 	return true
 }
 
-// buildStreamSettings builds Xray streamSettings for every supported
-// transport (tcp/ws/grpc/xhttp/httpupgrade) and security (none/tls/reality).
-// If dialAddr is an IP literal, allowInsecure is forced true because TLS
-// certs are almost never valid for raw IPs (SAN = domain names).
 func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]interface{} {
 	ss := map[string]interface{}{
 		"network":  cfg.Transport.Network,
@@ -124,9 +103,7 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 			"header": map[string]interface{}{"type": "none"},
 		}
 	case "kcp", "mkcp":
-		// mKCP: obfuscated packet transport. Parameters live in Advanced so
-		// the generic Transport struct (shared with the other transports)
-		// stays untouched; the seed uses Transport.Seed when provided.
+
 		kcp := map[string]interface{}{
 			"mtu":              advInt(cfg.Advanced, "kcp_mtu", 1350),
 			"tti":              advInt(cfg.Advanced, "kcp_tti", 50),
@@ -136,16 +113,10 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 			"readBufferSize":   advInt(cfg.Advanced, "kcp_read_buf", 2),
 			"writeBufferSize":  advInt(cfg.Advanced, "kcp_write_buf", 2),
 		}
-		// Xray 26.x REMOVED kcpSettings.header and kcpSettings.seed (the
-		// obfuscation moved to finalmask/udp header-*). KCPConfig.Build()
-		// now hard-errors with "mkcp header & seed removed" whenever either
-		// key is present, which aborts the whole Xray process at startup —
-		// so emitting them unconditionally made every mKCP tunnel fail to
-		// start. Only the tunables that still exist are emitted; the
-		// "kcp_header"/"kcp_seed" Advanced keys are kept unread on purpose.
+
 		ss["kcpSettings"] = kcp
 	case "http":
-		// HTTP/2 transport: host is a comma-separated list, path the URI.
+
 		h2 := map[string]interface{}{
 			"path": cfg.Transport.Path,
 		}
@@ -172,14 +143,7 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 		}
 		ss["quicSettings"] = quic
 	case "hysteria":
-		// Xray-core >= 26.1.23 ships Hysteria 2 as a native transport.
-		// Two hard requirements come from infra/conf (v26.5.9):
-		//   - "version" must be 2, in BOTH the outbound settings and here;
-		//   - the transport itself is mandatory: the hysteria proxy carries
-		//     no authentication of its own and cannot proxy UDP without it.
-		// "auth" is the shared password and lives ONLY here — the outbound
-		// settings struct (HysteriaClientConfig) has no auth field, so a
-		// password placed there is silently dropped by the JSON loader.
+
 		hy := map[string]interface{}{
 			"version": 2,
 			"auth":    cfg.Auth.Password,
@@ -191,24 +155,13 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 	}
 
 	if cfg.Transport.Security == "tls" {
-		// NOTE: never emit "allowInsecure": Xray 26.x removed it and
-		// aborts startup when present. IP-literal endpoints are handled
-		// by resolveDialAddr (SNI domain) + probeCertPins (cert pinning).
+
 		tlsm := map[string]interface{}{
 			"serverName":  cfg.Server.SNI,
 			"fingerprint": cfg.Transport.Fingerprint,
 			"alpn":        cfg.Transport.ALPN,
 		}
-		// SNI fronting (ex. configs MTN: SNI=mtnplay.com, host=domaine du
-		// serveur): le certificat présenté ne couvre pas le SNI, et
-		// allowInsecure n'existe plus. Xray 26.x: "pinnedPeerCertSha256"
-		// est une string de hashes hex CSV (voir infra/conf et
-		// transport/internet/tls/pin.go de v26.5.9).
-		// Si la sonde échoue (réseau freezero très filtré), on retombe sur
-		// verifyPeerCertByName (string CSV): le cert du VPS porte le nom
-		// cfg.Server.Host, ce qui autorise le fronting sans root CA.
-		//
-		// "Allow Insecure = false" : aucune epingle, verification stricte.
+
 		if allowInsecureTLS(cfg) {
 			if sni := strings.TrimSpace(cfg.Server.SNI); sni != "" &&
 				!strings.EqualFold(sni, cfg.Server.Host) &&
@@ -241,31 +194,19 @@ func buildStreamSettings(cfg *config.TunnelConfig, dialAddr string) map[string]i
 	return ss
 }
 
-// isIPLiteral reports whether addr parses as an IP (v4/v6).
 func isIPLiteral(addr string) bool {
 	return net.ParseIP(strings.TrimSpace(addr)) != nil
 }
 
-// isLoopback reports loopback addresses (local dnstt forwards need no
-// TLS tricks: the real endpoint sits behind the forward).
 func isLoopback(addr string) bool {
 	ip := net.ParseIP(strings.TrimSpace(addr))
 	return ip != nil && ip.IsLoopback()
 }
 
-// resolveDialAddr is intentionally identity: Xray must never receive a
-// domain to dial — its child-process resolver is dead on Android
-// ([::1]:53 refused) and domainStrategy does not cover transport dials.
-// Domains are resolved up-front by resolveEndpoint; TLS trust survives via
-// SNI serverName + live chain pinning (patchStoredTLS).
 func resolveDialAddr(cfg *config.TunnelConfig, addr string) string {
 	return addr
 }
 
-// resolveEndpoint turns a domain endpoint into a dialable IP using the app
-// process resolver (which works: Bionic/netd), because the xray child can
-// resolve nothing. IP literals and loopback forwards pass through
-// untouched. TLS keeps working via serverName SNI + live chain pinning.
 func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 	if cfg == nil || isIPLiteral(addr) || isLoopback(addr) {
 		return addr
@@ -284,19 +225,13 @@ func resolveEndpoint(cfg *config.TunnelConfig, addr string) string {
 	return addr
 }
 
-// probeCertPins opens one throwaway TLS handshake (no verification) and
-// hashes the presented chain into hex-encoded SHA-256 digests that feed
-// Xray 26.x "pinnedPeerCertSha256" (string CSV hex — see
-// removed "allowInsecure"), so self-signed / IP-only certs connect. Xray
-// matches ANY entry against the peer chain (leaf or CA).
 func probeCertPins(addr string, port int, sni string) ([]string, error) {
 	serverName := sni
 	if serverName == "" || isIPLiteral(serverName) {
 		serverName = addr
 	}
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
-	// The system resolver can be blocked (carrier DNS hijack, freebasics
-	// networks): fall back to direct UDP DNS so the probe still succeeds.
+
 	dialer.Resolver = &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
@@ -321,16 +256,6 @@ func probeCertPins(addr string, port int, sni string) ([]string, error) {
 	return hashPeerChain(conn)
 }
 
-// probeCertPinsViaHTTPProxy is probeCertPins through an HTTP CONNECT proxy
-// (proxySettings.tag chains, e.g. freebasics carriers where every direct
-// connection — including the probe's DNS lookup — is blocked). The proxy
-// resolves the target name itself, so no local DNS is required, and the
-// probed chain is exactly the one the real traffic will see.
-//
-// headers must mirror the chained http outbound's settings.headers: carrier
-// proxies (internet.org/freebasics) reject CONNECTs lacking the magic
-// headers (Host/User-Agent/X-iorg-bsid) with 403, while Xray's own dials
-// pass because they carry them.
 func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, sni string, headers map[string]string) ([]string, error) {
 	dialer := &net.Dialer{Timeout: 8 * time.Second}
 	conn, err := dialer.Dial("tcp", net.JoinHostPort(proxyAddr, strconv.Itoa(proxyPort)))
@@ -368,7 +293,7 @@ func probeCertPinsViaHTTPProxy(proxyAddr string, proxyPort int, target string, s
 	if !strings.Contains(status, " 200") {
 		return nil, fmt.Errorf("proxy CONNECT rejected: %s", strings.TrimSpace(status))
 	}
-	// Drain remaining CONNECT response headers.
+
 	for {
 		line, err := br.ReadString('\n')
 		if err != nil {
@@ -402,7 +327,7 @@ func hashPeerChain(conn *tls.Conn) ([]string, error) {
 	seen := map[string]bool{}
 	for _, cert := range conn.ConnectionState().PeerCertificates {
 		sum := sha256.Sum256(cert.Raw)
-		h := hex.EncodeToString(sum[:]) // Xray attends du hex, pas du base64
+		h := hex.EncodeToString(sum[:])
 		if !seen[h] {
 			seen[h] = true
 			pins = append(pins, h)
@@ -414,16 +339,10 @@ func hashPeerChain(conn *tls.Conn) ([]string, error) {
 	return pins, nil
 }
 
-// pinChainValue formate les pins pour Xray 26.x : "pinnedPeerCertSha256"
-// est une STRING de hashes SHA-256 hex séparés par des virgules (le JSON
-// array aurait été rejeté, le base64 ne matcherait jamais).
 func pinChainValue(pins []string) string {
 	return strings.Join(pins, ",")
 }
 
-// httpProxyDialTarget extracts the CONNECT proxy address/port and the
-// settings.headers from an outbound (protocol "http"). Returns ok=false for
-// any other shape.
 func httpProxyDialTarget(ob map[string]interface{}) (addr string, port int, headers map[string]string, ok bool) {
 	proto, _ := ob["protocol"].(string)
 	if proto != "http" {
@@ -446,11 +365,6 @@ func httpProxyDialTarget(ob map[string]interface{}) (addr string, port int, head
 	return addr, port, headers, true
 }
 
-// patchStoredTLS migrates a stored (link-imported or pasted) outbound to
-// what the bundled Xray accepts and the network requires:
-//   - drops "allowInsecure" (removed in Xray 26.x: it aborts startup);
-//   - pins the live peer cert chain when the endpoint stays a raw IP, so
-//     self-signed / IP-only certs connect without disabling verification.
 func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr string, port int) {
 	ss, ok := ob["streamSettings"].(map[string]interface{})
 	if !ok {
@@ -472,8 +386,7 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 		Tracef("[xray] dropped removed allowInsecure (Xray 26.x)")
 	}
 	if !allowInsecureTLS(cfg) {
-		// Allow Insecure = false : aucune epingle, la chaine doit etre
-		// valide par Xray (verification stricte).
+
 		Tracef("[xray] stored outbound: Allow Insecure=false, cert pinning skipped")
 		return
 	}
@@ -487,31 +400,11 @@ func patchStoredTLS(ob map[string]interface{}, cfg *config.TunnelConfig, addr st
 			Tracef("[xray] cert probe %s:%d failed: %v (strict verification)", addr, port, err)
 			return
 		}
-		// Xray matches a handshake when ANY pinned hash matches a chain
-		// cert (leaf or any CA in the chain). Pin the whole chain so
-		// intermediates/leaf rotations still pass verification.
-		// Xray 26.x: string hex CSV (pas un array).
+
 		tlsm["pinnedPeerCertSha256"] = pinChainValue(pins)
 		Tracef("[xray] pinned cert chain for %s:%d (%d in chain)", addr, port, len(pins))
 	}
 }
-
-// -- WireGuard (outbound utilisateur Xray) ----------------------------------
-//
-// Champs du profil (cf. doc officielle Xray outbounds/wireguard) :
-//   server.host / server.port         : endpoint du peer (IP ou domaine)
-//   advanced.wg_secret_key            : clé privée client (requis, `xray wg`)
-//   advanced.wg_address               : IP locales CSV (défaut "10.0.0.1")
-//   advanced.wg_peer_public_key       : clé publique du serveur (requis)
-//   advanced.wg_pre_shared_key        : optionnel
-//   advanced.wg_keep_alive            : secondes (défaut 0/25 via UI)
-//   advanced.wg_allowed_ips           : CSV CIDR (défaut 0.0.0.0/0,::/0)
-//   advanced.wg_mtu                   : défaut 1420
-//   advanced.wg_reserved              : 3 octets CSV (défaut 0,0,0)
-//   advanced.wg_no_kernel_tun         : défaut true (pas de CAP_NET_ADMIN
-//     dans le processus app -> pile gVisor; évite toute détection fautive)
-//   advanced.wg_remote_dns            : CSV d'IP (résolution des cibles
-//     domaines à travers le tunnel WG)
 
 func csvList(s string) []string {
 	out := []string{}
@@ -523,19 +416,15 @@ func csvList(s string) []string {
 	return out
 }
 
-// IsWireGuard reports whether the profile is a WireGuard outbound
-// (protocol form value or a secret key present in advanced options).
 func IsWireGuard(cfg *config.TunnelConfig) bool {
 	return advStr(cfg.Advanced, "wg_secret_key", "") != "" || advStr(cfg.Advanced, "wg_peer_public_key", "") != ""
 }
 
-// BuildWireGuardOutbound builds a WireGuard outbound object.
-// Ne logue JAMAIS secretKey/reserved.
 func BuildWireGuardOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	addr = resolveEndpoint(cfg, addr)
 	addresses := csvList(advStr(cfg.Advanced, "wg_address", ""))
 	if len(addresses) == 0 {
-		// Défaut de la doc officielle (IPv4 + IPv6).
+
 		addresses = []string{"10.0.0.1", "fd59:7153:2388:b5fd:0000:0000:0000:0001"}
 	}
 	allowed := csvList(advStr(cfg.Advanced, "wg_allowed_ips", ""))
@@ -591,7 +480,6 @@ func BuildWireGuardOutbound(cfg *config.TunnelConfig, addr string, port int) map
 	}
 }
 
-// BuildVmessOutbound builds a VMess outbound object.
 func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	security := cfg.Auth.Method
 	if security == "" {
@@ -616,7 +504,6 @@ func BuildVmessOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 	}
 }
 
-// BuildTrojanOutbound builds a Trojan outbound object.
 func BuildTrojanOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	addr = resolveDialAddr(cfg, addr)
 	return map[string]interface{}{
@@ -631,7 +518,6 @@ func BuildTrojanOutbound(cfg *config.TunnelConfig, addr string, port int) map[st
 	}
 }
 
-// BuildShadowsocksOutbound builds a Shadowsocks outbound object.
 func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	method := cfg.Auth.Method
 	if method == "" {
@@ -653,8 +539,6 @@ func BuildShadowsocksOutbound(cfg *config.TunnelConfig, addr string, port int) m
 	}
 }
 
-// BuildHttpOutbound builds an HTTP proxy outbound object (protocol "http"),
-// used by the editor's Xray form when Protocol = Http.
 func BuildHttpOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	addr = resolveDialAddr(cfg, addr)
 	server := map[string]interface{}{"address": addr, "port": port}
@@ -671,8 +555,6 @@ func BuildHttpOutbound(cfg *config.TunnelConfig, addr string, port int) map[stri
 	}
 }
 
-// BuildSocksOutbound builds a SOCKS5 proxy outbound object (protocol
-// "socks"), used by the editor's Xray form when Protocol = Socks.
 func BuildSocksOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	addr = resolveDialAddr(cfg, addr)
 	server := map[string]interface{}{"address": addr, "port": port}
@@ -689,7 +571,6 @@ func BuildSocksOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 	}
 }
 
-// HasOutboundJSON reports whether the config carries a verbatim outbound.
 func HasOutboundJSON(cfg *config.TunnelConfig) bool {
 	if cfg == nil || cfg.Advanced == nil {
 		return false
@@ -704,12 +585,6 @@ func HasOutboundJSON(cfg *config.TunnelConfig) bool {
 	return raw != nil
 }
 
-// FullXrayConfigJSON returns the stored outbound_json as a complete Xray
-// client config (dns/inbounds/outbounds/policy/...) when it has an
-// "outbounds" array — Picko-style full configs pasted by the user. The
-// local SOCKS inbound is normalized to listen on 127.0.0.1:socksPort,
-// removed-in-26.x "allowInsecure" keys are dropped, everything else is
-// used verbatim (proxy chains, policy, dns...). Not a full config → false.
 func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) {
 	if cfg == nil || cfg.Advanced == nil {
 		return "", false
@@ -731,11 +606,10 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 		return "", false
 	}
 
-	// Socks inbound: bind the app-dialed local port, exactly one.
 	var inbounds []interface{}
 	for _, v := range asList(m["inbounds"]) {
 		if im, ok := v.(map[string]interface{}); ok && im["protocol"] == "socks" {
-			continue // replaced below
+			continue
 		}
 		inbounds = append(inbounds, v)
 	}
@@ -747,14 +621,6 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 	}}, inbounds...)
 	m["inbounds"] = inbounds
 
-	// Xray 26.x aborts on the removed allowInsecure key. Also: the bundled
-	// xray is a linux/arm build, and on Android it finds no system CA pool
-	// (x509 android loader requires GOOS=android), so every TLS dial fails
-	// with "certificate signed by unknown authority". Pin the live peer
-	// certificate for each TLS outbound instead (probe happens pre-VPN from
-	// this process, whose resolver works).
-	// Index outbounds by tag so proxySettings.tag chains can be resolved:
-	// the probe must follow the SAME path as the real traffic.
 	byTag := map[string]map[string]interface{}{}
 	for _, v := range outs {
 		if ob, ok := v.(map[string]interface{}); ok {
@@ -782,7 +648,7 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 			continue
 		}
 		if _, has := tlsm["pinnedPeerCertChainSha256"]; has {
-			continue // configs étrangères éventuelles — respectées telles quelles
+			continue
 		}
 		addr, port := outboundDialTarget(ob)
 		if addr == "" || port <= 0 || isLoopback(addr) {
@@ -791,13 +657,9 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 		sni, _ := tlsm["serverName"].(string)
 		target := net.JoinHostPort(addr, strconv.Itoa(port))
 
-		// Quand la sonde échoue sur un fronting (sni != adresse), on tombe
-		// sur verifyPeerCertByName: le cert du serveur porte en général le
-		// nom de l'adresse de connexion, ce qui laisse passer le fronting
-		// tout en évitant l'ancien allowInsecure (retiré en Xray 26.x).
 		byNameFallback := func(context string, probeErr error) {
 			if sni != "" && !strings.EqualFold(sni, addr) && !isIPLiteral(addr) {
-				tlsm["verifyPeerCertByName"] = addr // string CSV en 26.x
+				tlsm["verifyPeerCertByName"] = addr
 				Warnf("xray", "full-config TLS probe %s failed: %v (fallback: cert pinned by name %s)",
 					context, probeErr, addr)
 			} else {
@@ -808,10 +670,7 @@ func FullXrayConfigJSON(cfg *config.TunnelConfig, socksPort int) (string, bool) 
 
 		var pins []string
 		var err error
-		// Chained through an HTTP proxy (proxySettings.tag)? Probe through
-		// it: on freebasics-style networks direct dialing and local DNS are
-		// blocked, so a direct probe always fails even though the real path
-		// works.
+
 		if ps, ok := ob["proxySettings"].(map[string]interface{}); ok {
 			if tag, _ := ps["tag"].(string); tag != "" {
 				if hop, ok2 := byTag[tag]; ok2 {
@@ -851,8 +710,6 @@ func asList(v interface{}) []interface{} {
 	return nil
 }
 
-// outboundDialTarget extracts address/port from an outbound's
-// settings.vnext[0] (vless/vmess) or settings.servers[0] (trojan/ss/http).
 func outboundDialTarget(ob map[string]interface{}) (string, int) {
 	s, ok := ob["settings"].(map[string]interface{})
 	if !ok {
@@ -869,14 +726,8 @@ func outboundDialTarget(ob map[string]interface{}) (string, int) {
 	return "", 0
 }
 
-// TunnelOutbound returns the outbound object for an Xray-family tunnel:
-// Advanced["outbound_json"] verbatim when present (links, pasted JSON),
-// otherwise the structured VLESS builder. Transport-layer chaining options
-// (proxySettings.tag, TransportLayer) are layered onto the result regardless
-// of its source, and any extra outbounds declared via Advanced["outbounds"]
-// are included as siblings by the config generators.
 func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
-	// Domains are unresolvable by the xray child: dial a self-resolved IP.
+
 	addr = resolveEndpoint(cfg, addr)
 	var ob map[string]interface{}
 	if cfg.Advanced != nil {
@@ -894,11 +745,7 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 				if tag, _ := m["tag"].(string); tag == "" {
 					m["tag"] = "proxy"
 				}
-				// Honor the CURRENT host/port fields (they may have been
-				// edited after the link import that produced this JSON),
-				// preferring the SNI domain over a raw IP for TLS, then
-				// migrate TLS settings for Xray 26.x (drop allowInsecure,
-				// pin the live chain for bare IPs).
+
 				addr = resolveDialAddr(cfg, addr)
 				rewriteOutboundAddr(m, addr, port)
 				patchStoredTLS(m, cfg, addr, port)
@@ -917,27 +764,18 @@ func TunnelOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]
 	return ob
 }
 
-// SlowDNSOutbound is TunnelOutbound with the server address rewritten to
-// the local dnstt forward. Required for xray_slowdns tunnels carrying a
-// parsed link / pasted JSON (which embeds the real server address and
-// would otherwise bypass the DNS tunnel).
 func SlowDNSOutbound(cfg *config.TunnelConfig, fwdPort int) map[string]interface{} {
 	ob := TunnelOutbound(cfg, "127.0.0.1", fwdPort)
 	rewriteOutboundAddr(ob, "127.0.0.1", fwdPort)
 	return ob
 }
 
-// rewriteOutboundAddr points vnext[] (vless/vmess) or servers[]
-// (trojan/shadowsocks) at addr:port, tolerating both map shapes produced
-// by the builders ([]map) and by JSON decoding ([]interface{}).
-// The Xray "hysteria" outbound uses a FLAT settings.address/settings.port
-// pair instead, so it is handled first.
 func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
 	s, ok := ob["settings"].(map[string]interface{})
 	if !ok {
 		return
 	}
-	// WireGuard: l'endpoint vit dans peers[] (host:port en une chaîne).
+
 	if ob["protocol"] == "wireguard" {
 		for _, p := range asMapList(s["peers"]) {
 			p["endpoint"] = net.JoinHostPort(addr, strconv.Itoa(port))
@@ -955,8 +793,6 @@ func rewriteOutboundAddr(ob map[string]interface{}, addr string, port int) {
 	rewriteAddrList(s["servers"], addr, port)
 }
 
-// asMapList normalize une liste d'objets produite par un builder
-// ([]map[string]interface{}) ou par un décodage JSON ([]interface{}).
 func asMapList(v interface{}) []map[string]interface{} {
 	switch arr := v.(type) {
 	case []map[string]interface{}:
@@ -997,9 +833,6 @@ func rewriteAddrList(v interface{}, addr string, port int) bool {
 	return false
 }
 
-// proxySettingsTag returns the proxySettings.tag declared under
-// Advanced["proxy_settings"], if any. The tag names a sibling outbound
-// (e.g. a balancer lb-N member) that this outbound should chain through.
 func proxySettingsTag(cfg *config.TunnelConfig) string {
 	if cfg == nil || cfg.Advanced == nil {
 		return ""
@@ -1012,23 +845,12 @@ func proxySettingsTag(cfg *config.TunnelConfig) string {
 	return strings.TrimSpace(tag)
 }
 
-// applyOutboundChainOptions layers transport-layer chaining onto an outbound:
-//   - Advanced["proxy_settings"].tag -> outbound.proxySettings.tag (only when
-//     the outbound doesn't already carry its own proxySettings);
-//   - Transport.TransportLayer -> streamSettings.sockopt.transportLayer = true.
-//
-// It guards the Xray-confirmed invariant that proxySettings.tag must NOT be
-// combined with sockopt.dialerProxy (the binary aborts with
-// "proxySettings.tag is conflicted with sockopt.dialerProxy"), so the
-// transportLayer flag is only added when no dialerProxy is already present.
 func applyOutboundChainOptions(ob map[string]interface{}, cfg *config.TunnelConfig) {
 	if ob == nil || cfg == nil {
 		return
 	}
 	if tag := proxySettingsTag(cfg); tag != "" {
-		// proxySettings.tag conflicts with sockopt.dialerProxy (Xray aborts
-		// with "proxySettings.tag is conflicted with sockopt.dialerProxy"),
-		// so don't inject one when the outbound already dials via a proxy.
+
 		if ob["proxySettings"] == nil && !hasDialerProxy(ob) {
 			ob["proxySettings"] = map[string]interface{}{"tag": tag}
 			Tracef("[xray] outbound %s chained via proxySettings.tag=%q", obTag(ob), tag)
@@ -1063,8 +885,6 @@ func obTag(ob map[string]interface{}) string {
 	return "<untagged>"
 }
 
-// hasDialerProxy reports whether the outbound already specifies a
-// sockopt.dialerProxy (which conflicts with proxySettings.tag).
 func hasDialerProxy(ob map[string]interface{}) bool {
 	ss, ok := ob["streamSettings"].(map[string]interface{})
 	if !ok {
@@ -1075,10 +895,6 @@ func hasDialerProxy(ob map[string]interface{}) bool {
 	return exists
 }
 
-// extraOutbounds returns sibling outbounds declared under
-// Advanced["outbounds"] ([]interface{} or a JSON string). These are emitted
-// alongside the main outbound so that a proxySettings.tag can resolve to an
-// outbound defined on the same profile (e.g. a secondary proxy hop).
 func extraOutbounds(cfg *config.TunnelConfig) []interface{} {
 	if cfg == nil || cfg.Advanced == nil {
 		return nil
@@ -1099,13 +915,6 @@ func extraOutbounds(cfg *config.TunnelConfig) []interface{} {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Subscription link parsing (vmess / vless / trojan / shadowsocks).
-// ParseXrayLink fills a TunnelConfig (display fields) and stores the
-// normalized outbound JSON in Advanced["outbound_json"].
-// ---------------------------------------------------------------------------
-
-// ParseXrayLink parses a subscription link into a TunnelConfig.
 func ParseXrayLink(link string) (config.TunnelConfig, error) {
 	link = strings.TrimSpace(link)
 	scheme := ""
@@ -1327,7 +1136,6 @@ func parseTrojanLink(link string) (config.TunnelConfig, error) {
 func parseShadowsocksLink(link string) (config.TunnelConfig, error) {
 	rest := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(link, "ss://"), "shadowsocks://"))
 
-	// Strip fragment and query for address parsing.
 	name := ""
 	if i := strings.Index(rest, "#"); i >= 0 {
 		name = rest[i+1:]
@@ -1337,14 +1145,14 @@ func parseShadowsocksLink(link string) (config.TunnelConfig, error) {
 		}
 	}
 	if i := strings.Index(rest, "?"); i >= 0 {
-		rest = rest[:i] // plugins ignored
+		rest = rest[:i]
 	}
 
 	var method, password, host string
 	var port int
 
 	if i := strings.LastIndex(rest, "@"); i >= 0 {
-		// ss://[base64(method:password) | method:password]@host:port
+
 		userinfo := rest[:i]
 		hostport := rest[i+1:]
 		if !strings.Contains(userinfo, ":") {
@@ -1365,7 +1173,7 @@ func parseShadowsocksLink(link string) (config.TunnelConfig, error) {
 		}
 		host, port = h, p
 	} else {
-		// ss://base64(method:password@host:port)
+
 		decoded, err := decodeB64Flexible(rest)
 		if err != nil {
 			return config.TunnelConfig{}, fmt.Errorf("invalid ss link: %w", err)
@@ -1404,7 +1212,6 @@ func parseShadowsocksLink(link string) (config.TunnelConfig, error) {
 	return storeOutbound(&cfg, link, outbound)
 }
 
-// decodeB64Flexible decodes standard, URL-safe and unpadded base64.
 func decodeB64Flexible(s string) ([]byte, error) {
 	s = strings.TrimSpace(s)
 	if b, err := base64.StdEncoding.DecodeString(s); err == nil {
@@ -1419,7 +1226,7 @@ func decodeB64Flexible(s string) ([]byte, error) {
 	if b, err := base64.RawURLEncoding.DecodeString(s); err == nil {
 		return b, nil
 	}
-	// Tolerate missing padding explicitly.
+
 	if m := len(s) % 4; m != 0 {
 		s += strings.Repeat("=", 4-m)
 		if b, err := base64.URLEncoding.DecodeString(s); err == nil {

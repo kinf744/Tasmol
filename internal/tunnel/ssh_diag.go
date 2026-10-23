@@ -9,23 +9,13 @@ import (
 	"vpn-app/internal/config"
 )
 
-// This file centralizes the SSH diagnostics written to kighmu.txt (the
-// Download-folder activity log). Goal: a single SSH run can be replayed
-// from the log alone - profile, protocol mode, every step of the dial
-// (DNS -> TCP -> proxy CONNECT -> TLS -> SSH handshake -> SOCKS5) and, on
-// failure, the likely cause of the error instead of a bare error string.
-
-// sshModeName rebuilds the editor's protocol name from the stored profile
-// (advanced["ssh_mode"] plus the proxy/TLS/payload switches), so the log
-// speaks the same language as the "Protocol" dropdown of the app.
 func sshModeName(cfg *config.TunnelConfig) string {
 	if cfg == nil {
 		return "?"
 	}
 	mode := strings.TrimSpace(advStr(cfg.Advanced, "ssh_mode", ""))
 	if mode == "" {
-		// Profiles saved before the multi-mode editor: derive it from the
-		// fields that were available then.
+
 		var parts []string
 		if sshTLSRequested(cfg) {
 			parts = append(parts, "tls")
@@ -64,7 +54,6 @@ func sshModeName(cfg *config.TunnelConfig) string {
 	return "SSH-" + mode
 }
 
-// boolTag renders a boolean setting as on/off for the summary lines.
 func boolTag(b bool) string {
 	if b {
 		return "on"
@@ -72,9 +61,6 @@ func boolTag(b bool) string {
 	return "off"
 }
 
-// logSSHProfile dumps the whole profile in one block: the first thing to
-// read when a tunnel refuses to come up. Secrets stay masked by the file
-// logger (sanitizeLogLine), so lengths and presence are logged instead.
 func logSSHProfile(cfg *config.TunnelConfig, engine string, socksPort int) {
 	if cfg == nil {
 		return
@@ -127,8 +113,6 @@ func logSSHProfile(cfg *config.TunnelConfig, engine string, socksPort int) {
 	}
 }
 
-// summarizePayload renders the injector payload on a single line so the
-// log stays readable, without dumping the raw bytes twice.
 func summarizePayload(payload string) string {
 	one := strings.ReplaceAll(strings.ReplaceAll(payload, "\r\n", " | "), "\n", " | ")
 	one = strings.TrimSpace(one)
@@ -138,14 +122,10 @@ func summarizePayload(payload string) string {
 	return one
 }
 
-// sshStep logs a numbered step of the dial sequence (level info).
 func sshStep(format string, args ...interface{}) {
 	Infof("ssh", format, args...)
 }
 
-// sshDiagError logs a failed step together with the likely cause, so a
-// failure is actionable without reading the code. stage is short ("tcp
-// dial", "proxy CONNECT", ...); hint is optional.
 func sshDiagError(stage string, err error, hint string) {
 	if err == nil {
 		return
@@ -174,8 +154,6 @@ func sshDiagError(stage string, err error, hint string) {
 	}
 }
 
-// logSSHStop records why a tunnel stopped, keeping the exit code of the
-// child process when there is one (openssh: 255 = dial/auth failure).
 func logSSHStop(cfg *config.TunnelConfig, err error) {
 	name := ""
 	if cfg != nil {
@@ -188,8 +166,6 @@ func logSSHStop(cfg *config.TunnelConfig, err error) {
 	Infof("ssh", "tunnel %q stopped (requested)", name)
 }
 
-// sshDialHints returns environment-specific advice for the most common
-// SSH failures on mobile networks.
 func sshDialHints(cfg *config.TunnelConfig, err error) string {
 	if err == nil || cfg == nil {
 		return ""
@@ -214,8 +190,6 @@ func sshDialHints(cfg *config.TunnelConfig, err error) string {
 	return strings.Join(hints, " ; ")
 }
 
-// sshResolveEndpoint resolves the target before dialing so DNS problems are
-// visible in the log instead of surfacing as an opaque handshake timeout.
 func sshResolveEndpoint(host string) string {
 	h := strings.TrimSpace(host)
 	if h == "" || net.ParseIP(h) != nil {
@@ -234,7 +208,6 @@ func sshResolveEndpoint(host string) string {
 	return h
 }
 
-// sshExitHint explains an openssh child exit status (process engine).
 func sshExitHint(code int) string {
 	switch {
 	case code == 255:
@@ -246,8 +219,6 @@ func sshExitHint(code int) string {
 	}
 }
 
-// sshBinaryInfo logs the resolved SSH binary when the process engine runs,
-// so a missing PATH entry is obvious in the log.
 func sshBinaryInfo(bin string, err error) {
 	if err != nil {
 		sshDiagError("ssh binary", err, "verifiez que le binaire openssh est installe")

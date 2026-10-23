@@ -55,18 +55,15 @@ type TunnelConfig struct {
 type ServerConfig struct {
 	Host string `yaml:"host" json:"host"`
 	Port int    `yaml:"port" json:"port"`
-	// PortRange accepts a single port ("5667"), a range ("6000-19999")
-	// or comma-separated ranges ("6000-7750,7751-9500", one uz_core
-	// process each, unified by the round-robin balancer), as used by
-	// Zivpn UDP accounts. It takes precedence over Port.
+
 	PortRange string `yaml:"port_range,omitempty" json:"port_range,omitempty"`
 	Hostname  string `yaml:"hostname,omitempty" json:"hostname,omitempty"`
 	SNI       string `yaml:"sni,omitempty" json:"sni,omitempty"`
 	PublicKey string `yaml:"public_key,omitempty" json:"public_key,omitempty"`
 	ShortID   string `yaml:"short_id,omitempty" json:"short_id,omitempty"`
-	// Nameserver is the dnstt/SlowDNS zone domain (e.g. ns.example.com).
+
 	Nameserver string `yaml:"nameserver,omitempty" json:"nameserver,omitempty"`
-	// DNSResolver is the UDP DNS resolver used by dnstt-client (default 8.8.8.8).
+
 	DNSResolver string `yaml:"dns_resolver,omitempty" json:"dns_resolver,omitempty"`
 }
 
@@ -81,12 +78,9 @@ type AuthConfig struct {
 	PasswordHash string `yaml:"password_hash,omitempty" json:"password_hash,omitempty"`
 }
 
-// SSHConfig holds SSH-tunnel options edited in the UI.
 type SSHConfig struct {
-	// Payload is an HTTP payload template sent on the proxy CONNECT hop.
-	// Tokens: [crlf] [lf] [host] [port]. Empty = plain CONNECT.
 	Payload string `yaml:"payload,omitempty" json:"payload,omitempty"`
-	// Proxy is an HTTP proxy "ip:port" used as CONNECT hop before SSH.
+
 	Proxy string `yaml:"proxy,omitempty" json:"proxy,omitempty"`
 }
 
@@ -101,10 +95,8 @@ type TransportConfig struct {
 	ALPN        []string          `yaml:"alpn,omitempty" json:"alpn,omitempty"`
 	Obfs        string            `yaml:"obfs,omitempty" json:"obfs,omitempty"`
 	ObfsParam   string            `yaml:"obfs_param,omitempty" json:"obfs_param,omitempty"`
-	// TransportLayer enables Xray's transport-layer proxy chaining via the
-	// socket's transportLayer flag (SockOpt). The companion proxySettings.tag
-	// is taken from Advanced["proxy_settings"].
-	TransportLayer bool               `yaml:"transport_layer,omitempty" json:"transport_layer,omitempty"`
+
+	TransportLayer bool `yaml:"transport_layer,omitempty" json:"transport_layer,omitempty"`
 }
 
 type RoutingConfig struct {

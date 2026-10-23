@@ -1,25 +1,3 @@
-// Package vpnlib is the gomobile entry point for the Android application
-// (Voie B, no-root operation).
-//
-// Architecture: the Android VpnService captures device packets into a TUN
-// file descriptor and hands it to Controller.Start. The data plane is an
-// in-process userspace IP stack (gVisor via xjasonlyu/tun2socks) reading
-// the fd directly: it forwards TCP through the local SOCKS5 proxy exposed
-// by the active tunnel (native SSH / dnstt+SSH / local Xray / dnstt+Xray /
-// uz_core balancer), relays UDP DNS (port 53) as DNS-over-TCP through the
-// same SOCKS proxy (works with every tunnel type, including SSH which has
-// no UDP support), and sends other UDP via SOCKS5 UDP ASSOCIATE.
-//
-// NOTE: the official Xray *binary* cannot serve as the front-end here: its
-// linux build opens /dev/net/tun itself (permission denied in the app
-// sandbox) and only GOOS=android builds honor XRAY_TUN_FD — which Xray does
-// not publish for 32-bit ARM. Hence the in-process stack.
-//
-// The app's own UID is excluded from the VPN via
-// VpnService.Builder.addDisallowedApplication, so upstream sockets never
-// loop back into the TUN.
-//
-// Only string/int/bool cross the gomobile boundary (JSON documents).
 package vpnlib
 
 import (
@@ -60,7 +38,6 @@ import (
 	"vpn-app/internal/tunnel"
 )
 
-// startParams configures Controller.Start (JSON document from Kotlin).
 type startParams struct {
 	ConfigPath   string            `json:"config_path"`
 	BinDir       string            `json:"bin_dir"`
@@ -71,63 +48,37 @@ type startParams struct {
 	ManagePort   int               `json:"manage_port"`
 	ActiveTunnel string            `json:"active_tunnel"`
 	AutoFollow   bool              `json:"auto_follow"`
-	// DNSIP forces all port-53 traffic to this resolver (DNS-over-TCP
-	// through the SOCKS upstream). Defaults to 8.8.8.8. Required because
-	// devices often send DNS to link-local/carrier resolvers (e.g.
-	// 169.254.1.2) which are unreachable through the tunnel.
+
 	DNSIP string `json:"dns_ip"`
-	// DNSProtect enables the port-53 interception. Nil (absent) defaults
-	// to true; explicit false passes DNS through the upstream untouched
-	// ("Protection DNS" off in Settings).
+
 	DNSProtect *bool `json:"dns_protect"`
-	// DNSSecondary feeds generated xray dns sections (Settings, custom DNS).
+
 	DNSSecondary string `json:"dns_secondary"`
-	// TCPNoDelay enables TCP_NODELAY on relayed sockets (Settings).
+
 	TCPNoDelay *bool `json:"tcp_nodelay"`
-	// DnsttTCP switches SlowDNS to -tcp (Settings, "Boost SlowDNS").
+
 	DnsttTCP *bool `json:"dnstt_tcp"`
-	// UDPGWListen overrides the UDPGW listen address (ip:port) for this
-	// session, coming from the active profile's "Udpgw Port" field.
-	// Empty keeps the config.yaml value.
+
 	UDPGWListen string `json:"udpgw_listen"`
-	// UDPGWEnabled toggles the UDPGW gateway for this session, coming from
-	// the profile's "Enable UDPGW transparent DNS" switch. Nil (absent)
-	// keeps the config.yaml value.
+
 	UDPGWEnabled *bool `json:"udpgw_enabled"`
-	// RoundRobin is the comma-separated id list of the profiles sharing
-	// the session through Xray's built-in roundrobin balancer. Empty (or a
-	// single id) means single-profile mode: no balancer is initialized.
+
 	RoundRobin string `json:"round_robin"`
-	// LogDir is the device Download directory; a real-time activity file
-	// "kighmu.txt" is written there for diagnostics.
+
 	LogDir string `json:"log_dir"`
-	// LogQuiet réduit le journal aux jalons/erreurs (défaut Android :
-	// true). false = mode verbeux complet (diagnostic avancé).
+
 	LogQuiet *bool `json:"log_quiet"`
-	// TmpDir is a writable app-private directory (Android cache dir) for
-	// temp tunnel configs. Android has no /tmp and the process CWD is
-	// read-only, so os.MkdirTemp("") fails there.
+
 	TmpDir string `json:"tmp_dir"`
 }
 
-// Controller owns the whole mobile VPN session.
 type Controller struct {
 	mu      sync.Mutex
 	running bool
 
-	// Abort d'un Start() en vol : une déconnexion pendant CONNECTING
-	// ne doit PAS attendre la fin du build (helpers, attentes SOCKS/dnstt
-	// jusqu'à ~20 s) pour reprendre le mutex. Stop() lève abort + annule
-	// le ctx SANS le mutex ; le build en cours s'effondre alors en 1-2 s
-	// (les enfants sont tués via exec.CommandContext) et Stop() reprend
-	// la main. C'était la cause du « déconnexion inefficace en
-	// CONNECTING, la clé VPN reste à l'écran ».
 	abort        atomic.Bool
 	cancelHolder atomic.Value
 
-	// Garde le hard-kill du fd TUN idempotent : Stop() peut être appelé
-	// plusieurs fois (stop async + stop du retry Java) pendant qu'un
-	// Start() tient le mutex ; un seul unix.Close doit s'exécuter.
 	hardKilled atomic.Bool
 
 	cfgMgr *config.Manager
@@ -143,10 +94,6 @@ type Controller struct {
 	tun    *t2tunnel.Tunnel
 	dialer *swapDialer
 
-	// Balancer-front state (round-robin mode only): an Xray child process
-	// exposing SOCKS, rotating across the selected profiles with Xray's
-	// built-in "roundrobin" strategy. frontPort is fresh per (re)build:
-	// never the fixed default, never reused.
 	front      *exec.Cmd
 	frontCfg   string
 	frontAlive bool
@@ -162,16 +109,14 @@ type Controller struct {
 	dnsProtect bool
 	startTime  time.Time
 	logFile    *os.File
-	logPath    string // resolved kighmu.txt path (for diagnostics)
+	logPath    string
 	rrLastTry  map[string]time.Time
 }
 
-// NewController creates a Controller. It must be called once.
 func NewController() *Controller {
 	return &Controller{}
 }
 
-// MobileVersion returns the data-plane version.
 func MobileVersion() string {
 	return "2.1.0-tun2socks"
 }
@@ -181,25 +126,11 @@ func errJSON(err error) string {
 	return string(b)
 }
 
-// makeFileLogger wires the tunnel activity log to <logDir>/kighmu.txt.
-//
-// CRITICAL: this MUST never return nil. The previous version returned nil
-// when the path was unwritable, which silently disabled EVERY Go log call
-// (Tracef, Infof, Connf, Journalf, Warnf, Errorf AND PipeLinesToLog, which
-// itself calls Tracef) — kighmu.txt stayed empty and the Logs tab showed
-// "No events yet" even though the tunnel was failing. That is exactly the
-// symptom reported: "contenu très médiocre".
-//
-// Strategy: try the requested logDir first; if unwritable, fall back to
-// the app-private filesDir/logs (always writable on Android, even with
-// targetSdk 34 and scoped storage). The log ALWAYS exists in at least one
-// of those two places. DirectLog is also set so child-process output and
-// internal traces reach the file even when LogFunc is nil.
 func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) {
-	// Resolve a writable path: requested > app-private fallback.
+
 	path, f, ok := c.openLog(logDir)
 	if !ok {
-		// Last resort: app-private filesDir/logs — always writable.
+
 		home, herr := os.UserHomeDir()
 		if herr != nil || home == "" {
 			home = "."
@@ -210,8 +141,7 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 		}
 	}
 	if !ok {
-		// Even the fallback failed: keep going with a no-op logger so
-		// the Go side never crashes, but remember that we are blind.
+
 		c.logFile = nil
 		return func(format string, args ...interface{}) {}
 	}
@@ -219,9 +149,7 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 	c.logPath = path
 
 	var mu sync.Mutex
-	// Direct sink: writes a fully-formatted line (already sanitized by the
-	// caller) straight to the file, bypassing the LogFunc gate. Set so
-	// PipeLinesToLog and internal Tracef always reach kighmu.txt.
+
 	tunnel.DirectLog = func(line string) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -230,7 +158,7 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 		}
 		fmt.Fprintf(c.logFile, "%s  %s\n", time.Now().Format("15:04:05.000"), line)
 	}
-	// Leveled sink: receives "[level] [component] message" and sanitizes.
+
 	return func(format string, args ...interface{}) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -242,9 +170,6 @@ func (c *Controller) makeFileLogger(logDir string) func(string, ...interface{}) 
 	}
 }
 
-// openLog opens <logDir>/<LogFileName> for append, creating the directory.
-// Returns (path, file, true) on success. Le nom du fichier est résolu par
-// le natif (r2) — le même que celui utilisé par Java via PhoLogFileName().
 func (c *Controller) openLog(logDir string) (string, *os.File, bool) {
 	if logDir == "" {
 		return "", nil, false
@@ -260,9 +185,6 @@ func (c *Controller) openLog(logDir string) (string, *os.File, bool) {
 	return path, f, true
 }
 
-// sanitizeLogLine masks secrets before they reach kighmu.txt (passwords,
-// obfs values, UUIDs, tunnel links): structure stays for diagnosis, values
-// don't leak into a Download-folder file.
 func sanitizeLogLine(line string) string {
 	line = logSecretRe.ReplaceAllString(line, `$1"••••••"`)
 	line = logUUIDRe.ReplaceAllString(line, "[UUID]")
@@ -280,11 +202,8 @@ var (
 	logPubkeyRe = regexp.MustCompile(`(-pubkey\s+)[0-9a-fA-F]{8,}`)
 )
 
-// Start boots the management core, the helpers of the active tunnel and the
-// in-process data plane over the Android TUN fd. Returns "" on success or
-// a JSON {"error": "..."} document.
 func (c *Controller) Start(paramsJSON string) string {
-	// Une déconnexion déjà passée sur CE contrôleur : ne rien construire.
+
 	if c.abort.Load() {
 		return errJSON(errors.New("aborted"))
 	}
@@ -312,7 +231,6 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(err)
 	}
 
-	// Wire tunnel engines: bundled official binaries + native SSH.
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
@@ -322,9 +240,8 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.TCPNoDelay = p.TCPNoDelay == nil || *p.TCPNoDelay
 	tunnel.DnsttUseTCP = p.DnsttTCP != nil && *p.DnsttTCP
 
-	// Real-time activity file for diagnosing tunnel failures.
 	tunnel.LogFunc = c.makeFileLogger(p.LogDir)
-	// Journal minimal : jalons + erreurs uniquement (par défaut Android).
+
 	tunnel.QuietLog = p.LogQuiet == nil || *p.LogQuiet
 	tunnel.Connf("session", "starting session")
 
@@ -333,9 +250,6 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("config: %w", err))
 	}
 
-	// Per-profile UDPGW: the editor's "Udpgw Port" and "Enable UDPGW
-	// transparent DNS" switch win over config.yaml for this session only
-	// (the file itself keeps the global default).
 	if cfg := cfgMgr.Get(); cfg != nil {
 		if listen := strings.TrimSpace(p.UDPGWListen); listen != "" {
 			if !strings.Contains(listen, ":") {
@@ -355,9 +269,6 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("core: %w", err))
 	}
 
-	// RE-apply mobile binary layout AFTER constructing the core: the core
-	// resets tunnel.BinDir from config.yaml, which may lack the mobile
-	// filesDir/bin path. These params are authoritative on Android.
 	tunnel.BinDir = p.BinDir
 	tunnel.BinNames = p.BinNames
 	tunnel.NativeSSH = p.NativeSSH
@@ -368,8 +279,7 @@ func (c *Controller) Start(paramsJSON string) string {
 	tunnel.DnsttUseTCP = p.DnsttTCP != nil && *p.DnsttTCP
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
-	// Publication sans mutex : Stop() doit pouvoir annuler ce ctx pendant
-	// que le build tourne encore (il tient c.mu).
+
 	c.cancelHolder.Store(context.CancelFunc(c.cancel))
 	c.cfgMgr = cfgMgr
 	c.vpn = vpn
@@ -397,9 +307,6 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("no tunnel configured: add one first"))
 	}
 
-	// Helpers, then the data plane. With 2+ selected profiles the session
-	// runs in round-robin mode (Xray's built-in balancer); otherwise the
-	// data plane dials the single active SOCKS directly (no balancer).
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
 	if c.abort.Load() {
 		c.cleanupLocked()
@@ -440,7 +347,6 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(errors.New("aborted"))
 	}
 
-	// Embedded management Web UI (same UI as Termux/server mode).
 	if p.ManagePort > 0 {
 		c.apiSrv = api.NewServer(vpn, cfgMgr)
 		addr := fmt.Sprintf("127.0.0.1:%d", p.ManagePort)
@@ -460,11 +366,6 @@ func (c *Controller) Start(paramsJSON string) string {
 	return ""
 }
 
-// ApiSocksAddr retourne le SOCKS local à utiliser pour les appels API de
-// l'app (consommation, activation) : le front round-robin quand il est
-// actif, sinon le SOCKS live du tunnel actif. "" si aucune session — l'app
-// repasse alors en direct. Permet de consulter sa consommation À TRAVERS
-// son propre VPN (l'UID de l'app étant exclu du TUN pour éviter la boucle).
 func (c *Controller) ApiSocksAddr(activeTunnelID string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -479,14 +380,8 @@ func (c *Controller) ApiSocksAddr(activeTunnelID string) string {
 	return ""
 }
 
-// Stop tears the session down. Returns "" on success.
-// Every teardown step is time-bounded: a wedged helper, a stuck
-// tun2socks drain or a blocked follow tick must never hang Stop
-// forever (that left the Android service — and its VPN key icon —
-// stuck with no way to disconnect).
 func (c *Controller) Stop() (out string) {
-	// Barrière finale : un panic survivant n'emporte jamais le processus
-	// (gomobile propagerait un SIGABRT = fermeture brutale de l'app).
+
 	defer func() {
 		if r := recover(); r != nil {
 			tunnel.Errorf("session", "stop panic (swallowed): %v", r)
@@ -494,50 +389,32 @@ func (c *Controller) Stop() (out string) {
 			out = ""
 		}
 	}()
-	// AVANT le mutex : signaler l'abort à un Start() encore en vol. Le
-	// build tient c.mu pendant tout le montage — sans ce signal, Stop()
-	// attendait la fin du build (jusqu'à ~20 s) et la clé VPN restait
-	// affichée pendant toute la construction d'une session déjà annulée.
+
 	c.abort.Store(true)
 	if v := c.cancelHolder.Load(); v != nil {
 		if cancel, ok := v.(context.CancelFunc); ok {
 			cancel()
 		}
 	}
-	// FAST PATH : mutex libre (session idle ou déjà arrêtée) → teardown
-	// complet immédiat, comme avant.
+
 	if c.mu.TryLock() {
 		c.running = false
 		if c.cancel != nil {
 			c.cancel()
 		}
 		c.mu.Unlock()
-		// 1s, pas 3s : followLoop n'a qu'à finir son tick courant —
-		// déconnexion « pro » en < 2.5 s perçus.
+
 		waitBounded(c.wg.Wait, 1*time.Second, "followLoop exit")
 		c.mu.Lock()
 		defer c.mu.Unlock()
 		c.cleanupLocked()
 		return ""
 	}
-	// CONTENDED PATH (déconnexion pendant CONNECTING) : un Start() tient le
-	// mutex. NE JAMAIS BLOQUER ici — c'est ce qui laissait l'appel gomobile
-	// coincé, forçait le watchdog Java à tuer le processus (crash perçu)
-	// et retardait la clé VPN de plusieurs secondes. À la place :
-	//   1. fermer le fd TUN IMMÉDIATEMENT (sans mutex) : le noyau détruit
-	//      l'interface VPN et la clé disparaît sur le champ — méthode
-	//      officielle AOSP : « MUST close the file descriptor when the VPN
-	//      connection is terminated » ;
-	//   2. retourner sans attendre : l'appel Java reprend en < 300 ms,
-	//      plus personne ne tue le processus ;
-	//   3. le Start() en vol s'effondre de lui-même (helpers SIGKILLés par
-	//      le ctx annulé, fd fermé) et exécute son propre cleanupLocked —
-	//      idempotent. Un goroutine détaché finalise le teardown complet
-	//      derrière, borné, sans bloquer personne.
+
 	c.hardKillTunFd()
 	go func() {
 		defer func() {
-			// Un panic survivant n'emporte jamais le processus.
+
 			_ = recover()
 		}()
 		c.mu.Lock()
@@ -554,10 +431,6 @@ func (c *Controller) Stop() (out string) {
 	return ""
 }
 
-// hardKillTunFd ferme le fd TUN une seule fois, sans mutex. Le fd est
-// publié tôt dans Start() (c.tunFd = p.TunFd) ; la lecture sans mutex est
-// acceptable sur ce chemin kill : au pire fd=0 (pas encore publié) et
-// l'interface sera fermée par le cleanup du Start() lui-même.
 func (c *Controller) hardKillTunFd() {
 	if c.hardKilled.Swap(true) {
 		return
@@ -567,15 +440,10 @@ func (c *Controller) hardKillTunFd() {
 	}
 }
 
-// waitBounded runs wait but gives up after d, logging the timeout.
-// Used so teardown always makes progress even when something wedges.
 func waitBounded(wait func(), d time.Duration, what string) {
 	done := make(chan struct{})
 	go func() {
-		// Un panic dans une goroutine native (gVisor/tun2socks pendant
-		// stack.Close sur des sockets actifs) tue tout le processus —
-		// symptôme "l'app se ferme toute seule à la déconnexion".
-		// On convertit en warning : le teardown continue quoi qu'il arrive.
+
 		defer func() {
 			if r := recover(); r != nil {
 				tunnel.Warnf("session", "teardown panic in %s: %v", what, r)
@@ -591,8 +459,6 @@ func waitBounded(wait func(), d time.Duration, what string) {
 	}
 }
 
-// safeCall exécute fn en avalant tout panic : la destruction du plan de
-// données ne doit JAMAIS emporter le processus (crash utilisateur).
 func safeCall(what string, fn func()) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -624,13 +490,7 @@ func (c *Controller) cleanupLocked() {
 	if c.vpn != nil {
 		v := c.vpn
 		c.vpn = nil
-		// A bounded context, not Background(): every helper is started with
-		// exec.CommandContext, so cancelling this context SIGKILLs xray,
-		// uz_core, hysteria, openssh and dnstt even when a tunnel's own Stop
-		// wedges. Without it, hitting the outer bound meant the children
-		// simply stayed alive as orphans of a process Android still thought
-		// was running — holding their SOCKS ports, so the next session's
-		// helper could never bind and burned all its retry attempts.
+
 		stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		waitBounded(func() { _ = v.Stop(stopCtx) }, 3*time.Second, "tunnels stop")
 		cancel()
@@ -651,10 +511,6 @@ func (c *Controller) cleanupLocked() {
 	tunnel.LogFunc = nil
 }
 
-// ensureHelpersLocked starts the helper process of the active tunnel.
-// Every tunnel type exposes a local SOCKS5 (native SSH, dnstt+SSH,
-// Xray process, dnstt+Xray process, uz_core balancer) which the data
-// plane dials.
 func (c *Controller) ensureHelpersLocked(id string) error {
 	t, ok := c.vpn.GetTunnelManager().Get(id)
 	if !ok {
@@ -674,8 +530,6 @@ func (c *Controller) ensureHelpersLocked(id string) error {
 	return nil
 }
 
-// parseRoundRobin parses the comma-separated round-robin id list, keeping
-// only ids that exist in the config. Round-robin mode requires 2+.
 func parseRoundRobin(csv string, cfgMgr *config.Manager) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -694,7 +548,6 @@ func parseRoundRobin(csv string, cfgMgr *config.Manager) []string {
 	return out
 }
 
-// ensureHelperRetryLocked starts one helper with up to 3 attempts.
 func (c *Controller) ensureHelperRetryLocked(id string) error {
 	t, ok := c.vpn.GetTunnelManager().Get(id)
 	if !ok {
@@ -717,11 +570,6 @@ func (c *Controller) ensureHelperRetryLocked(id string) error {
 	return fmt.Errorf("tunnel %s failed after 3 attempts: %w", t.Name(), err)
 }
 
-// ensureHelpersNLocked starts every selected helper (3 tries each). Profiles
-// failing 3 times are dropped from the rotation; an error is returned only
-// when fewer than 2 profiles survive. Les helpers démarrent EN PARALLÈLE
-// (deux profils SlowDNS, ~2× plus lent autrement — chacun a sa propre
-// dnstt/uz/xray et son mutex interne).
 func (c *Controller) ensureHelpersNLocked(ids []string) error {
 	type result struct {
 		id  string
@@ -735,7 +583,7 @@ func (c *Controller) ensureHelpersNLocked(ids []string) error {
 	}
 	var okIDs []string
 	var lastErr error
-	// Préserver l'ordre de sélection (le premier reste la référence UI).
+
 	byID := map[string]error{}
 	for range ids {
 		r := <-resCh
@@ -759,8 +607,6 @@ func (c *Controller) ensureHelpersNLocked(ids []string) error {
 	return nil
 }
 
-// startBalancerFrontLocked spawns the Xray SOCKS front rotating across the
-// profiles with Xray's built-in "roundrobin" strategy (caller holds c.mu).
 func (c *Controller) startBalancerFrontLocked() error {
 	var profiles []*config.TunnelConfig
 	for _, id := range c.rrIDs {
@@ -772,8 +618,7 @@ func (c *Controller) startBalancerFrontLocked() error {
 		tunnel.Tracef("[rr-front] member %q type=%s live=%s",
 			t.Name(), t.Type(), tunnel.SocksAddr(t.Config()))
 	}
-	// Fresh random front port per (re)build: a previous front — draining
-	// or leaked — can never hold the new one hostage.
+
 	frontPort, err := tunnel.PickFreePort()
 	if err != nil {
 		return fmt.Errorf("round-robin front port: %w", err)
@@ -841,7 +686,6 @@ func (c *Controller) killFrontLocked() {
 	}
 }
 
-// watchFront flips frontAlive off when the child exits.
 func (c *Controller) watchFront(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	tunnel.Tracef("[rr-front] process exited: %v", err)
@@ -852,16 +696,12 @@ func (c *Controller) watchFront(cmd *exec.Cmd) {
 	}
 }
 
-// rebuildBalancerFrontLocked restarts the front around the given profiles.
 func (c *Controller) rebuildBalancerFrontLocked(ids []string) error {
 	c.killFrontLocked()
 	c.rrIDs = ids
 	return c.startBalancerFrontLocked()
 }
 
-// startDataplaneLocked builds the in-process gVisor stack over the Android
-// TUN fd, upstreaming at the active tunnel's local SOCKS5 (caller holds
-// c.mu).
 func (c *Controller) startDataplaneLocked() error {
 	socksAddr := fmt.Sprintf("127.0.0.1:%d", c.frontPort)
 	if len(c.rrIDs) < 2 {
@@ -907,9 +747,6 @@ func (c *Controller) startDataplaneLocked() error {
 	return nil
 }
 
-// switchUpstreamLocked re-points the data plane: at the live front in
-// round-robin mode (its port changes on every rebuild), otherwise at the
-// active tunnel's live SOCKS.
 func (c *Controller) switchUpstreamLocked() error {
 	if c.dialer == nil {
 		return fmt.Errorf("data plane not running")
@@ -939,8 +776,6 @@ func (c *Controller) switchUpstreamLocked() error {
 	return nil
 }
 
-// followRoundRobinLocked revives dead helpers (one attempt per minute each)
-// and rebuilds the front whenever the alive set changes.
 func (c *Controller) followRoundRobinLocked() {
 	if c.rrLastTry == nil {
 		c.rrLastTry = make(map[string]time.Time)
@@ -961,8 +796,7 @@ func (c *Controller) followRoundRobinLocked() {
 					tunnel.Warnf("rr", "revive %s failed: %v", t.Name(), err)
 					continue
 				}
-				// A revived member rebinds fresh ports: the front's
-				// member list is stale and must be rebuilt below.
+
 				revived = true
 			} else {
 				continue
@@ -978,8 +812,7 @@ func (c *Controller) followRoundRobinLocked() {
 			tunnel.Errorf("rr", "rebuild failed: %v", err)
 			return
 		}
-		// The rebuilt front listens on a fresh port: re-point the data
-		// plane or traffic keeps flowing to the dead one.
+
 		if err := c.switchUpstreamLocked(); err != nil {
 			tunnel.Tracef("[rr] re-point after rebuild failed: %v", err)
 		}
@@ -1006,10 +839,6 @@ func sameIDSet(a, b []string) bool {
 	return true
 }
 
-// followLoop migrates the data plane to any running tunnel when the active
-// one dies (client asked with auto_follow).
-// throttledRestartLocked restarts a dead helper (one attempt per minute).
-// Returns true when the tunnel runs again. Caller holds c.mu.
 func (c *Controller) throttledRestartLocked(t tunnel.Tunnel) bool {
 	if c.rrLastTry == nil {
 		c.rrLastTry = make(map[string]time.Time)
@@ -1056,9 +885,7 @@ func (c *Controller) followLoop() {
 				activeAlive = t.Status() == tunnel.StatusRunning
 			}
 			if !activeAlive {
-				// First: try restarting the active tunnel itself (throttled),
-				// so a transient helper death self-heals instead of forcing
-				// a force-close/reopen cycle.
+
 				if t, ok := c.vpn.GetTunnelManager().Get(c.activeID); ok {
 					if c.throttledRestartLocked(t) {
 						c.mu.Unlock()
@@ -1080,9 +907,6 @@ func (c *Controller) followLoop() {
 	}
 }
 
-// SetActiveTunnel switches the data plane to the tunnel: helpers are
-// ensured, then the upstream is switched. It leaves round-robin mode
-// (the balancer front is stopped) since a single explicit tunnel wins.
 func (c *Controller) SetActiveTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1108,7 +932,6 @@ func (c *Controller) SetActiveTunnel(id string) string {
 	return ""
 }
 
-// StartTunnel starts a tunnel helper process without touching the data plane.
 func (c *Controller) StartTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1128,7 +951,6 @@ func (c *Controller) StartTunnel(id string) string {
 	return ""
 }
 
-// StopTunnel stops a tunnel helper process.
 func (c *Controller) StopTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1146,7 +968,6 @@ func (c *Controller) StopTunnel(id string) string {
 	return ""
 }
 
-// AddTunnel creates a tunnel from a TunnelConfig JSON document.
 func (c *Controller) AddTunnel(tunnelJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1172,7 +993,6 @@ func (c *Controller) AddTunnel(tunnelJSON string) string {
 	return string(b)
 }
 
-// UpdateTunnel replaces a tunnel config (restarts helpers/upstream if active).
 func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1212,7 +1032,6 @@ func (c *Controller) UpdateTunnel(id, tunnelJSON string) string {
 	return ""
 }
 
-// DeleteTunnel removes a tunnel (refused while it carries the data plane).
 func (c *Controller) DeleteTunnel(id string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1232,8 +1051,6 @@ func (c *Controller) DeleteTunnel(id string) string {
 	return ""
 }
 
-// ImportConfig replaces the whole configuration (YAML or JSON). The service
-// must be restarted afterwards for new tunnels to load.
 func (c *Controller) ImportConfig(content string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1258,7 +1075,6 @@ func (c *Controller) ImportConfig(content string) string {
 	return string(b)
 }
 
-// ExportConfig returns the whole configuration as YAML.
 func (c *Controller) ExportConfig() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1277,7 +1093,6 @@ func (c *Controller) ExportConfig() string {
 	return string(out)
 }
 
-// GetStatus returns the session status as JSON.
 func (c *Controller) GetStatus() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -1327,18 +1142,8 @@ func (c *Controller) GetStatus() string {
 	return string(b)
 }
 
-// ---------------------------------------------------------------------------
-// swapDialer: hot-swappable SOCKS5 upstream with DNS-over-TCP interception.
-// ---------------------------------------------------------------------------
-
-// swapDialer implements t2proxy.Dialer. UDP port 53 is relayed as
-// DNS-over-TCP through the SOCKS proxy, always toward the forced resolver
-// (never the packet's original destination, which is often a link-local or
-// carrier-local IP unreachable through the tunnel). This makes DNS work
-// with every tunnel type (SSH has no UDP support either).
-// All other traffic uses the upstream directly.
 type swapDialer struct {
-	v          atomic.Value // stores t2proxy.Dialer
+	v          atomic.Value
 	dnsIP      netip.Addr
 	protectDNS bool
 }
@@ -1385,10 +1190,6 @@ func (d *swapDialer) DialUDP(m *t2meta.Metadata) (net.PacketConn, error) {
 	return u.DialUDP(m)
 }
 
-// dnsOverTCPConn is a net.PacketConn relaying DNS datagrams over a
-// DNS-over-TCP stream (RFC 7766 framing: uint16 length + message) opened
-// through the SOCKS upstream toward the forced resolver IP. raddr carries
-// the original destination so the stack accepts the answer.
 type dnsOverTCPConn struct {
 	dial    t2proxy.Dialer
 	dialIP  netip.Addr
@@ -1421,12 +1222,7 @@ func (c *dnsOverTCPConn) WriteTo(b []byte, addr net.Addr) (int, error) {
 }
 
 func (c *dnsOverTCPConn) relay(query []byte) {
-	// Timeouts 30 s (alignés sur le Mux.Open 30 s) : sur les réseaux où
-	// l'opérateur bloque un flux UDP après 1-2 paquets, l'OK du CONNECT
-	// n'est récupéré qu'au hop suivant (10-15 s) — un timeout de 10 s
-	// expirait AVANT la récupération et le DNS échouait en boucle
-	// ("CONNECT: connection refused" répété, pas de résolution, pas de
-	// trafic web).
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1450,8 +1246,7 @@ func (c *dnsOverTCPConn) relay(query []byte) {
 		return
 	}
 	if _, err := io.ReadFull(conn, hdr[:]); err != nil {
-		// Le timeout : la réponse n'est JAMAIS arrivée (le mapping CGNAT
-		// mort, le flux bloqué) — la durée exacte dans kighmu.txt.
+
 		tunnel.Tracef("[dns] query timeout after %v (réponse jamais reçue): %v", time.Since(t0), err)
 		return
 	}
@@ -1492,12 +1287,6 @@ func (c *dnsOverTCPConn) SetDeadline(t time.Time) error      { return nil }
 func (c *dnsOverTCPConn) SetReadDeadline(t time.Time) error  { return nil }
 func (c *dnsOverTCPConn) SetWriteDeadline(t time.Time) error { return nil }
 
-// ---------------------------------------------------------------------------
-// Offline helpers (no running Controller needed). Used by the native UI to
-// manage tunnels and parse links while disconnected.
-// ---------------------------------------------------------------------------
-
-// ParseLink parses a subscription link into a TunnelConfig JSON document.
 func ParseLink(link string) string {
 	tc, err := tunnel.ParseXrayLink(link)
 	if err != nil {
@@ -1510,7 +1299,6 @@ func ParseLink(link string) string {
 	return string(b)
 }
 
-// openConfigManager opens the config file (creating defaults if missing).
 func openConfigManager(configPath string) (*config.Manager, error) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 		return nil, err
@@ -1518,7 +1306,6 @@ func openConfigManager(configPath string) (*config.Manager, error) {
 	return config.NewManager(configPath)
 }
 
-// ConfigAdd appends a tunnel (TunnelConfig JSON) to the config file.
 func ConfigAdd(configPath, tunnelJSON string) string {
 	var tc config.TunnelConfig
 	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
@@ -1538,7 +1325,6 @@ func ConfigAdd(configPath, tunnelJSON string) string {
 	return string(b)
 }
 
-// ConfigUpdate replaces a tunnel in the config file.
 func ConfigUpdate(configPath, id, tunnelJSON string) string {
 	var tc config.TunnelConfig
 	if err := json.Unmarshal([]byte(tunnelJSON), &tc); err != nil {
@@ -1558,7 +1344,6 @@ func ConfigUpdate(configPath, id, tunnelJSON string) string {
 	return ""
 }
 
-// ConfigDelete removes a tunnel from the config file.
 func ConfigDelete(configPath, id string) string {
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
@@ -1571,8 +1356,6 @@ func ConfigDelete(configPath, id string) string {
 	return ""
 }
 
-// ListTunnels returns the full TunnelConfig array from the config file
-// (used by the native UI, online or offline).
 func ListTunnels(configPath string) string {
 	mgr, err := openConfigManager(configPath)
 	if err != nil {
@@ -1580,8 +1363,7 @@ func ListTunnels(configPath string) string {
 	}
 	defer mgr.Close()
 	out := mgr.Get().Tunnels
-	// Proof-tracing for vanishing fields (slowdns key, zivpn ranges):
-	// logged on every list so save-vs-load can be compared in kighmu.txt.
+
 	for _, tc := range out {
 		if tc.Type == config.TunnelSSHSlowDNS || tc.Type == config.TunnelXraySlowDNS || tc.Type == config.TunnelZivpn {
 			tunnel.Tracef("[config] list id=%s type=%s name=%q pubkeyLen=%d",
@@ -1595,9 +1377,6 @@ func ListTunnels(configPath string) string {
 	return string(b)
 }
 
-// SocksAddrFor returns the local SOCKS endpoint of a tunnel
-// ({"socks":"127.0.0.1:port","type":"..."}) without starting anything.
-// Used by the native UDP-DNS ping while connected.
 func SocksAddrFor(configPath, id string) string {
 	mgr, err := openConfigManager(configPath)
 	if err != nil {

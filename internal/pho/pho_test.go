@@ -27,7 +27,7 @@ func TestVaultRoundTrip(t *testing.T) {
 	if got := VaultGet("uuid-test", "code"); got != "secret" {
 		t.Fatalf("got %q", got)
 	}
-	// mauvaise clé (autre uuid) -> illisible
+
 	data, _ := os.ReadFile(dir + "/pho.vault")
 	if len(data) == 0 {
 		t.Fatal("vault empty")
@@ -49,7 +49,7 @@ func TestVaultV2SaltRequired(t *testing.T) {
 	if salt == nil || len(salt) != 32 {
 		t.Fatal("salt file missing")
 	}
-	// Clé v2 (uuid+salt) déchiffre ; la clé v1 (uuid seul) ne doit PAS.
+
 	data, _ := os.ReadFile(dir + "/pho.vault")
 	if _, err := storeOpen(storeKey("uuid-v2", salt), data); err != nil {
 		t.Fatalf("v2 key must decrypt: %v", err)
@@ -57,7 +57,7 @@ func TestVaultV2SaltRequired(t *testing.T) {
 	if _, err := storeOpen(legacyKey("uuid-v2"), data); err == nil {
 		t.Fatal("legacy key must NOT decrypt a v2 vault")
 	}
-	// Mauvais salt (autre installation) -> illisible.
+
 	if _, err := storeOpen(storeKey("uuid-v2", make([]byte, 32)), data); err == nil {
 		t.Fatal("foreign salt must fail")
 	}
@@ -70,7 +70,6 @@ func TestTunnelSecretsAndAccount(t *testing.T) {
 	}
 	const uuid = "uuid-tun"
 
-	// Secrets de tunnels (hysteria, ssh, xray)
 	if err := TunPut(uuid, "hysteria", "auth", "hyp3r-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -89,14 +88,14 @@ func TestTunnelSecretsAndAccount(t *testing.T) {
 	if got := TunGet(uuid, "xray", "uuid"); got == "" {
 		t.Fatal("xray uuid missing")
 	}
-	// kind / field invalides rejetés
+
 	if err := TunPut(uuid, "rdp", "pass", "x"); err == nil {
 		t.Fatal("unknown kind must fail")
 	}
 	if err := TunPut(uuid, "ssh", "Bad Field", "x"); err == nil {
 		t.Fatal("invalid field must fail")
 	}
-	// Clear d'un tunnel seulement
+
 	if err := TunClear(uuid, "ssh"); err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +106,6 @@ func TestTunnelSecretsAndAccount(t *testing.T) {
 		t.Fatal("xray secrets must survive TunClear(ssh)")
 	}
 
-	// Credentials API
 	if err := SaveAccount(uuid, "+237699000000", "123456"); err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +132,7 @@ func TestPinPersist(t *testing.T) {
 	if loadPins()["api-v1.kingom.ggff.net:443"] != "AAAA" {
 		t.Fatal("pin not persisted")
 	}
-	// Rotation tolérée : un autre endpoint a son propre pin.
+
 	pins = loadPins()
 	pins["api-v1.kingom.ggff.net:8443"] = "BBBB"
 	savePins(pins)
@@ -192,21 +190,19 @@ func TestMapLineSuspicious(t *testing.T) {
 }
 
 func TestProbeFridaPorts(t *testing.T) {
-	// Aucun frida-server sur la machine de test : aucun hit.
+
 	if hits := probeFridaPorts(); len(hits) != 0 {
 		t.Fatalf("unexpected hits: %v", hits)
 	}
 }
 
 func TestDeviceProofMatchesJava(t *testing.T) {
-	// Vecteurs figés (référence Python/Java) : la sortie DOIT rester
-	// identique à l'ancienne implémentation Java — les preuves épinglées
-	// côté serveur le exigent.
+
 	got := DeviceProof("a1b2c3d4-e5f6-4a1b-8c2d-9e0f1a2b3c4d", "1234567890abcdef")
 	if got != "0b7c05128dc8127079ef6a02aa0077b86947c3b8eeaacd0ca03a606730932bf7" {
 		t.Fatalf("proof vector mismatch: %s", got)
 	}
-	// ANDROID_ID vide : clé = SHA-256("") (82d2… — référence Python).
+
 	got = DeviceProof("u", "")
 	if got != "82d206e486c4629c17ae9322b2bc1251df69500dce75d0b233f364c076068778" {
 		t.Fatalf("empty aid proof mismatch: %s", got)
@@ -218,14 +214,12 @@ func TestIdentityUuidVector(t *testing.T) {
 	if err := Init(dir); err != nil {
 		t.Fatal(err)
 	}
-	// Vecteur figé (référence Python) : secret imposé via IdentityEnsure
-	// puis uuid dérivé — format v4 et valeur identiques à l'ancienne
-	// formule Java (SHA-256(secret|aid), nibbles version/variante).
+
 	s := IdentityEnsure()
 	if len(s) != 32 {
 		t.Fatalf("secret must be 32 hex chars: %q", s)
 	}
-	// Réécrivons pho.id avec un secret connu pour vérifier le vecteur.
+
 	salt := loadSalt()
 	known := "0123456789abcdef0123456789abcdef"
 	enc, err := sealWithKey(identityKey(salt), []byte(known))
@@ -235,7 +229,7 @@ func TestIdentityUuidVector(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, idFile), enc, 0600); err != nil {
 		t.Fatal(err)
 	}
-	idVal = "" // invalide le cache pour forcer la relecture
+	idVal = ""
 	if got := IdentityEnsure(); got != known {
 		t.Fatalf("identity read-back: got %q", got)
 	}
@@ -243,11 +237,11 @@ func TestIdentityUuidVector(t *testing.T) {
 	if u != "0809c47f-76c4-415c-864c-9c7f05b13065" {
 		t.Fatalf("uuid vector mismatch: %s", u)
 	}
-	// Stable sur appels répétés (cache).
+
 	if u2 := IdentityUuid("1234567890abcdef"); u2 != u {
 		t.Fatal("identity uuid must be stable")
 	}
-	// Un autre appareil (autre ANDROID_ID) dérive un uuid différent.
+
 	if IdentityUuid("ffffffffffffffff") == u {
 		t.Fatal("different device must derive a different uuid")
 	}
@@ -280,8 +274,7 @@ func TestSetProxyState(t *testing.T) {
 }
 
 func TestLogFileNameShared(t *testing.T) {
-	// Le nom doit correspondre à celui utilisé par le fichier Java
-	// (Bridge PhoLogFileName) : format <nom>.txt, non vide.
+
 	n := LogFileName()
 	if n == "" || filepath.Ext(n) != ".txt" {
 		t.Fatalf("bad log file name: %q", n)
@@ -294,7 +287,7 @@ func TestVaultCacheConsistency(t *testing.T) {
 		t.Fatal(err)
 	}
 	const uuid = "uuid-cache"
-	// Écriture -> cache -> lecture (depuis le cache) -> fichier toujours chiffré.
+
 	if err := VaultPut(uuid, "k1", "v1"); err != nil {
 		t.Fatal(err)
 	}
@@ -305,14 +298,14 @@ func TestVaultCacheConsistency(t *testing.T) {
 	if len(data) == 0 || string(data[:1]) == "{" {
 		t.Fatal("vault file must remain encrypted")
 	}
-	// Écritures successives : le cache suit la dernière valeur.
+
 	if err := VaultPut(uuid, "k1", "v2"); err != nil {
 		t.Fatal(err)
 	}
 	if got := VaultGet(uuid, "k1"); got != "v2" {
 		t.Fatalf("cache staleness: got %q", got)
 	}
-	// Clear : cache invalidé, lecture vide, fichier parti.
+
 	VaultClear(uuid)
 	if got := VaultGet(uuid, "k1"); got != "" {
 		t.Fatalf("clear must invalidate cache: got %q", got)
@@ -320,7 +313,7 @@ func TestVaultCacheConsistency(t *testing.T) {
 	if _, err := os.Stat(dir + "/pho.vault"); !os.IsNotExist(err) {
 		t.Fatal("vault file must be removed")
 	}
-	// Isolation inter-uuid conservée avec le cache.
+
 	if err := VaultPut("u-a", "k", "a"); err != nil {
 		t.Fatal(err)
 	}

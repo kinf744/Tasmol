@@ -50,7 +50,6 @@ func (t *SSHTunnel) Stats() Stats {
 
 func (t *SSHTunnel) Config() *config.TunnelConfig { return t.config }
 
-// redactSSHArgs masks "-i <key>" values (key material, not a path) for logs.
 func redactSSHArgs(args []string) []string {
 	out := append([]string(nil), args...)
 	for i := 0; i < len(out)-1; i++ {
@@ -124,7 +123,6 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Fresh random SOCKS port per session (override respected).
 	ClearLiveSocksAddr(t.config.ID)
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
@@ -140,8 +138,7 @@ func (t *SSHTunnel) Start(ctx context.Context) error {
 	Tracef("[ssh-proc] BinDir=%q BinNames=%v", BinDir, BinNames)
 	bin := LookupBin(BinDir, BinSSH)
 	Tracef("[ssh-proc] binary=%q args=%q", bin, redactSSHArgs(args))
-	// kighmu.txt : la commande exacte (sans secrets) et le binaire
-	// resolu, premiere cause possible d'un demarrage qui echoue.
+
 	Infof("ssh", "exec %s %s", bin, redactSSHArgs(args))
 	sshBinaryInfo(bin, nil)
 
@@ -209,8 +206,7 @@ func (t *SSHTunnel) monitorProcess() {
 		if err != nil {
 			t.setError(err.Error())
 		}
-		// Explication du deconnexion : openssh utilise 255 pour tout
-		// echec de connexion ou d'authentification, d'ou la precision.
+
 		code := -1
 		if ee, ok := err.(*exec.ExitError); ok {
 			code = ee.ExitCode()

@@ -21,15 +21,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// This file implements SSH without the external openssh binary, for
-// platforms where it cannot be executed (Android APK). It uses
-// golang.org/x/crypto/ssh plus a minimal embedded SOCKS5 CONNECT server.
-// Host-key checking mirrors the process implementation
-// (StrictHostKeyChecking=no).
-
-// sshTLSRequested reports whether this profile wraps the SSH handshake in
-// TLS ("SSH-TLS*" modes). The flag is set by the editor (Advanced["ssh_tls"])
-// and the SNI/version in Server.SNI / Advanced["ssh_tls_version"].
 func sshTLSRequested(cfg *config.TunnelConfig) bool {
 	if advBool(cfg.Advanced, "ssh_tls", false) {
 		return true
@@ -37,8 +28,6 @@ func sshTLSRequested(cfg *config.TunnelConfig) bool {
 	return strings.EqualFold(strings.TrimSpace(cfg.Transport.Security), "tls")
 }
 
-// tlsVersionRange maps the editor's TLS Version dropdown
-// (default / 1.2 / 1.3) to a crypto/tls version window.
 func tlsVersionRange(cfg *config.TunnelConfig) (minV, maxV uint16) {
 	switch strings.TrimSpace(advStr(cfg.Advanced, "ssh_tls_version", "default")) {
 	case "1.2", "tls1.2":
@@ -46,26 +35,21 @@ func tlsVersionRange(cfg *config.TunnelConfig) (minV, maxV uint16) {
 	case "1.3", "tls1.3":
 		return tls.VersionTLS13, tls.VersionTLS13
 	}
-	return 0, 0 // Go defaults
+	return 0, 0
 }
 
-// wrapSSHConn applies the TLS layer requested by the profile on top of the
-// already-dialed raw TCP connection (direct or via the proxy hop). Returns
-// the connection unchanged when TLS is not requested. The returned conn is a
-// *bufferedConn when the handshake consumed bytes (see tls.Client over a
-// conn read through a bufio.Reader is handled by the tls package itself).
 func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn, error) {
 	if !sshTLSRequested(cfg) {
 		return conn, nil
 	}
 	sni := strings.TrimSpace(cfg.Server.SNI)
 	if sni == "" {
-		sni, _, _ = splitProxyAddr(addr) // fall back to the target host
+		sni, _, _ = splitProxyAddr(addr)
 	}
 	minV, maxV := tlsVersionRange(cfg)
 	tlsConn := tls.Client(conn, &tls.Config{
 		ServerName:         sni,
-		InsecureSkipVerify: true, // tunnel endpoints use self-signed certs
+		InsecureSkipVerify: true,
 		MinVersion:         minV,
 		MaxVersion:         maxV,
 	})
@@ -81,9 +65,6 @@ func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn
 	return tlsConn, nil
 }
 
-// sshDial opens an SSH client connection from a tunnel config. When
-// cfg.SSH.Proxy ("ip:port") is set, SSH is reached through an HTTP CONNECT
-// hop carrying cfg.SSH.Payload (see dialViaProxy).
 func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	hasPass := cfg.Auth.Password != ""
 	hasKey := strings.TrimSpace(cfg.Auth.PrivateKey) != ""
@@ -95,8 +76,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	Tracef("[ssh] dial begin addr=%s user=%q passwordSet=%v keySet=%v passphraseSet=%v proxy=%q payloadLen=%d",
 		addr, user, hasPass, hasKey, hasPhrase,
 		cfg.SSH.Proxy, len(cfg.SSH.Payload))
-	// kighmu.txt : un resume lisible du protocole et de la chaine d'appels,
-	// suivi de chaque etape (DNS -> TCP -> proxy -> TLS -> handshake).
+
 	sshStep("dial start protocol=%s target=%s user=%s", sshModeName(cfg), addr, user)
 	sshResolveEndpoint(cfg.Server.Host)
 	if sshTLSRequested(cfg) {
@@ -136,9 +116,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		Auth:            auth,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         15 * time.Second,
-		// Pre-auth server banner (MOTD header): surfaced in the journal
-		// like the reference app's SSH_BANNER card. Skipped for locked
-		// "Remove Banner" profiles.
+
 		BannerCallback: func(message string) error {
 			if advBool(cfg.Advanced, "remove_banner", false) {
 				return nil
@@ -206,20 +184,15 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			Journalf("ssh-banner", "server version: %s", v)
 		}
 	}
-	// Post-auth server message (MOTD): best-effort shell read, silent on
-	// restricted shells. Mirrors the reference SSH_SERVER_MESSAGE card.
-	// Skipped for locked "Remove Banner" profiles.
+
 	if !advBool(cfg.Advanced, "remove_banner", false) {
 		logServerMessage(client)
 	}
 	return client, nil
 }
 
-// ansiRe strips ANSI terminal escapes from server text.
 var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
-// cleanServerText makes server-sent text journal-safe: no ANSI, no control
-// bytes, trimmed, capped.
 func cleanServerText(s string, max int) string {
 	s = ansiRe.ReplaceAllString(s, "")
 	var b strings.Builder
@@ -235,10 +208,6 @@ func cleanServerText(s string, max int) string {
 	return s
 }
 
-// logServerMessage captures up to a few MOTD lines through a throwaway shell
-// session (3s budget). Any failure is silent: some servers forbid shells.
-// The session is always closed (even on timeout) so server-side session
-// slots never leak across reconnects.
 func logServerMessage(client *ssh.Client) {
 	var sessPtr atomic.Pointer[ssh.Session]
 	done := make(chan struct{})
@@ -288,13 +257,7 @@ func logServerMessage(client *ssh.Client) {
 		if sess := sessPtr.Load(); sess != nil {
 			_ = sess.Close()
 		}
-		// Closing the session is *supposed* to wake the pending stdout.Read,
-		// but it is not guaranteed: a server that never answers the channel
-		// close leaves the Read blocked forever. This helper only harvests
-		// the banner, so give it a bounded grace period and then give up.
-		// The old bare "<-done" pinned t.mu forever on that path, which made
-		// Start/Stop — and therefore every status read on the UI thread —
-		// block indefinitely. native SSH is the default engine on Android.
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -302,7 +265,6 @@ func logServerMessage(client *ssh.Client) {
 	}
 }
 
-// promptSeen stops the MOTD read once a shell prompt line appears.
 func promptSeen(buf []byte) bool {
 	s := string(buf)
 	i := strings.LastIndexByte(s, '\n')
@@ -315,8 +277,6 @@ func promptSeen(buf []byte) bool {
 	return strings.HasSuffix(last, "$") || strings.HasSuffix(last, "#") || strings.HasSuffix(last, ">")
 }
 
-// isShellPrompt drops prompt echo lines (user@host, trailing $/#) from the
-// journal; the message body is what matters.
 func isShellPrompt(line string) bool {
 	t := strings.TrimSpace(line)
 	if strings.Contains(t, "@") {
@@ -325,11 +285,6 @@ func isShellPrompt(line string) bool {
 	return strings.HasSuffix(t, "$") || strings.HasSuffix(t, "#")
 }
 
-// renderPayload expands a payload template like HTTP Injector / HTTP
-// Custom: [crlf]/[lf]/[cr]/[host]/[port]/[host_port]/[protocol] tokens plus
-// [proxy_host]/[proxy_port]. Line endings are honored EXACTLY ([lf] stays
-// a bare LF: some proxies reject forced CRLF). [delay]/[delay_split]
-// DPI-evasion timings are stripped (sent continuously) — logged by caller.
 func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	p := tpl
 	p = strings.ReplaceAll(p, "[CRLF]", "\r\n")
@@ -350,18 +305,14 @@ func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	p = strings.ReplaceAll(p, "[proxy_port]", proxyPort)
 	p = strings.ReplaceAll(p, "[real_host]", host)
 	p = strings.ReplaceAll(p, "[REAL_HOST]", host)
-	// Pasted HTTP-Custom payloads carry literal backslash escapes.
+
 	p = strings.ReplaceAll(p, "\\r\\n", "\r\n")
 	p = strings.ReplaceAll(p, "\\r", "\r")
 	p = strings.ReplaceAll(p, "\\n", "\n")
-	// [split]/[delay] DPI-evasion markers are kept for sendPayload, which
-	// transmits the chunks with inter-part sleeps (never sent literally).
+
 	return p
 }
 
-// sendPayload writes the payload, honoring Injector DPI-evasion markers:
-// [split] parts go out 30ms apart, [delay] lines 20ms apart; otherwise one
-// shot. Markers themselves are never transmitted.
 func sendPayload(conn net.Conn, payload, raw string) error {
 	lower := strings.ToLower(raw)
 	if strings.Contains(lower, "[split]") {
@@ -396,7 +347,6 @@ func sendPayload(conn net.Conn, payload, raw string) error {
 	return err
 }
 
-// splitMarker splits s on marker case-insensitively, dropping the markers.
 func splitMarker(s, marker string) []string {
 	var out []string
 	lower := strings.ToLower(s)
@@ -413,9 +363,6 @@ func splitMarker(s, marker string) []string {
 	}
 }
 
-// isFullRequest reports whether a rendered payload already carries its own
-// HTTP request line (Injector "custom request" style): prepending another
-// CONNECT would glue two requests and hang the proxy silent.
 func isFullRequest(body string) bool {
 	upper := strings.ToUpper(strings.TrimLeft(body, " \t\r\n"))
 	for _, m := range []string{"CONNECT ", "GET ", "POST ", "HEAD ", "OPTIONS ", "PUT ", "DELETE ", "PATCH ", "TRACE "} {
@@ -426,8 +373,6 @@ func isFullRequest(body string) bool {
 	return false
 }
 
-// proxyStatusCode extracts the 3-digit code from an HTTP status line
-// ("HTTP/1.1 200 OK" -> 200), or 0 when unparsable.
 func proxyStatusCode(status string) int {
 	parts := strings.Fields(status)
 	if len(parts) < 2 {
@@ -440,8 +385,6 @@ func proxyStatusCode(status string) int {
 	return code
 }
 
-// proxyAuthHeader builds the Proxy-Authorization value when the editor set
-// proxy credentials ("Authenticate Proxy"), empty otherwise.
 func proxyAuthHeader(cfg *config.TunnelConfig) string {
 	user := strings.TrimSpace(advStr(cfg.Advanced, "proxy_user", ""))
 	pass := advStr(cfg.Advanced, "proxy_pass", "")
@@ -451,9 +394,6 @@ func proxyAuthHeader(cfg *config.TunnelConfig) string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
 }
 
-// dialViaProxy opens a TCP connection to an HTTP proxy and issues a CONNECT
-// request (with the optional custom payload) towards addr. authHeader is an
-// optional Proxy-Authorization value.
 func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, error) {
 	Tracef("[ssh] proxy hop: proxy=%s target=%s payloadLen=%d", proxyAddr, addr, len(payloadTpl))
 	proxyHost, proxyPort, err := splitProxyAddr(proxyAddr)
@@ -484,16 +424,12 @@ func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, err
 	}
 
 	var req strings.Builder
-	// isConnect mirrors the reference engine: only a CONNECT request
-	// demands 200/101; other methods (or the auto default) fail solely on
-	// explicit proxy errors.
+
 	isConnect := strings.TrimSpace(payloadTpl) == ""
 	if strings.TrimSpace(payloadTpl) != "" {
 		body := renderPayload(payloadTpl, host, port, proxyHost, portOf(proxyAddr))
 		if isFullRequest(body) {
-			// Injector-style: the payload IS the complete HTTP request
-			// (its own CONNECT/GET line). Prepending another CONNECT
-			// glues two requests together and the proxy hangs silent.
+
 			Tracef("[ssh] full-request payload, sent as-is (%d bytes)", len(body))
 			req.WriteString(body)
 			if !strings.HasSuffix(body, "\r\n") {
@@ -539,8 +475,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, err
 	}
 	Journalf("ssh", "proxy status: %s", strings.TrimSpace(status))
 	code := proxyStatusCode(status)
-	// Reference-engine rule: hard proxy errors always fail; a CONNECT
-	// additionally demands 200, or 101 (WS-panel "tunnel open" convention).
+
 	if code == 400 || code == 403 || code == 404 || code == 407 || code == 500 || code == 502 {
 		conn.Close()
 		return nil, fmt.Errorf("proxy error: %s", strings.TrimSpace(status))
@@ -549,9 +484,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, err
 		conn.Close()
 		return nil, fmt.Errorf("proxy refused: %s", strings.TrimSpace(status))
 	}
-	// Consume remaining header lines, tolerantly: quirky proxies may send
-	// no terminating blank line — never fail here, the buffered wrapper
-	// below replays anything already read.
+
 	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
 	for {
 		line, err := reader.ReadString('\n')
@@ -559,10 +492,7 @@ func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, err
 			break
 		}
 	}
-	// Hand the (possibly buffered) connection to the SSH handshake. The
-	// buffered reader may already hold handshake bytes, so wrap it.
-	// The hop deadline is cleared either way: the SSH handshake and the
-	// session get the full configured timeouts, not the 3s header budget.
+
 	if reader.Buffered() > 0 {
 		conn = &bufferedConn{Conn: conn, r: reader}
 	}
@@ -573,7 +503,6 @@ func dialViaProxy(proxyAddr, addr, payloadTpl, authHeader string) (net.Conn, err
 	return conn, nil
 }
 
-// bufferedConn replays bytes already buffered before delegating to Conn.
 type bufferedConn struct {
 	net.Conn
 	r *bufio.Reader
@@ -583,7 +512,7 @@ func (c *bufferedConn) Read(b []byte) (int, error) { return c.r.Read(b) }
 
 func splitProxyAddr(addr string) (host, port string, err error) {
 	a := strings.TrimSpace(addr)
-	// Tolerate pasted URLs ("http://1.2.3.4:8080/path").
+
 	if i := strings.Index(a, "://"); i >= 0 {
 		a = a[i+3:]
 	}
@@ -605,7 +534,6 @@ func portOf(addr string) string {
 	return port
 }
 
-// socksPortOf extracts the port from a 127.0.0.1:port endpoint (0 if bad).
 func socksPortOf(addr string) int {
 	_, p, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -615,7 +543,6 @@ func socksPortOf(addr string) int {
 	return port
 }
 
-// hideUser masks the username for locked "Hide UPass" profiles.
 func hideUser(cfg *config.TunnelConfig, user string) string {
 	if advBool(cfg.Advanced, "hide_upass", false) {
 		return "••••"
@@ -623,8 +550,6 @@ func hideUser(cfg *config.TunnelConfig, user string) string {
 	return user
 }
 
-// serveSocks5 runs a minimal SOCKS5 server (CONNECT, no auth) on ln; every
-// connection is forwarded through sshClient. It stops when ctx is done.
 func serveSocks5(ctx context.Context, ln net.Listener, sshClient *ssh.Client) {
 	go func() {
 		<-ctx.Done()
@@ -647,7 +572,6 @@ func serveSocks5(ctx context.Context, ln net.Listener, sshClient *ssh.Client) {
 func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	defer conn.Close()
 
-	// Greeting: VER NMETHODS METHODS.
 	hdr := make([]byte, 2)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
 		return
@@ -659,29 +583,28 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	if _, err := io.ReadFull(conn, methods); err != nil {
 		return
 	}
-	// No-auth accepted.
+
 	if _, err := conn.Write([]byte{0x05, 0x00}); err != nil {
 		return
 	}
 
-	// Request: VER CMD RSV ATYP ADDR PORT.
 	req := make([]byte, 4)
 	if _, err := io.ReadFull(conn, req); err != nil {
 		return
 	}
-	if req[0] != 0x05 || req[1] != 0x01 { // CONNECT only
+	if req[0] != 0x05 || req[1] != 0x01 {
 		conn.Write([]byte{0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 		return
 	}
 	var host string
 	switch req[3] {
-	case 0x01: // IPv4
+	case 0x01:
 		ip := make([]byte, 4)
 		if _, err := io.ReadFull(conn, ip); err != nil {
 			return
 		}
 		host = net.IP(ip).String()
-	case 0x03: // Domain
+	case 0x03:
 		l := make([]byte, 1)
 		if _, err := io.ReadFull(conn, l); err != nil {
 			return
@@ -691,7 +614,7 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 			return
 		}
 		host = string(d)
-	case 0x04: // IPv6
+	case 0x04:
 		ip := make([]byte, 16)
 		if _, err := io.ReadFull(conn, ip); err != nil {
 			return
@@ -712,15 +635,13 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	remote, err := sshClient.Dial("tcp", target)
 	if err != nil {
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
-		// Destination injoignable depuis le VPS : tres frequent sur un
-		// serveur qui ne filtre que DNS ou un port precis.
+
 		Connf("ssh", "SOCKS5 -> %s refuse (%v) apres %s",
 			target, err, time.Since(start).Round(time.Millisecond))
 		return
 	}
 	defer remote.Close()
 
-	// Success reply (bound address zeroed).
 	if _, err := conn.Write([]byte{0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0}); err != nil {
 		return
 	}
@@ -728,11 +649,6 @@ func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 
 	relayTCP(conn, remote)
 }
-
-// ---------------------------------------------------------------------------
-// NativeSSHTunnel: direct SSH + embedded SOCKS5 (mobile replacement for the
-// process-based SSHTunnel).
-// ---------------------------------------------------------------------------
 
 type NativeSSHTunnel struct {
 	mu        sync.RWMutex
@@ -803,8 +719,6 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 		return fmt.Errorf("ssh dial failed: %w", err)
 	}
 
-	// Fresh random SOCKS port per session (override respected): never
-	// reuse, never collide with a draining previous session.
 	ClearLiveSocksAddr(t.config.ID)
 	socksAddr, _, err := PickLiveSocksAddr(t.config)
 	if err != nil {
@@ -830,8 +744,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
 	t.ln = ln
-	// serveSocks5 blocks in Accept: always run it as a goroutine or
-	// Start() never returns (session stuck in CONNECTING forever).
+
 	go serveSocks5(t.ctx, ln, client)
 
 	t.startTime = time.Now()
@@ -882,8 +795,7 @@ func (t *NativeSSHTunnel) monitor() {
 	if t.status == StatusRunning {
 		t.status = StatusError
 		t.setError("ssh connection closed")
-		// Cause lisible dans kighmu.txt : le tunnel ne s'est pas arrete
-		// sur demande, la session SSH a coupe d'elle-meme.
+
 		Warnf("ssh", "session SSH perdue (connexion fermee par le serveur ou le reseau) pour %q ;"+
 			" les kept-alives ne sont pas configures, l'app tente un reconnexion via auto-follow",
 			t.config.Name)
@@ -896,12 +808,6 @@ func (t *NativeSSHTunnel) setError(msg string) {
 	t.stats.LastError = msg
 	t.stats.UpdatedAt = time.Now()
 }
-
-// ---------------------------------------------------------------------------
-// NativeSSHSlowDNSTunnel: dnstt binary + native SSH dialed through the local
-// forward + embedded SOCKS5 (mobile replacement for SSHSlowDNSTunnel; the
-// dnstt binary itself IS bundled in the APK).
-// ---------------------------------------------------------------------------
 
 type NativeSSHSlowDNSTunnel struct {
 	mu         sync.RWMutex
@@ -988,8 +894,6 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Fresh random forward + SOCKS ports per session (overrides
-	// respected): two profiles of the same type never share 2222/10802.
 	ClearLiveForward(t.config.ID)
 	ClearLiveSocksAddr(t.config.ID)
 	fwdPort, err := PickLiveForward(t.config, DefaultSSHSlowDNSFwdPort)
@@ -1000,7 +904,6 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 
-	// dnstt first (shared helper with output capture).
 	Tracef("[ssh-slowdns] phase 1/2: dnstt forward :%d", fwdPort)
 	Connf("ssh", "SlowDNS phase 1/2 : demarrage dnstt -> 127.0.0.1:%d (ns=%s resolver=%s)",
 		fwdPort, DnsttDomain(t.config), DnsttResolver(t.config))
@@ -1055,8 +958,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.ctx = ctx
 	t.client = sshClient
 	t.ln = ln
-	// serveSocks5 blocks in Accept: always run it as a goroutine or
-	// Start() never returns (session stuck in CONNECTING forever).
+
 	go serveSocks5(t.ctx, ln, sshClient)
 
 	t.startTime = time.Now()
@@ -1116,9 +1018,7 @@ func (t *NativeSSHSlowDNSTunnel) monitor() {
 	if t.status == StatusRunning {
 		t.status = StatusError
 		t.setError("ssh/slowdns connection closed")
-		// Un tunnel DNS qui meurt laisse souvent le profil bloque en
-		// CONNECTING : dire quel processus est mort evite de chercher
-		// a l'aveugle.
+
 		if t.slowdnscmd != nil && t.slowdnscmd.ProcessState != nil {
 			sshDiagError("dnstt", fmt.Errorf("process exited (%s)", t.slowdnscmd.ProcessState),
 				"le forward DNS a coupe")

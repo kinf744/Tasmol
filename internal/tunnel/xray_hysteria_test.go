@@ -7,8 +7,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// jsonInt normalise un nombre issu d'un Unmarshal JSON (float64) en int,
-// afin de comparer "version" sans se laisser piéger par le type dynamique.
 func jsonInt(v interface{}) int {
 	switch n := v.(type) {
 	case float64:
@@ -22,9 +20,6 @@ func jsonInt(v interface{}) int {
 	return -1
 }
 
-// Xray 26.x removed kcpSettings.header and kcpSettings.seed; KCPConfig.Build()
-// hard-errors when either key is present, which aborts the whole Xray process.
-// Every mKCP outbound used to emit "header" unconditionally.
 func TestKcpSettingsNeverEmitsRemovedHeaderOrSeed(t *testing.T) {
 	cfg := &config.TunnelConfig{
 		Name: "mkcp",
@@ -53,15 +48,12 @@ func TestKcpSettingsNeverEmitsRemovedHeaderOrSeed(t *testing.T) {
 	if _, bad := kcp["seed"]; bad {
 		t.Error("kcpSettings.seed emitted: Xray 26.x refuses to start with it")
 	}
-	// The tunables that still exist must survive.
+
 	if kcp["mtu"] == nil {
 		t.Error("kcpSettings.mtu missing")
 	}
 }
 
-// The Xray hysteria outbound uses a FLAT settings.address/settings.port pair,
-// unlike vnext[]/servers[]. rewriteOutboundAddr must handle it, otherwise
-// editing the host in the editor after import is silently ignored.
 func TestRewriteOutboundAddrHysteriaFlatShape(t *testing.T) {
 	ob := map[string]interface{}{
 		"protocol": "hysteria",
@@ -85,9 +77,6 @@ func TestRewriteOutboundAddrHysteriaFlatShape(t *testing.T) {
 	}
 }
 
-// A hysteria profile must still yield its SOCKS listen port end-to-end through
-// TunnelOutbound, i.e. the manual outbound_json is honoured and the address is
-// patched to the resolvable dial endpoint.
 func TestHysteriaOutboundKeepsVersionAndAuth(t *testing.T) {
 	raw := `{"protocol":"hysteria","tag":"proxy",
 	 "settings":{"version":2,"address":"vps.example","port":443},
@@ -107,8 +96,7 @@ func TestHysteriaOutboundKeepsVersionAndAuth(t *testing.T) {
 
 	ob := TunnelOutbound(cfg, "vps.example", 443)
 	s, _ := ob["settings"].(map[string]interface{})
-	// Les valeurs viennent d'un Unmarshal JSON : "version" est un float64,
-	// pas un int. On compare numériquement.
+
 	if jsonInt(s["version"]) != 2 {
 		t.Errorf("outbound settings.version lost: %#v", s)
 	}
@@ -120,8 +108,7 @@ func TestHysteriaOutboundKeepsVersionAndAuth(t *testing.T) {
 	if hy["auth"] != "motdepasse" {
 		t.Errorf("hysteriaSettings.auth lost: %#v", hy)
 	}
-	// "hysteria" must be advertised as a supported transport so the UI can
-	// offer it and the validator does not reject it.
+
 	var found bool
 	for _, tr := range SupportedTransports() {
 		if tr == "hysteria" {
@@ -133,8 +120,6 @@ func TestHysteriaOutboundKeepsVersionAndAuth(t *testing.T) {
 	}
 }
 
-// buildStreamSettings must emit a hysteria transport when the network asks for
-// it, carrying "version": 2 and the shared password.
 func TestBuildStreamSettingsHysteriaTransport(t *testing.T) {
 	cfg := &config.TunnelConfig{
 		Server:    config.ServerConfig{Host: "vps.example", Port: 443, SNI: "vps.example"},

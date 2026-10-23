@@ -9,10 +9,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// Stop() used to hold u.mu across u.wg.Wait(). handlePackets unblocks from
-// ReadFrom when the connection is closed and then needs u.mu to record the
-// error, so the wait could never complete: Stop blocked forever, u.status
-// stayed true, and every later Stop/Start/GetStats blocked too.
 func TestUDPGWProxyStopDoesNotDeadlock(t *testing.T) {
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -45,7 +41,7 @@ func TestUDPGWProxyStopDoesNotDeadlock(t *testing.T) {
 	if u.status {
 		t.Error("status still true after Stop")
 	}
-	// A second Stop must be a cheap no-op, not a second hang.
+
 	second := make(chan struct{})
 	go func() {
 		_ = u.Stop(context.Background())
@@ -58,10 +54,6 @@ func TestUDPGWProxyStopDoesNotDeadlock(t *testing.T) {
 	}
 }
 
-// wg.Add used to be called from the read loop, which could race the
-// wg.Wait() in Stop and panic with "sync: WaitGroup misuse" (Go >= 1.20),
-// killing the process. The read loop now registers under u.mu and refuses
-// once Stop has begun, so Stop must survive a burst of real traffic.
 func TestUDPGWProxyStopUnderTraffic(t *testing.T) {
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -84,7 +76,6 @@ func TestUDPGWProxyStopUnderTraffic(t *testing.T) {
 	u.wg.Add(1)
 	go u.handlePackets()
 
-	// Keep the read loop busy registering forwarders right up to the Stop.
 	stop := make(chan struct{})
 	go func() {
 		payload := make([]byte, 256)

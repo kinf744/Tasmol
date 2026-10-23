@@ -44,11 +44,6 @@ func (m *manager) Remove(id string) error {
 		return fmt.Errorf("tunnel not found: %s", id)
 	}
 
-	// Drop the catalogue entry BEFORE stopping, and never hold m.mu across
-	// the blocking Stop: the old code held the write lock for the whole stop,
-	// which froze List()/GetRunning() and therefore GetStatus() — i.e. the
-	// Android UI thread. It also skipped the delete whenever Stop returned an
-	// error, so a failing tunnel stayed in the catalogue forever.
 	m.mu.Lock()
 	delete(m.tunnels, id)
 	m.mu.Unlock()
@@ -119,10 +114,6 @@ func (m *manager) StopAll(ctx context.Context) error {
 	}
 	m.mu.RUnlock()
 
-	// Do NOT bail out on the first failure: a single misbehaving tunnel used
-	// to leave every later tunnel — and the UDPGW — running, so a
-	// disconnect could report an error while helper processes stayed alive.
-	// Collect errors, stop everything, then report.
 	var firstErr error
 	for _, t := range tunnels {
 		if err := t.Stop(ctx); err != nil && firstErr == nil {
@@ -155,8 +146,6 @@ func (m *manager) GetUDPGW() UDPGW {
 	return m.udpgw
 }
 
-// useNativeSSH reports whether the pure-Go SSH implementation applies:
-// global mobile default, overridable per tunnel via Advanced["native_ssh"].
 func useNativeSSH(cfg *config.TunnelConfig) bool {
 	if cfg.Advanced != nil {
 		if v, ok := cfg.Advanced["native_ssh"]; ok {

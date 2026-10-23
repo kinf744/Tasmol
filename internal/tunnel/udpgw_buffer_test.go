@@ -10,9 +10,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// collector records what a listener received, without closing anything: the
-// listener goroutines outlive the assertion and are torn down by the deferred
-// PacketConn.Close.
 type collector struct {
 	mu  sync.Mutex
 	got []string
@@ -32,16 +29,6 @@ func (c *collector) snapshot() []string {
 	return out
 }
 
-// handlePackets() used to hand `buf[:n]` to the forwarder goroutine, where
-// buf is the single buffer the read loop keeps reusing. By the time the
-// goroutine is actually scheduled, the loop has already overwritten it with a
-// later datagram: forwardPacket then resolved the wrong destination and wrote
-// the wrong bytes to it, mixing one client flow into another.
-//
-// The race detector cannot see the production side of this (the copy inside
-// (*net.UDPConn).ReadFrom is not instrumented — verified separately), so the
-// bug is asserted on content: a datagram must only ever be delivered to the
-// listener its payload names.
 func TestUDPGWProxyDoesNotShareReadBuffer(t *testing.T) {
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
 	if err != nil {
@@ -101,7 +88,6 @@ func TestUDPGWProxyDoesNotShareReadBuffer(t *testing.T) {
 	}
 	time.Sleep(2 * time.Second)
 
-	// Every listener must have received its own address and nothing else.
 	mismatches := 0
 	delivered := 0
 	for i := 0; i < listeners; i++ {

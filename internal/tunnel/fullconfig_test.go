@@ -59,7 +59,6 @@ func TestFullXrayConfigJSON(t *testing.T) {
 		t.Fatal("policy/dns dropped")
 	}
 
-	// Single outbound must NOT be treated as full config.
 	cfg.Advanced[OutboundJSONKey] = `{"protocol":"vless"}`
 	if _, ok := FullXrayConfigJSON(cfg, 10808); ok {
 		t.Fatal("single outbound wrongly detected as full config")

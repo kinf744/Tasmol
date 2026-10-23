@@ -38,9 +38,7 @@ func NewManager(configPath string) (*Manager, error) {
 }
 
 func (m *Manager) load() error {
-	// Direct YAML decode (no viper): every struct field maps 1:1 via
-	// yaml tags, so slowdns keys and port ranges can never be dropped
-	// by a mapping layer on load.
+
 	raw, err := os.ReadFile(m.path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -178,8 +176,7 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 	tunnel.UpdatedAt = time.Now()
 
 	if tunnel.Type == TunnelZivpn {
-		// Defaults: full client range split into 8 sub-ranges (one
-		// uz_core per sub-range, round-robin balanced for throughput).
+
 		if tunnel.Server.PortRange == "" && tunnel.Server.Port == 0 {
 			tunnel.Server.PortRange = "6000-9499,9500-12999,13000-16499,16500-19999"
 		}
@@ -187,12 +184,10 @@ func (m *Manager) AddTunnel(tunnel *TunnelConfig) error {
 			tunnel.Transport.Network = "udp"
 		}
 		if tunnel.Transport.Obfs == "" {
-			tunnel.Transport.Obfs = string([]rune{115, 97, 108, 97, 109, 97, 110, 100, 101, 114}) // salamander
+			tunnel.Transport.Obfs = string([]rune{115, 97, 108, 97, 109, 97, 110, 100, 101, 114})
 		}
 		if tunnel.Transport.ObfsParam == "" {
-			// Fixed obfs value used by the Zivpn UDP tunnel
-			// (see tunnel.DefaultZivpnObfsPassword). Jamais en clair dans
-			// le binaire (code points, comme internal/pho).
+
 			tunnel.Transport.ObfsParam = string([]rune{104, 117, 96, 96, 104, 113, 98, 96, 99})
 		}
 	}

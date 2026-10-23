@@ -57,8 +57,7 @@ func NewServer(core *core.VPNCore, configMgr *config.Manager) *Server {
 }
 
 func (s *Server) setupRoutes() {
-	// The Web UI is embedded in the binary (web/embed.go) so it works
-	// everywhere: Termux, server installs and the Android APK.
+
 	htmlTmpl := template.Must(template.New("index.html").ParseFS(webui.FS, "templates/index.html"))
 	s.router.SetHTMLTemplate(htmlTmpl)
 	if staticFS, err := fs.Sub(webui.FS, "static"); err == nil {
@@ -199,7 +198,7 @@ func (s *Server) updateConfigHandler(c *gin.Context) {
 		return
 	}
 
-	s.configMgr.Get() // This would need proper update logic
+	s.configMgr.Get()
 	c.JSON(http.StatusOK, gin.H{"message": "Config updated"})
 }
 
@@ -264,8 +263,6 @@ func (s *Server) createTunnelHandler(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"id": tunnelCfg.ID, "message": "Tunnel created"})
 }
 
-// parseLinkHandler parses a subscription link (vmess/vless/trojan/ss)
-// into a TunnelConfig draft (fields + normalized outbound JSON).
 func (s *Server) parseLinkHandler(c *gin.Context) {
 	var req struct {
 		Link string `json:"link" binding:"required"`
@@ -418,7 +415,6 @@ func (s *Server) updateFeaturesHandler(c *gin.Context) {
 func (s *Server) exportHandler(c *gin.Context) {
 	format := c.Query("format")
 
-	// Implementation would use importExport package
 	c.JSON(http.StatusOK, gin.H{"message": "Export initiated", "format": format})
 }
 
@@ -429,7 +425,6 @@ func (s *Server) importHandler(c *gin.Context) {
 		return
 	}
 
-	// Implementation would use importExport package
 	c.JSON(http.StatusOK, gin.H{"message": "Import initiated", "filename": file.Filename})
 }
 

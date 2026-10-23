@@ -7,25 +7,10 @@ import (
 	"vpn-app/internal/config"
 )
 
-// DefaultFrontPort is the local SOCKS5 endpoint of the round-robin front
-// (an Xray process built by BuildBalancerFront). It sits outside the
-// per-tunnel SOCKS range (10801-10810).
 const DefaultFrontPort = 10900
 
-// RoundRobinOutboundTag is the balancer tag used in the front config.
 const RoundRobinOutboundTag = "rr"
 
-// BuildBalancerFront builds a front Xray config routing all TCP+UDP through
-// Xray's built-in balancer over one outbound per profile. xray-native
-// profiles get VLESS outbounds, every other type gets a SOCKS outbound
-// toward its already-running local helper (native SSH, dnstt+SSH,
-// dnstt+Xray forward, uz_core balancer).
-//
-// NOTE: Xray 26.x wants "strategy" as an OBJECT with camelCase type:
-// {"type": "roundRobin"} rotates through members in order. A plain
-// "roundrobin" string aborts startup ("cannot unmarshal string into
-// ...StrategyConfig" / "unknown config id"). Verified against
-// XTLS/Xray-core infra/conf/router_strategy.go.
 func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte, error) {
 	if len(profiles) < 2 {
 		return nil, fmt.Errorf("round-robin needs at least 2 profiles, got %d", len(profiles))
@@ -39,8 +24,7 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 			return nil, fmt.Errorf("profile %s: %w", tc.Name, err)
 		}
 		outbounds = append(outbounds, ob)
-		// Sibling outbounds declared on the profile (e.g. an alternate
-		// proxy hop) so proxySettings.tag can resolve inside the front.
+
 		for _, eo := range extraOutbounds(tc) {
 			if m, ok := eo.(map[string]interface{}); ok && m != nil {
 				if t, _ := m["tag"].(string); t == "" {
@@ -72,17 +56,14 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 			"servers": XrayDNSServers(),
 		},
 		"routing": map[string]interface{}{
-			// UseIP: the front resolves member domains through its
-			// internal DNS client; the Android system resolver is dead
-			// from child processes ([::1]:53 refused).
+
 			"domainStrategy": "UseIP",
 			"rules": []interface{}{
 				map[string]interface{}{
 					"type": "field", "network": "tcp,udp", "balancerTag": RoundRobinOutboundTag,
 				},
 			},
-			// NOTE: balancers MUST live inside "routing" (not top-level),
-			// otherwise Xray fails with "balancer rr not found".
+
 			"balancers": []interface{}{
 				map[string]interface{}{
 					"tag":      RoundRobinOutboundTag,
@@ -96,9 +77,6 @@ func BuildBalancerFront(profiles []*config.TunnelConfig, socksPort int) ([]byte,
 	return json.Marshal(doc)
 }
 
-// balancerOutbound builds the lb-N outbound for one profile: native VLESS
-// for xray profiles (direct or via the dnstt forward), SOCKS toward the
-// local helper for ssh / ssh_slowdns / zivpn.
 func balancerOutbound(tc *config.TunnelConfig, tag string) (map[string]interface{}, error) {
 	var ob map[string]interface{}
 	switch tc.Type {

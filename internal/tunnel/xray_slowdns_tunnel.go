@@ -13,16 +13,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// XraySlowDNSTunnel chains the official dnstt SlowDNS client with Xray
-// v26.5.9 (Termux/server mode; the mobile front embeds xray-core):
-//
-//	slowdns -udp <resolver>:53 -pubkey <hex> <ns-domain> 127.0.0.1:<fwdPort>
-//	xray run -config <generated>   (outbound -> 127.0.0.1:<fwdPort>)
-//
-// Xray exposes a local SOCKS5 inbound (default 127.0.0.1:10809) used as the
-// device upstream. Defaults: fwdPort 2224, socksPort 10809, resolver
-// 8.8.8.8. All overridable via the tunnel Advanced map ("fwd_port",
-// "socks_port", "dns_resolver").
 type XraySlowDNSTunnel struct {
 	mu          sync.RWMutex
 	config      *config.TunnelConfig
@@ -94,8 +84,6 @@ func (t *XraySlowDNSTunnel) nsDomain() string {
 	return t.config.Server.Hostname
 }
 
-// generateXrayConfig builds an Xray config whose outbound dials the local
-// dnstt forward (127.0.0.1:fwdPort) instead of the remote server directly.
 func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 	inbound := map[string]interface{}{
 		"port":     t.socksPort(),
@@ -111,8 +99,7 @@ func (t *XraySlowDNSTunnel) generateXrayConfig() (string, error) {
 
 	strategy := t.config.Routing.DomainStrategy
 	if strategy == "" {
-		// UseIP: resolve through the internal DNS client, the Android
-		// system resolver is unusable from the xray child ([::1]:53).
+
 		strategy = "UseIP"
 	}
 	dnsCfg := t.config.Routing.DNS
@@ -172,8 +159,6 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 
 	ctx, t.cancel = context.WithCancel(ctx)
 
-	// Fresh random forward + SOCKS ports per session (overrides
-	// respected). Clear stale entries first so nothing dials a dead port.
 	ClearLiveForward(t.config.ID)
 	ClearLiveSocksAddr(t.config.ID)
 	fwd, err := PickLiveForward(t.config, DefaultXraySlowDNSFwdPort)
@@ -195,7 +180,6 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	t.pickedSocks = socksPort
 	Tracef("[xray-slowdns] picked fwd=:%d socks=127.0.0.1:%d", fwd, socksPort)
 
-	// dnstt first: Xray dials the local forward once it answers.
 	Tracef("[xray-slowdns] phase 1/2: dnstt forward :%d", t.fwdPort())
 	t.mu.Unlock()
 	dnsttCmd, err := StartDnstt(ctx, t.config, t.fwdPort())
@@ -234,7 +218,7 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
-	// 0600 : la config contient l'uuid Xray et les secrets trojan/ss.
+
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
 		Errorf("xray-slowdns", "write config: %v", err)
 		t.slowdnscmd.Process.Kill()
@@ -277,7 +261,6 @@ func (t *XraySlowDNSTunnel) Start(ctx context.Context) error {
 	go PipeLinesToLog(stdout, "[xray-slowdns][out]")
 	go PipeLinesToLog(stderr, "[xray-slowdns][err]")
 
-	// Wait until the local SOCKS5 is exposed before reporting running.
 	Tracef("[xray-slowdns] waiting for SOCKS 127.0.0.1:%d ...", t.socksPort())
 	t.mu.Unlock()
 	socksErr := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", t.socksPort()), 20*time.Second)

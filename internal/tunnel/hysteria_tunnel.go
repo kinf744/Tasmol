@@ -15,18 +15,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// HysteriaTunnel drives the official Hysteria v1.3.5 client binary (shipped
-// in the repository bundle as bin/armv7/hysteria, sourced from Picko's
-// proven implementation):
-//
-//	hysteria client --config <file.json>
-//
-// The client exposes SOCKS5 on 127.0.0.1:<livePort> — picked fresh per
-// session like every other tunnel so reconnects never collide.
-//
-// Profil requis (config): server.host, server.port, auth.password.
-// Avancés optionnels: hysteria_obfs (string), up_mbps / down_mbps (int),
-// port_range (string "5000-6000" ou "443,5000-6000" — port hopping).
 type HysteriaTunnel struct {
 	mu        sync.RWMutex
 	config    *config.TunnelConfig
@@ -66,8 +54,6 @@ func (t *HysteriaTunnel) Stats() Stats {
 
 func (t *HysteriaTunnel) Config() *config.TunnelConfig { return t.config }
 
-// resolveServerIP resolves the server hostname to an IP first: the Hysteria
-// Go binary cannot rely on Android DNS from a child process (Picko pattern).
 func (t *HysteriaTunnel) resolveServerIP() string {
 	host := strings.TrimSpace(t.config.Server.Host)
 	if host == "" {
@@ -82,16 +68,8 @@ func (t *HysteriaTunnel) resolveServerIP() string {
 	return host
 }
 
-// DefaultHysteriaPortRange is the port-hopping range used by default:
-// the profile never dials a single fixed port — the client hoppe en
-// permanence dans 20000-50000 (le serveur redirige cette plage vers son
-// port d'écoute, à la ziVPN).
 const DefaultHysteriaPortRange = "20000-50000"
 
-// serverSpec builds the Hysteria server address. Avec une plage (la
-// norme ici), le format est "ip:<port>,20000-50000"; si le profil n'a
-// pas de port fixe (port=0), seule la plage est utilisée :
-// "ip:20000-50000".
 func (t *HysteriaTunnel) serverSpec(ip string) string {
 	port := strconv.Itoa(t.config.Server.Port)
 	rng := DefaultHysteriaPortRange
@@ -108,8 +86,6 @@ func (t *HysteriaTunnel) serverSpec(ip string) string {
 	return fmt.Sprintf("%s:%s,%s", ip, port, rng)
 }
 
-// buildHysteriaConfig reproduces Picko's client configuration (Hysteria
-// v1.3.5 JSON), with our live SOCKS port and per-profile obfs.
 func buildHysteriaConfig(server, sniName, auth, obfs string, up, down, socksPort int) ([]byte, error) {
 	doc := map[string]interface{}{
 		"server":                server,
@@ -156,7 +132,6 @@ func (t *HysteriaTunnel) Start(ctx context.Context) error {
 		Errorf("hysteria", "%v", err)
 		return err
 	}
-	// Port fixe facultatif : la plage par défaut (20000-50000) suffit.
 
 	t.status = StatusStarting
 	t.setError("")
@@ -168,7 +143,6 @@ func (t *HysteriaTunnel) Start(ctx context.Context) error {
 	ip := t.resolveServerIP()
 	server := t.serverSpec(ip)
 
-	// Fresh random socks port per session (même convention que zivpn).
 	socksAddr, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
 		t.status = StatusError
@@ -247,7 +221,6 @@ func (t *HysteriaTunnel) Start(ctx context.Context) error {
 	go PipeLinesToLog(stderr, "[hysteria][err]")
 	go t.watchProcess(cmd)
 
-	// Readiness: SOCKS local doit répondre (15 s comme la référence Picko).
 	if err := waitForTCPctx(ctx, socksAddr, 15*time.Second); err != nil {
 		t.killLocked()
 		t.status = StatusError
@@ -264,13 +237,12 @@ func (t *HysteriaTunnel) Start(ctx context.Context) error {
 	return nil
 }
 
-// watchProcess flips the tunnel to error when the child dies unexpectedly.
 func (t *HysteriaTunnel) watchProcess(cmd *exec.Cmd) {
 	err := cmd.Wait()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.cmd != cmd {
-		return // arrêt propre (Stop a déjà nettoyé)
+		return
 	}
 	if t.status == StatusRunning || t.status == StatusStarting {
 		t.status = StatusError

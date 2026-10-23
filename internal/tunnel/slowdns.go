@@ -14,26 +14,15 @@ import (
 	"vpn-app/internal/config"
 )
 
-// Shared dnstt (SlowDNS) helpers used by the ssh_slowdns / xray_slowdns
-// tunnels and by the mobile front-end.
-//
-// Official client: dnstt-client built from OutlineFoundation/dnstt,
-// stored in the repository bundle as bin/armv7/slowdns. Invocation:
-// slowdns -udp <resolver>:53 -pubkey <hexkey> <ns-domain> 127.0.0.1:<fwdPort>
-
-// Default local forward ports exposed by dnstt-client.
 const (
 	DefaultSSHSlowDNSFwdPort  = 2222
 	DefaultXraySlowDNSFwdPort = 2224
 )
 
-// DnsttForwardPort resolves the local dnstt forward port.
 func DnsttForwardPort(cfg *config.TunnelConfig, def int) int {
 	return advInt(cfg.Advanced, "fwd_port", def)
 }
 
-// DnsttForwardPortLive returns the live dnstt forward port of a running
-// session, falling back to the static configured/default port.
 func DnsttForwardPortLive(cfg *config.TunnelConfig, def int) int {
 	if cfg != nil {
 		if p := LiveForward(cfg.ID); p > 0 {
@@ -43,8 +32,6 @@ func DnsttForwardPortLive(cfg *config.TunnelConfig, def int) int {
 	return DnsttForwardPort(cfg, def)
 }
 
-// DnsttResolver resolves the UDP DNS resolver used by dnstt-client as
-// "host:port" (e.g. "8.8.8.8:53"). A bare IP gets ":53" appended.
 func DnsttResolver(cfg *config.TunnelConfig) string {
 	resolver := cfg.Server.DNSResolver
 	if resolver == "" {
@@ -59,7 +46,6 @@ func DnsttResolver(cfg *config.TunnelConfig) string {
 	return resolver
 }
 
-// DnsttDomain resolves the dnstt zone (nameserver) domain.
 func DnsttDomain(cfg *config.TunnelConfig) string {
 	if cfg.Server.Nameserver != "" {
 		return cfg.Server.Nameserver
@@ -67,9 +53,6 @@ func DnsttDomain(cfg *config.TunnelConfig) string {
 	return cfg.Server.Hostname
 }
 
-// DnsttPubKey resolves the dnstt server public key (hex). Advanced
-// ["slowdns_pubkey"] wins when the same config also carries another key
-// (e.g. a Reality public key in server.public_key).
 func DnsttPubKey(cfg *config.TunnelConfig) string {
 	if v := advStr(cfg.Advanced, "slowdns_pubkey", ""); v != "" {
 		return v
@@ -77,9 +60,6 @@ func DnsttPubKey(cfg *config.TunnelConfig) string {
 	return cfg.Server.PublicKey
 }
 
-// cleanDnsttKey strips copy-paste debris (spaces, newlines, quotes,
-// parens, shell metachars) from the dnstt server public key. A pasted key
-// with stray whitespace makes dnstt fail cryptically.
 func cleanDnsttKey(key string) string {
 	for _, r := range []string{" ", "\n", "\r", "\t", "(", ")", "'", "\"", "`", ";", "&", "|", "$"} {
 		key = strings.ReplaceAll(key, r, "")
@@ -87,7 +67,6 @@ func cleanDnsttKey(key string) string {
 	return key
 }
 
-// DnsttFlag returns the resolver transport flag (-udp default, -tcp boosted).
 func DnsttFlag() string {
 	if DnsttUseTCP {
 		return "-tcp"
@@ -95,8 +74,6 @@ func DnsttFlag() string {
 	return "-udp"
 }
 
-// checkResolver rejects malformed resolvers (e.g. "8.8.8.8:53tomp" from a
-// mistyped field) with a clear error instead of a 20s forward timeout.
 func checkResolver(resolver string) error {
 	h, p, err := net.SplitHostPort(strings.TrimSpace(resolver))
 	if err != nil || h == "" {
@@ -109,11 +86,6 @@ func checkResolver(resolver string) error {
 	return nil
 }
 
-// DnsttArgs builds the official dnstt-client command line. Boost SlowDNS
-// switches the resolver transport from -udp to -tcp (reliable/fast where
-// carriers throttle UDP DNS). A per-profile override lives in
-// Advanced["dnstt_tcp"] (the editor's "DNSTT Mode" dropdown: UDP / TCP)
-// and wins over the global switch.
 func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	useTCP := DnsttUseTCP
 	if cfg != nil && cfg.Advanced != nil {
@@ -142,9 +114,6 @@ func DnsttArgs(cfg *config.TunnelConfig, fwdPort int) []string {
 	}
 }
 
-// StartDnstt validates the SlowDNS settings, starts dnstt-client, streams
-// its output to the activity log and blocks until the local forward port
-// answers. Call it WITHOUT holding the tunnel mutex (it may wait ~20s).
 func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*exec.Cmd, error) {
 	Journalf("slowdns", "dnstt ns=%q resolver=%q key=%d chars",
 		DnsttDomain(cfg), DnsttResolver(cfg), len(strings.TrimSpace(DnsttPubKey(cfg))))
@@ -194,16 +163,13 @@ func StartDnstt(ctx context.Context, cfg *config.TunnelConfig, fwdPort int) (*ex
 	return cmd, nil
 }
 
-// PipeLinesToLog streams a child process pipe into the activity log.
-// Mode silencieux : seules les lignes d'erreur traversent (le stdout
-// verbeux de xray/dnstt ne pollue plus le journal).
 func PipeLinesToLog(r io.Reader, tag string) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 64*1024)
 	for sc.Scan() {
 		line := sc.Text()
 		if QuietLog {
-			// Seules les erreurs des processus enfants traversent.
+
 			if errorish(line) {
 				logLine("warning", tag, "%s", line)
 			}

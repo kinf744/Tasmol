@@ -56,8 +56,7 @@ func (t *XrayTunnel) Stats() Stats {
 func (t *XrayTunnel) Config() *config.TunnelConfig { return t.config }
 
 func (t *XrayTunnel) generateConfig() (string, error) {
-	// Full client config pasted by the user (has "outbounds"): use it
-	// verbatim with the SOCKS inbound normalized to our picked port.
+
 	if full, ok := FullXrayConfigJSON(t.config, t.socksPort); ok {
 		Tracef("[xray] using full client config from outbound_json")
 		return full, nil
@@ -75,10 +74,6 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 
 	outbound := TunnelOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
 
-	// domainStrategy UseIP: Xray resolves outbound domains through its
-	// internal DNS client (1.1.1.1/8.8.8.8, direct since our UID is
-	// excluded from the VPN) instead of the system resolver, which is
-	// dead on Android ([::1]:53 refused) and breaks every domain dial.
 	strategy := t.config.Routing.DomainStrategy
 	if strategy == "" {
 		strategy = "UseIP"
@@ -123,15 +118,10 @@ func (t *XrayTunnel) buildOutbound() map[string]interface{} {
 	return BuildVlessOutbound(t.config, t.config.Server.Host, t.config.Server.Port)
 }
 
-// isWGConfigComplete vérifie les deux clés obligatoires du profil WireGuard
-// (clé privée du client + clé publique du serveur).
 func isWGConfigComplete(cfg *config.TunnelConfig) bool {
 	return IsWireGuard(cfg) && strings.TrimSpace(cfg.Server.Host) != ""
 }
 
-// BuildVlessOutbound builds a VLESS outbound object from a tunnel config,
-// dialing addr:port. The mobile front-end reuses it with 127.0.0.1 and the
-// dnstt forward port for xray_slowdns tunnels.
 func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[string]interface{} {
 	addr = resolveDialAddr(cfg, addr)
 	streamSettings := buildStreamSettings(cfg, addr)
@@ -192,8 +182,6 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	t.status = StatusStarting
 	t.setError("")
 
-	// Fresh random SOCKS port per session (override respected): the old
-	// hardcoded 10808 also mismatched custom socks_port overrides.
 	ClearLiveSocksAddr(t.config.ID)
 	_, socksPort, err := PickLiveSocksAddr(t.config)
 	if err != nil {
@@ -221,7 +209,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 		return err
 	}
 	t.configPath = filepath.Join(tmpDir, "config.json")
-	// 0600 : la config contient l'uuid Xray et les mots de passe trojan/ss.
+
 	if err := os.WriteFile(t.configPath, []byte(configContent), 0600); err != nil {
 		Errorf("xray", "write config: %v", err)
 		t.status = StatusError
@@ -239,8 +227,7 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	if BinDir != "" {
 		t.cmd.Env = append(t.cmd.Env, "XRAY_LOCATION_ASSET="+BinDir)
 	}
-	// Ne jamais journaliser la config complète: SNI/host/UUID/headers
-	// finissent sinon dans Download/kighmu.txt. Un résumé suffit.
+
 	Tracef("[xray] binary=%q configBytes=%d", t.cmd.Path, len(configContent))
 
 	stdout, err := t.cmd.StdoutPipe()
@@ -268,7 +255,6 @@ func (t *XrayTunnel) Start(ctx context.Context) error {
 	go PipeLinesToLog(stdout, "[xray][out]")
 	go PipeLinesToLog(stderr, "[xray][err]")
 
-	// Wait until the local SOCKS inbound answers instead of assuming ready.
 	socksAddr := fmt.Sprintf("127.0.0.1:%d", t.socksPort)
 	Tracef("[xray] waiting for SOCKS %s ...", socksAddr)
 	t.mu.Unlock()
