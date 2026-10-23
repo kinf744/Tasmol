@@ -96,13 +96,12 @@ jobs:
           # points dans internal/pho (jamais contigus dans le .so). Le step
           # Verify AAR fait echouer le build si l'un survit. garble complet
           # (-literals -tiny) reste actif sur le binaire linux armv7.
-          # Cible: armeabi-v7a (32-bit) UNIQUEMENT — retrait volontaire de
-          # l'ABI arm64-v8a : taille de l'APK quasi divisée par deux pour
-          # les téléchargements sur faibles connexions. Rétablir
-          # -target=android/arm,android/arm64 si un appareil 64-bit-only
-          # doit être supporté.
+          # Cible: armeabi-v7a + arm64-v8a — compatibilité complète des deux
+          # architectures (bin/arm64 commité dans le dépôt). L'APK double
+          # de taille côté natif ; rétablir un mono-ABI (android/arm) si la
+          # taille redevient prioritaire.
           gomobile bind \
-            -target=android/arm \
+            -target=android/arm,android/arm64 \
             -androidapi 24 \
             -trimpath \
             -ldflags='-s -w -buildid=' \
@@ -134,7 +133,7 @@ jobs:
         run: |
           ls -lh borum_vpn/android/app/libs/vpnlib.aar
           unzip -l borum_vpn/android/app/libs/vpnlib.aar | grep -E 'jni/|libgojni'
-          for abi in armeabi-v7a; do
+          for abi in armeabi-v7a arm64-v8a; do
             unzip -p borum_vpn/android/app/libs/vpnlib.aar jni/$abi/libgojni.so > /tmp/libgojni.$abi.so
             file /tmp/libgojni.$abi.so
             echo "--- $abi : aucun symbole statique ne doit subsister ---"
@@ -155,8 +154,8 @@ jobs:
 
       - name: Stage official binaries into jniLibs
         run: |
-          ls -lh bin/armv7/
-          TARGET_DIR=borum_vpn/android TUNNELS="xray zivpn slowdns" bash scripts/fetch_android_bins.sh
+          ls -lh bin/armv7/ bin/arm64/
+          TARGET_DIR=borum_vpn/android REQUIRE_ARM64=1 TUNNELS="xray zivpn slowdns" bash scripts/fetch_android_bins.sh
 
       - name: UPX compress native binaries (reduce APK size)
         run: |
