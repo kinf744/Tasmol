@@ -306,6 +306,9 @@ public class TasVpnService extends VpnService {
         startGen = gen;
         startAttempt = 0;
         connectInFlight.set(true);
+        logEvent("connection", "app",
+                ">>> CONNEXION demandee tunnel=" + (requestedId == null ? "?" : requestedId)
+                + " gen=" + gen + " autoReconnect=" + VPNApplication.getInstance().isAutoReconnectEnabled());
         new Thread(() -> startSessionBackground(gen, requestedId), "borum-connect").start();
     }
 
@@ -314,11 +317,19 @@ public class TasVpnService extends VpnService {
         int attempt = 0;
         final int maxAttempts = getMaxStartAttempts();
         final long retryDelay = retryDelayMs();
+        logEvent("connection", "app",
+                ">>> demarrage boucle de connexion gen=" + gen + " tunnel=" + tunnelId
+                + " maxAttempts=" + maxAttempts + " retryDelayMs=" + retryDelay
+                + " autoReconnect=" + (VPNApplication.getInstance() != null
+                && VPNApplication.getInstance().isAutoReconnectEnabled()));
         try {
             while (attempt < maxAttempts && !isSuperseded(gen)) {
                 attempt++;
                 startAttempt = attempt;
                 notifyText("Connecting...");
+                logEvent("connection", "app",
+                        "tentative " + attempt + "/" + maxAttempts + " gen=" + gen
+                        + " tunnel=" + tunnelId);
                 Object ctrl = null;
                 try {
                     // Ensure bundled official binaries + config are staged.
@@ -355,6 +366,8 @@ public class TasVpnService extends VpnService {
                     }
                     int fd = tunFd.detachFd();
                     detachedFd = fd;
+                    logEvent("connection", "app",
+                            "TUN etablie fd=" + fd + " gen=" + gen + " tentative=" + attempt);
 
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
@@ -374,6 +387,8 @@ public class TasVpnService extends VpnService {
                     // stopSession() used to see a null controller here, do
                     // nothing, and let the data plane build itself to the end.
                     pendingController.set(ctrl);
+                    logEvent("connection", "app",
+                            "controleur Go publie gen=" + gen + " tentative=" + attempt);
                     if (isSuperseded(gen)) {
                         // Déconnexion arrivée pile avant le start() Go : ne
                         // jamais lancer le plan de données, tout démonter.
@@ -384,6 +399,9 @@ public class TasVpnService extends VpnService {
                     // Go now owns the fd; clear our tracker.
                     detachedFd = -1;
                     if (err != null && !err.isEmpty()) {
+                        logEvent("error", "app",
+                                "plan de données ECHEC gen=" + gen + " tentative=" + attempt
+                                + " tunnel=" + tid + " erreur=" + err);
                         pendingController.compareAndSet(ctrl, null);
                         closeTunQuietly();
                         if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
@@ -391,6 +409,9 @@ public class TasVpnService extends VpnService {
                         }
                         throw new IllegalStateException("data plane: " + err);
                     }
+                    logEvent("connection", "app",
+                            "plan de données demarre gen=" + gen + " tentative=" + attempt
+                            + " tunnel=" + tid);
 
                     if (isSuperseded(gen)) {
                         // A disconnect (or newer connect) arrived while starting:
@@ -430,6 +451,13 @@ public class TasVpnService extends VpnService {
                 } catch (Exception e) {
                     lastFailure = e;
                     Log.e(TAG, "startSession attempt " + attempt + " failed", e);
+                    StringWriter sw = new StringWriter();
+                    e.printStackTrace(new java.io.PrintWriter(sw));
+                    logEvent("error", "app",
+                            "tentative " + attempt + "/" + maxAttempts + " ECHEC gen=" + gen
+                            + " tunnel=" + tunnelId + " type=" + e.getClass().getName()
+                            + " msg=" + String.valueOf(e.getMessage())
+                            + " stack=" + sw.toString());
                     if (ctrl != null) {
                         // Never leak an unpublished controller across attempts.
                         pendingController.compareAndSet(ctrl, null);
@@ -470,7 +498,10 @@ public class TasVpnService extends VpnService {
             }
             if (!isSuperseded(gen) && lastFailure != null) {
                 lastError = shortReason(lastFailure.getMessage());
-                logEvent("error", "app", "échec de connexion : " + lastError);
+                logEvent("error", "app",
+                        ">>> ECHEC DEFINITIF gen=" + gen + " tentatives=" + attempt
+                        + "/" + maxAttempts + " tunnel=" + tunnelId
+                        + " raison=" + lastError);
                 stopForeground(true);
                 cancelNotification();
                 releaseWakeLock();
@@ -677,6 +708,7 @@ public class TasVpnService extends VpnService {
         // concurrent start() releases its mutex, so this waits rather than
         // tears resources out from under it; the bound below caps the wait.
         final Object ctrl = controller;
+        final String tidAtStop = activeTunnelId;
         controller = null;
         final Object inflight = pendingController.getAndSet(null);
         activeTunnelId = null;
@@ -702,7 +734,9 @@ public class TasVpnService extends VpnService {
             // survivre (course getAndSet/pendingController.set) — la seconde
             // passe re-tue à 2s si hasSessionActivity() est encore vrai.
             armSecondPass();
-            logEvent("connection", "app", "disconnected");
+            logEvent("connection", "app",
+                    "disconnect tunnel=" + (tidAtStop == null ? "?" : tidAtStop)
+                    + " nuclear=" + nuclear + " target=null");
             releaseWakeLock();
             cancelNotification();
             stopSelf();
@@ -723,7 +757,9 @@ public class TasVpnService extends VpnService {
         // re-sweep la notification si la première passe a laissé un résidu.
         armSecondPass();
         stopControllerAsync(target, timeoutS, nuclear ? "nuclear" : "disconnect");
-        logEvent("connection", "app", "disconnected");
+        logEvent("connection", "app",
+                "disconnect tunnel=" + (tidAtStop == null ? "?" : tidAtStop)
+                + " nuclear=" + nuclear + " target=" + (target != null ? "ctrl+inflight" : "none"));
         releaseWakeLock();
         stopSelf();
         // Le thread de connexion peut encore re-poster la notification (et
@@ -1007,11 +1043,16 @@ public class TasVpnService extends VpnService {
             armNuclearWatchdog(WATCHDOG_KILL_NORMAL_MS);
         }
         Log.i(TAG, "connect attempt " + gen + " superseded - session aborted");
-        logEvent("connection", "app", "connect aborted (disconnected while connecting)");
+        logEvent("connection", "app",
+                "connect aborted gen=" + gen + " disconnect-while-connecting"
+                + " liveCtrl=" + (live != null ? "yes" : "no")
+                + " localCtrl=" + (localCtrl != null ? "yes" : "no")
+                + " victim=" + (victim != null ? "yes" : "no"));
     }
 
     @Override
     public void onDestroy() {
+        logEvent("connection", "app", "service detruit (onDestroy)");
         stopSession();
         releaseWakeLock();
         super.onDestroy();
@@ -1019,6 +1060,7 @@ public class TasVpnService extends VpnService {
 
     @Override
     public void onRevoke() {
+        logEvent("connection", "app", "systeme a revoque le VPN (onRevoke)");
         stopSession();
         super.onRevoke();
     }
