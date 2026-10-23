@@ -893,25 +893,21 @@ public class TasVpnService extends VpnService {
     private final Runnable nuclearKill = new Runnable() {
         @Override
         public void run() {
-            // Une nouvelle session a pu prendre le relais entre l'armement et
-            // le tir (service detruit/recréé entre la déconnexion et la
-            // reconnexion). Si un contrôleur est actif, le watchdog vient
-            // d'une déconnexion précédente : on désarme, on ne tue pas.
-            if (controller != null) {
+            // Si une session est active (même en cours de connexion sur une
+            // nouvelle instance de service après destroy/recréation), on ne
+            // tue JAMAIS le processus. Le watchdog est juste un filet de
+            // sécurité : il désarme et laisse le processus vivre.
+            if (hasSessionActivity()) {
                 disarmNuclearWatchdog();
                 return;
-            }
-            if (!hasSessionActivity()) {
-                return; // Tout est arrêté : rien à tuer.
             }
             try {
                 stopForeground(true);
             } catch (Exception ignored) {
             }
             cancelNotification();
-            logEvent("warning", "app", "teardown still running - killing process");
-            Log.e(TAG, "Go teardown never returned, killing process");
-            android.os.Process.killProcess(android.os.Process.myPid());
+            logEvent("warning", "app", "teardown still running - keeping process alive");
+            Log.w(TAG, "Go teardown still running, but not killing process (would crash app)");
         }
     };
 
