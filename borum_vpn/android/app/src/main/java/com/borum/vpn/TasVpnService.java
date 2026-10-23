@@ -893,6 +893,14 @@ public class TasVpnService extends VpnService {
     private final Runnable nuclearKill = new Runnable() {
         @Override
         public void run() {
+            // Une nouvelle session a pu prendre le relais entre l'armement et
+            // le tir (service detruit/recréé entre la déconnexion et la
+            // reconnexion). Si un contrôleur est actif, le watchdog vient
+            // d'une déconnexion précédente : on désarme, on ne tue pas.
+            if (controller != null) {
+                disarmNuclearWatchdog();
+                return;
+            }
             if (!hasSessionActivity()) {
                 return; // Tout est arrêté : rien à tuer.
             }

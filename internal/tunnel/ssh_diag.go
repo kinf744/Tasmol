@@ -130,7 +130,7 @@ func sshDiagError(stage string, err error, hint string) {
 	if err == nil {
 		return
 	}
-	msg := strings.TrimSpace(err.Error())
+	msg := strings.TrimPrefix(strings.TrimSpace(err.Error()), "ssh: ")
 	var extra string
 	switch {
 	case strings.Contains(msg, "i/o timeout"), strings.Contains(msg, "context deadline exceeded"):
@@ -148,7 +148,7 @@ func sshDiagError(stage string, err error, hint string) {
 	case strings.Contains(msg, "unable to authenticate"), strings.Contains(msg, "no supported methods"):
 		extra = " -> auth SSH: mot de passe / cle / utilisateur refuses par le serveur"
 	}
-	Errorf("ssh", "%s failed: %v%s", stage, err, extra)
+	Errorf("ssh", "%s: %s%s", stage, msg, extra)
 	if hint != "" {
 		Infof("ssh", "  hint: %s", hint)
 	}
