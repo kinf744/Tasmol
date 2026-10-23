@@ -111,6 +111,14 @@ type Controller struct {
 	logFile    *os.File
 	logPath    string
 	rrLastTry  map[string]time.Time
+
+	// stopRequested est mis à true par Stop() quand le mutex du contrôleur
+	// est retenu par un Start() en vol : Stop() ferme alors immédiatement le
+	// fd TUN et retourne sans attendre, afin de ne jamais bloquer le caller
+	// Java ni déclencher le watchdog kill du processus. Le Start() en vol,
+	// dont le contexte est annulé, échoue et effectue son propre cleanupLocked
+	// idempotent quand il relâche le mutex.
+	stopRequested atomic.Bool
 }
 
 func NewController() *Controller {
