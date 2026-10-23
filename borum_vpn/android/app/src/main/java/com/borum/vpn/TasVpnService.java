@@ -10,6 +10,9 @@ import android.os.Build;
 import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 import androidx.core.app.NotificationCompat;
 
 import org.json.JSONObject;
@@ -452,7 +455,7 @@ public class TasVpnService extends VpnService {
                     lastFailure = e;
                     Log.e(TAG, "startSession attempt " + attempt + " failed", e);
                     StringWriter sw = new StringWriter();
-                    e.printStackTrace(new java.io.PrintWriter(sw));
+                    e.printStackTrace(new PrintWriter(sw));
                     logEvent("error", "app",
                             "tentative " + attempt + "/" + maxAttempts + " ECHEC gen=" + gen
                             + " tunnel=" + tunnelId + " type=" + e.getClass().getName()
