@@ -125,10 +125,10 @@ func normalizePortRanges(pr string) ([]string, error) {
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("no valid port range (use 6000-19999 or 6000-7750,7751-9500)")
+		return nil, fmt.Errorf("no valid port range")
 	}
 	if len(out) > maxUzRanges {
-		return nil, fmt.Errorf("too many port ranges (%d, max %d)", len(out), maxUzRanges)
+		return nil, fmt.Errorf("too many port ranges (max %d)", maxUzRanges)
 	}
 	return out, nil
 }
@@ -293,8 +293,8 @@ func (t *ZivpnTunnel) Start(ctx context.Context) error {
 		for i, up := range procs {
 			i, up := i, up
 			go func() {
-				if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", up.uzPort), 5*time.Second); err != nil {
-					errc <- fmt.Errorf("zivpn range %s not ready: %w", up.rng, err)
+				if err := waitForTCPctx(ctx, fmt.Sprintf("127.0.0.1:%d", up.uzPort), 2*time.Second); err != nil {
+					errc <- fmt.Errorf("zivpn tunnel not ready: %w", err)
 					return
 				}
 				Tracef("[zivpn][%d] SOCKS %d ready", i, up.uzPort)

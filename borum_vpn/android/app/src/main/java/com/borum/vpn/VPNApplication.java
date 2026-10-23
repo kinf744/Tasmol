@@ -448,7 +448,7 @@ public class VPNApplication extends Application {
     }
 
     public int getReconnectDelaySeconds() {
-        int v = prefs.getInt("set_reconnect_delay", 5);
+        int v = prefs.getInt("set_reconnect_delay", 2);
         if (v < 1) {
             v = 1;
         }
@@ -539,7 +539,7 @@ public class VPNApplication extends Application {
                 .putBoolean("set_launch_on_boot", false)
                 .putBoolean("set_verbose_diag", false)
                 .putBoolean("set_confirm_disconnect", false)
-                .putInt("set_reconnect_delay", 5)
+                .putInt("set_reconnect_delay", 2)
                 .putString("set_dns_primary", "8.8.8.8")
                 .putString("set_dns_secondary", "1.1.1.1")
                 .putInt("set_mtu", 1500)

@@ -102,7 +102,7 @@ public class TasVpnService extends VpnService {
     // Connection attempts: CONNECTING stays on across retries until the
     // session is up or the user disconnects (disconnect supersedes via
     // sessionGen, nuclear kill ends the process outright).
-    private static final int MAX_START_ATTEMPTS = 10;
+    private static final int MAX_START_ATTEMPTS = 6;
     private static final long RETRY_DELAY_MS = 3000;
     private static volatile int startAttempt = 0;
 
