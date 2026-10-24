@@ -102,6 +102,10 @@ func Journalf(component, format string, args ...interface{}) {
 }
 
 func Warnf(component, format string, args ...interface{}) {
+	if QuietLog {
+		return
+	}
+	args = cleanArgs(component, args)
 	logLine("warning", component, format, args...)
 }
 
@@ -109,19 +113,23 @@ func Errorf(component, format string, args ...interface{}) {
 	if QuietLog {
 		return
 	}
-	// Nettoyer le préfixe du composant des messages d'erreur pour éviter les doublons
-	// (ex: "ssh handshake failed: ssh: handshake failed: EOF" -> "ssh handshake failed: handshake failed: EOF").
+	args = cleanArgs(component, args)
+	logLine("error", component, format, args...)
+}
+
+// cleanArgs supprime le préfixe "composant: " des messages d'erreur/chaînes
+// pour éviter les doublons (ex: "ssh: ssh: unable to authenticate" -> "ssh: unable to authenticate").
+func cleanArgs(component string, args []interface{}) []interface{} {
 	prefix := component + ": "
 	for i, a := range args {
 		switch v := a.(type) {
 		case error:
-			msg := strings.TrimPrefix(v.Error(), prefix)
-			args[i] = fmt.Errorf("%s", msg)
+			args[i] = fmt.Errorf("%s", strings.TrimPrefix(v.Error(), prefix))
 		case string:
 			args[i] = strings.TrimPrefix(v, prefix)
 		}
 	}
-	logLine("error", component, format, args...)
+	return args
 }
 
 const (
