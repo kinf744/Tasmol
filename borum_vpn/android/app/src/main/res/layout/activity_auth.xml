@@ -174,7 +174,7 @@
                 android:layout_gravity="center_horizontal"
                 android:layout_marginBottom="12dp"
                 android:letterSpacing="0.15"
-                android:text="CONTACT & SUPPORT"
+                android:text="CONTACT &amp; SUPPORT"
                 android:textColor="@color/npv_grey"
                 android:textSize="11sp"
                 android:textStyle="bold"
