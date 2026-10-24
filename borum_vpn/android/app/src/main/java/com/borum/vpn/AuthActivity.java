@@ -4,6 +4,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,6 +26,10 @@ import org.json.JSONObject;
  *
  * The card is visible ONLY while the account is validated AND active;
  * it refreshes every 30s so "Données restantes" tracks real consumption.
+ *
+ * Une fois l'activation réussie, l'utilisateur ne peut plus revenir sur
+ * cet écran : onCreate() redirige immédiatement vers MainActivity si le
+ * compte est déjà authentifié.
  */
 public class AuthActivity extends AppCompatActivity {
     private EditText phoneInput;
@@ -49,6 +54,15 @@ public class AuthActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_auth);
+
+        // Déjà activé : on ne revient JAMAIS sur l'écran d'activation.
+        if (ApiSession.isAuthenticated(this)) {
+            Intent i = new Intent(this, MainActivity.class);
+            i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(i);
+            finish();
+            return;
+        }
 
         TextView uuidText = findViewById(R.id.auth_uuid);
         phoneInput = findViewById(R.id.auth_phone);
@@ -96,6 +110,28 @@ public class AuthActivity extends AppCompatActivity {
             TasVpnService.logEvent("info", "api", "[activation] clic VALIDER");
             validate();
         });
+
+        // Liens Telegram : redirection directe vers Telegram (canal + inbox).
+        findViewById(R.id.auth_tg_channel).setOnClickListener(v ->
+                openTelegram("https://t.me/lkgcddtoogv"));
+        findViewById(R.id.auth_tg_inbox).setOnClickListener(v ->
+                openTelegram("https://t.me/kighmu"));
+    }
+
+    private void openTelegram(String url) {
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(intent);
+        } catch (Exception e) {
+            // Si l'app Telegram n'est pas installée, ouvrir dans le navigateur.
+            intent.setData(Uri.parse(url));
+            try {
+                startActivity(intent);
+            } catch (Exception ignored) {
+                toast("Impossible d'ouvrir Telegram");
+            }
+        }
     }
 
     @Override
