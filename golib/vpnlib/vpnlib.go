@@ -316,7 +316,7 @@ func (c *Controller) Start(paramsJSON string) string {
 	}
 
 	c.rrIDs = parseRoundRobin(p.RoundRobin, cfgMgr)
-	if c.abort.Load() {
+	if c.abort.Load() || c.stopRequested.Load() {
 		c.cleanupLocked()
 		return errJSON(errors.New("aborted"))
 	}
@@ -350,7 +350,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		c.cleanupLocked()
 		return errJSON(err)
 	}
-	if c.abort.Load() {
+	if c.abort.Load() || c.stopRequested.Load() {
 		c.cleanupLocked()
 		return errJSON(errors.New("aborted"))
 	}
@@ -399,11 +399,12 @@ func (c *Controller) Stop() (out string) {
 	}()
 
 	c.abort.Store(true)
-	if v := c.cancelHolder.Load(); v != nil {
-		if cancel, ok := v.(context.CancelFunc); ok {
-			cancel()
-		}
-	}
+	// NOTE: ne PAS appeler c.cancel() ici. En path contended (Start() tient
+	// le mutex), annuler le contexte maintenant ferait échouer t.Start(c.ctx)
+	// avec "context canceled" alors qu'une nouvelle connexion essaie de
+	// démarrer. L'annulation a lieu après acquisition du mutex (fast path
+	// ligne 411, ou goroutine différée ligne 431) quand Start() a relâché
+	// le mutex.
 
 	if c.mu.TryLock() {
 		c.running = false
@@ -419,6 +420,7 @@ func (c *Controller) Stop() (out string) {
 		return ""
 	}
 
+	c.stopRequested.Store(true)
 	c.hardKillTunFd()
 	go func() {
 		defer func() {
