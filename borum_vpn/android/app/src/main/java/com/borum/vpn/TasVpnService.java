@@ -415,6 +415,7 @@ public class TasVpnService extends VpnService {
                     logEvent("connection", "app",
                             "plan de données demarre gen=" + gen + " tentative=" + attempt
                             + " tunnel=" + tid);
+                    SecurityGuard.noteSuccessfulCheck(this);
 
                     if (isSuperseded(gen)) {
                         // A disconnect (or newer connect) arrived while starting:

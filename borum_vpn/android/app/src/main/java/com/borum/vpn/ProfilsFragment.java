@@ -111,6 +111,7 @@ public class ProfilsFragment extends Fragment {
                                 + " account=" + (acc != null)
                                 + " cles=" + (acc != null ? acc.keys().toString() : "plat")
                                 + " expires=" + resp.optString("expires_at", "-"));
+                SecurityGuard.noteSuccessfulCheck(c);
             }
             JSONObject acc = (resp != null) ? resp.optJSONObject("account") : null;
             if (acc == null) acc = accountFromFlat(resp);

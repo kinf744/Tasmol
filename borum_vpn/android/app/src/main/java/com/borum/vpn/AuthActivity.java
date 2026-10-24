@@ -264,6 +264,7 @@ public class AuthActivity extends AppCompatActivity {
     private void showCard(JSONObject account) {
         fillCard(account);
         ApiSession.saveAccountCard(this, account);
+        SecurityGuard.noteSuccessfulCheck(this);
         if (!cardVisible) {
             cardVisible = true;
             accountCard.setVisibility(View.VISIBLE);

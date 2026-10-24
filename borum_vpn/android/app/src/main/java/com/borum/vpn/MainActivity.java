@@ -448,6 +448,17 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
+
+        // SecurityGuard: blocage si quota épuisé, abonnement expiré, ou
+        // contournement d'horloge détecté. Le serveur refuse de toute façon,
+        // mais bloquer côté client évite l'affichage d'une connexion
+        // "en cours" qui échouera inévitablement.
+        String blockErr = SecurityGuard.checkConnectionAllowed(this);
+        if (blockErr != null) {
+            showToast(blockErr);
+            return;
+        }
+
         // Home connects ALL selected profiles at once (single mode for 1,
         // round-robin for 2+).
         String first = selected.iterator().next();
