@@ -254,9 +254,26 @@ public class HomeFragment extends Fragment {
                         names.append(t.optString("name", "Server"));
                     }
                 }
-                serverText.setText(selected.size() + " profiles");
+                String firstType = "";
+                String firstName = "";
+                for (int i = 0; i < arr.length(); i++) {
+                    JSONObject t = arr.getJSONObject(i);
+                    if (selected.contains(t.optString("id", ""))) {
+                        if (names.length() > 0) {
+                            names.append("  •  ");
+                        }
+                        names.append(t.optString("name", "Server"));
+                        if (firstType.isEmpty()) {
+                            firstType = TunnelAdapter.prettyType(t.optString("type", ""));
+                            firstName = t.optString("name", "Server");
+                        }
+                    }
+                }
+                // SSH SlowDNS / V2Ray SlowDNS sont servis par paire : afficher
+                // le nom du tunnel, pas le nombre de profils.
+                serverText.setText(firstName.isEmpty() ? selected.size() + " profils" : firstName);
                 serverDetail.setText(names.toString());
-                serverType.setText("");
+                serverType.setText(firstType);
                 return;
             }
             String active = selected.iterator().next();
