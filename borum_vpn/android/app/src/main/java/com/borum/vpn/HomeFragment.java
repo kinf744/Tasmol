@@ -203,8 +203,6 @@ public class HomeFragment extends Fragment {
             statusText.setTextColor(green);
 
             String activeId = st.optString("active_tunnel", "");
-            org.json.JSONArray rr = st.optJSONArray("round_robin");
-            final int rrCount = rr != null ? rr.length() : 0;
             uptimeText.setText(formatDuration(st.optLong("uptime", 0)));
             downText.setText(formatBytes(st.optLong("bytes_down", 0)));
             upText.setText(formatBytes(st.optLong("bytes_up", 0)));
@@ -216,13 +214,10 @@ public class HomeFragment extends Fragment {
                     if (t.optString("id", "").equals(activeId)) {
                         serverText.setText(t.optString("name", "Server"));
                         String type = TunnelAdapter.prettyType(t.optString("type", ""));
-                        serverType.setText(rrCount >= 2 ? type + "  •  RR(" + rrCount + ")" : type);
+                        serverType.setText(type);
                         break;
                     }
                 }
-            }
-            if (rrCount >= 2) {
-                serverDetail.setText("round-robin over " + rrCount + " profiles");
             }
         } catch (Exception e) {
             ring.setBackgroundResource(R.drawable.ring_power_on);
@@ -280,7 +275,7 @@ public class HomeFragment extends Fragment {
                 }
                 serverText.setText(selected.size() + " profiles");
                 serverDetail.setText(names.toString());
-                serverType.setText("round-robin");
+                serverType.setText("");
                 return;
             }
             String active = selected.iterator().next();
