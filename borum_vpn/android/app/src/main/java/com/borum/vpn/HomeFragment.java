@@ -64,25 +64,6 @@ public class HomeFragment extends Fragment {
                 ((MainActivity) getActivity()).toggleVpn();
             }
         });
-        // Long-press the power button: nuclear disconnect. Kills every
-        // tunnel process and the app itself so a stuck VPN key is always
-        // released, even when the service refuses to stop.
-        connectBtn.setOnLongClickListener(view -> {
-            if (getActivity() instanceof MainActivity) {
-                new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                        .setTitle("Nuclear disconnect?")
-                        .setMessage("Force-close the app and kill ALL tunnel "
-                                + "processes (xray, zivpn, slowdns, ssh)? "
-                                + "Use this when the VPN refuses to disconnect "
-                                + "and the key icon stays stuck.")
-                        .setPositiveButton("NUCLEAR", (d, w) ->
-                                ((MainActivity) getActivity()).nuclearDisconnect())
-                        .setNegativeButton("Cancel", null)
-                        .show();
-                return true;
-            }
-            return false;
-        });
         v.findViewById(R.id.home_config_card).setOnClickListener(view -> {
             if (getActivity() instanceof MainActivity) {
                 ((MainActivity) getActivity()).goToConfigs();
