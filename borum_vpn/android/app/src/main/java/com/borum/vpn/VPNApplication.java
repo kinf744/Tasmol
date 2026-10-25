@@ -109,11 +109,6 @@ public class VPNApplication extends Application {
         } catch (Exception e) {
             Log.e("VPNApplication", "ensureReady failed on launch", e);
         }
-        // Miroir en temps-réel du journal prive vers Download/kighmu.txt :
-        // TOUS les evenements de connexion/deconnexion/erreur ecrits par
-        // appendKighmu (logEvent) y sont reproduits, afin que l'utilisateur
-        // puisse les recuperer pour diagnostiquer un crash.
-        BinaryManager.startDownloadMirror();
     }
 
     public static VPNApplication getInstance() {
