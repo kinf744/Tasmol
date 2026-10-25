@@ -259,10 +259,6 @@ public class HomeFragment extends Fragment {
                 for (int i = 0; i < arr.length(); i++) {
                     JSONObject t = arr.getJSONObject(i);
                     if (selected.contains(t.optString("id", ""))) {
-                        if (names.length() > 0) {
-                            names.append("  •  ");
-                        }
-                        names.append(t.optString("name", "Server"));
                         if (firstType.isEmpty()) {
                             firstType = TunnelAdapter.prettyType(t.optString("type", ""));
                             firstName = t.optString("name", "Server");
