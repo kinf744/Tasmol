@@ -45,6 +45,7 @@ public class TasVpnService extends VpnService {
     // True while a session is being established (connecting / reconnecting).
     // The Home tab shows a red CONNECTING status while this is set.
     private static volatile boolean starting = false;
+    private static volatile boolean stopping = false; // true while stopSession() is tearing down: prevents a late invokeStart() from reviving the controller
     private static volatile int startGen = -1;
     // Controller of a start that is still in flight, published the moment
     // Vpnlib.newController() returns and BEFORE the (blocking) start() call.
@@ -284,6 +285,7 @@ public class TasVpnService extends VpnService {
             Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
+        stopping = false;
         // Une déconnexion récente a peut-être armé le watchdog kill (8s) ou
         // la seconde passe (2s) : une nouvelle connexion légitime ne doit
         // PAS être tuée ni re-nettoyée par eux.
@@ -411,6 +413,15 @@ public class TasVpnService extends VpnService {
                             UdpSessionLog.failed(UdpSessionLog.prettyType(tunnelType), err);
                         }
                         throw new IllegalStateException("data plane: " + err);
+                    }
+                    // Si stopSession() a été appelée pendant ce start(),
+                    // on ne publie PAS le contrôleur : la session est déjà
+                    // en cours d'arrêt, le fd TUN a déjà été fermé.
+                    if (stopping) {
+                        logEvent("warning", "app",
+                                "start() terminé après déconnexion, contrôleur abandonné gen=" + gen);
+                        abortSupersededStart(gen, ctrl);
+                        return;
                     }
                     logEvent("connection", "app",
                             "plan de données demarre gen=" + gen + " tentative=" + attempt
@@ -659,9 +670,13 @@ public class TasVpnService extends VpnService {
      *               waiting on the Go teardown sooner.
      */
     private void stopSession(boolean nuclear) {
-        // Invalidate any in-flight connect first.
+        // Invalider toute tentative de connexion en vol et marquer l'arrêt
+        // en cours pour qu'un invokeStart() tardif ne republique pas le
+        // contrôleur après la déconnexion.
         sessionGen.incrementAndGet();
         starting = false;
+        stopping = true;
+        boolean wasConnecting = connectInFlight.getAndSet(false);
         // Journal de session UDP : la séquence d'arrêt complète la ligne de
         // connexion. Résolu avant que activeTunnelId ne soit effacé. Bloc
         // entièrement défensif : un crash ICI (main thread, dans le chemin
@@ -743,7 +758,13 @@ public class TasVpnService extends VpnService {
                     + " nuclear=" + nuclear + " target=null");
             releaseWakeLock();
             cancelNotification();
-            stopSelf();
+            // Ne pas arrêter le service si une connexion est en cours : le
+            // thread de connexion va se terminer seul et nettoyer le fd TUN
+            // via abortSupersededStart(). stopSelf() ici tuerait le service
+            // avant que le fd ne soit fermé, laissant la clé VPN bloquée.
+            if (!wasConnecting) {
+                stopSelf();
+            }
             return;
         }
         final long timeoutS = nuclear ? STOP_TIMEOUT_NUCLEAR_S : STOP_TIMEOUT_S;
