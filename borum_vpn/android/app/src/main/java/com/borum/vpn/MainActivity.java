@@ -35,11 +35,16 @@ public class MainActivity extends AppCompatActivity {
     private final Runnable statusTick = new Runnable() {
         @Override
         public void run() {
+            if (isFinishing() || isDestroyed()) {
+                return;
+            }
             Fragment f = getSupportFragmentManager().findFragmentById(R.id.fragment_container);
-            if (f instanceof HomeFragment) {
+            if (f instanceof HomeFragment && ((HomeFragment) f).isAdded()) {
                 ((HomeFragment) f).refreshStatus();
             }
-            handler.postDelayed(this, 2000);
+            if (!isFinishing() && !isDestroyed()) {
+                handler.postDelayed(this, 2000);
+            }
         }
     };
 

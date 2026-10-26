@@ -122,20 +122,22 @@ public class HomeFragment extends Fragment {
         if (connectBtn == null || getActivity() == null || !isAdded()) {
             return;
         }
-        updateApiSection();
+        android.content.Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+        updateApiSection(ctx);
         boolean hasSelection = !VPNApplication.getInstance().getSelectedIds().isEmpty();
         if (removeActiveBtn != null) {
             removeActiveBtn.setVisibility(hasSelection ? View.VISIBLE : View.GONE);
         }
-        int green = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_green);
-        int red = androidx.core.content.ContextCompat.getColor(requireContext(), R.color.npv_red);
+        int green = androidx.core.content.ContextCompat.getColor(ctx, R.color.npv_green);
+        int red = androidx.core.content.ContextCompat.getColor(ctx, R.color.npv_red);
         boolean running = TasVpnService.isRunning();
-        // PING temps réel sous le bouton PING : mesure continue tant que le
-        // VPN tourne (une mesure à la fois). ≤215 ms = vert, > = rouge.
         if (running) {
             maybeLivePing();
         } else {
-            showPingIdle();
+            showPingIdle(ctx);
         }
         if (!running) {
             // Launching / (re)connecting: stay on CONNECTING in red,
@@ -205,7 +207,7 @@ public class HomeFragment extends Fragment {
             statusText.setText(getString(R.string.home_connected));
             try {
                 statusText.setTextColor(androidx.core.content.ContextCompat.getColor(
-                        requireContext(), R.color.npv_green));
+                        ctx, R.color.npv_green));
             } catch (Exception ignored) {
             }
         }
@@ -311,13 +313,13 @@ public class HomeFragment extends Fragment {
     /** Seuil d'affichage : ≤ 215 ms en vert, au-delà en rouge. */
     private static final long PING_GOOD_MS = 215;
 
-    private void showPingIdle() {
+    private void showPingIdle(android.content.Context ctx) {
         if (pingValue == null) {
             return;
         }
         pingValue.setText(getString(R.string.home_ping_none));
         pingValue.setTextColor(androidx.core.content.ContextCompat
-                .getColor(requireContext(), R.color.npv_dim));
+                .getColor(ctx, R.color.npv_dim));
         cachedPingKey = "";
         cachedPingTarget = null;
     }
@@ -436,14 +438,14 @@ public class HomeFragment extends Fragment {
     // ------------------------------------------------------------------
 
     /** Visible only once the device is activated (trophy screen). */
-    private void updateApiSection() {
-        if (apiSection == null || getContext() == null) {
+    private void updateApiSection(android.content.Context ctx) {
+        if (apiSection == null || ctx == null) {
             return;
         }
-        boolean authed = ApiSession.isAuthenticated(requireContext());
+        boolean authed = ApiSession.isAuthenticated(ctx);
         apiSection.setVisibility(authed ? View.VISIBLE : View.GONE);
         if (authed) {
-            populateApiSpinner();
+            populateApiSpinner(ctx);
         }
     }
 
@@ -452,8 +454,8 @@ public class HomeFragment extends Fragment {
     // reset de la sélection) — jauge à l'écran et sélection sautante.
     private String lastApiKey = null;
 
-    private void populateApiSpinner() {
-        org.json.JSONArray cfgs = ApiSession.configs(requireContext());
+    private void populateApiSpinner(android.content.Context ctx) {
+        org.json.JSONArray cfgs = ApiSession.configs(ctx);
         String key = Integer.toHexString(cfgs.toString().hashCode());
         if (key.equals(lastApiKey)) {
             return; // rien à changer : garder adapter et sélection
@@ -491,7 +493,7 @@ public class HomeFragment extends Fragment {
         }
         visibleApiConfigs = visible;
         android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
-                requireContext(), android.R.layout.simple_spinner_dropdown_item, labels);
+                ctx, android.R.layout.simple_spinner_dropdown_item, labels);
         spinnerGuard = true;
         apiSpinner.setAdapter(ad);
         apiSpinner.setSelection(0, false);
@@ -500,19 +502,21 @@ public class HomeFragment extends Fragment {
 
     /** UPDATE button: pull the freshest config list from the API. */
     private void refreshApiConfigs(boolean announce) {
-        if (getContext() == null || !ApiSession.isAuthenticated(requireContext())) {
+        android.content.Context ctx = getContext();
+        if (ctx == null || !ApiSession.isAuthenticated(ctx)) {
             return;
         }
         if (announce) {
-            Toast.makeText(getContext(), "Mise à jour…", Toast.LENGTH_SHORT).show();
+            Toast.makeText(ctx, "Mise à jour…", Toast.LENGTH_SHORT).show();
         }
-        PhoHelper.configs(ApiSession.deviceUuid(requireContext()),
-                ApiSession.code(requireContext()), (resp, err) -> {
-                    if (getContext() == null) {
+        PhoHelper.configs(ApiSession.deviceUuid(ctx),
+                ApiSession.code(ctx), (resp, err) -> {
+                    android.content.Context c = getContext();
+                    if (c == null) {
                         return;
                     }
                     if (err != null) {
-                        Toast.makeText(getContext(), "API: " + err.getMessage(),
+                        Toast.makeText(c, "API: " + err.getMessage(),
                                 Toast.LENGTH_LONG).show();
                         return;
                     }
@@ -520,13 +524,13 @@ public class HomeFragment extends Fragment {
                         String msg = resp != null
                                 ? resp.optString("message", "échec de récupération")
                                 : "réponse vide";
-                        Toast.makeText(getContext(), "API: " + msg, Toast.LENGTH_LONG).show();
+                        Toast.makeText(c, "API: " + msg, Toast.LENGTH_LONG).show();
                         return;
                     }
-                    ApiSession.saveConfigs(requireContext(), resp.optJSONArray("configs"));
-                    populateApiSpinner();
+                    ApiSession.saveConfigs(c, resp.optJSONArray("configs"));
+                    populateApiSpinner(c);
                     if (announce) {
-                        Toast.makeText(getContext(), "Configs mises à jour",
+                        Toast.makeText(c, "Configs mises à jour",
                                 Toast.LENGTH_SHORT).show();
                     }
                 });
