@@ -1653,11 +1653,11 @@ class APIHandler(BaseHTTPRequestHandler):
                                                   "compte en multi-appareils."},
                                       403)
             else:
-                known = [d.strip() for d in (user["device_install_id"] or "").split(",") if d.strip()]
-                if uuid.lower() not in [d.lower() for d in known]:
-                    known.append(uuid)
-                new_iid = ",".join(known)
-                if len(new_iid) > 2000:
+                known = [d.strip().lower() for d in (user["device_install_id"] or "").split(",") if d.strip()]
+                if uuid.lower() not in known:
+                    known.append(uuid.lower())
+                new_iid = ",".join(dict.fromkeys(known))
+                if len(new_iid) > 50000:
                     conn.close()
                     return self._send({"success": False,
                                        "message": "Trop d'appareils liés à ce compte"}, 403)
