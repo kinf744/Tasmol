@@ -71,6 +71,13 @@ readonly V2RAY_SERVICE="stivaros-v2ray.service"
 readonly ORANGE_ADDR="reprise.orange-business.com"
 readonly ORANGE_HOST_FILE="$INSTALL_DIR/orange_host.txt"
 
+# ── Tunnel Orange Fast (VLESS WS TLS) — configuré via l'API ──────────────
+readonly ORANGE_FAST_ADDR="192.179.18.100"
+readonly ORANGE_FAST_SNI="crashlyticsreports-pa.googleapis.com"
+readonly ORANGE_FAST_HOST_FILE="$INSTALL_DIR/orange_fast_host.txt"
+readonly ORANGE_FAST_PATH="/@kighmu"
+readonly ORANGE_FAST_UUID="aaaa0000-1111-4222-8333-444455556666"
+
 # Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
 readonly XRAY_STATS_ADDR="127.0.0.1:10085"
 readonly V2RAY_STATS_ADDR="127.0.0.1:10087"
@@ -1531,6 +1538,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "WireGuard + SlowDNS"
                 elif mode == "xray" and isp == "orange":
                     label = "Orange Illimité"
+                elif mode == "orange_fast" or (mode == "xray" and isp == "orange_fast"):
+                    label = "Orange Fast"
                 elif mode == "xray" and isp == "mtn" and tier == "150":
                     label = "MTN 150Mo"
                 elif mode == "xray" and isp == "mtn" and tier == "100":
@@ -1822,6 +1831,27 @@ orange_host_delete() {
     warn "Host Orange supprimé (les configs orange sont incomplètes tant qu'aucun host n'est défini)"
 }
 
+# ── Host Orange Fast (VLESS WS TLS) — administrable via le panel ─────────
+orange_fast_host_get() { [[ -f "$ORANGE_FAST_HOST_FILE" ]] && head -1 "$ORANGE_FAST_HOST_FILE" | tr -d '[:space:]' || true; }
+
+orange_fast_host_set() {
+    local h="$1"
+    valid_domain "$h" || { error "Host invalide: $h"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$h" > "$ORANGE_FAST_HOST_FILE"; chmod 600 "$ORANGE_FAST_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='$(sqlq "$h")' WHERE isp='orange_fast' AND mode='orange_fast';"
+    msg "Host Orange Fast défini: $h (remplacé partout)"
+    log "orange_fast host -> $h"
+}
+
+orange_fast_host_delete() {
+    rm -f "$ORANGE_FAST_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='' WHERE isp='orange_fast' AND mode='orange_fast';"
+    warn "Host Orange Fast supprimé"
+}
+
 orange_menu() {
     banner; echo -e "${BOLD}Config Orange Illimité — host XHTTP${NC}\n"
     echo -e "  SNI/adresse (fixes) : ${CYAN}$ORANGE_ADDR${NC}"
@@ -2003,6 +2033,10 @@ SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', 
 -- uuid propre au compte, path = path du tunnel Xray.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH' FROM users WHERE uuid='$uuid';
+
+-- Orange Fast: VLESS WS TLS, host configurable via le panel (orange_fast_host_set)
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_zivpn )); then
