@@ -1853,15 +1853,25 @@ orange_fast_host_delete() {
 }
 
 orange_menu() {
-    banner; echo -e "${BOLD}Config Orange Illimité — host XHTTP${NC}\n"
-    echo -e "  SNI/adresse (fixes) : ${CYAN}$ORANGE_ADDR${NC}"
-    echo -e "  Path                : ${CYAN}$XRAY_PATH${NC}"
+    banner; echo -e "${BOLD}Config Orange — host XHTTP${NC}\n"
+    echo -e "  ${GOLD}Orange Illimité${NC}"
+    echo -e "    SNI/adresse (fixes) : ${CYAN}$ORANGE_ADDR${NC}"
+    echo -e "    Path                : ${CYAN}$XRAY_PATH${NC}"
     local cur
     cur=$(orange_host_get)
-    echo -e "  Host actuel         : ${CYAN}${cur:-<aucun>}${NC}"
+    echo -e "    Host actuel         : ${CYAN}${cur:-<aucun>}${NC}"
+    echo -e "  ${GOLD}Orange Fast${NC}"
+    echo -e "    SNI/adresse (fixes) : ${CYAN}$ORANGE_FAST_SNI${NC}"
+    echo -e "    Adresse             : ${CYAN}$ORANGE_FAST_ADDR${NC}"
+    echo -e "    Path                : ${CYAN}$ORANGE_FAST_PATH${NC}"
+    local curf
+    curf=$(orange_fast_host_get)
+    echo -e "    Host actuel         : ${CYAN}${curf:-<aucun>}${NC}"
     echo
-    echo "  1) Ajouter / remplacer le host"
-    echo "  2) Supprimer le host"
+    echo "  1) Orange : ajouter / remplacer le host"
+    echo "  2) Orange : supprimer le host"
+    echo "  3) Orange Fast : ajouter / remplacer le host"
+    echo "  4) Orange Fast : supprimer le host"
     echo "  0) Retour"
     echo
     local c
@@ -1874,6 +1884,14 @@ orange_menu() {
             ;;
         2)
             confirm "Supprimer le host Orange ?" && orange_host_delete
+            ;;
+        3)
+            local h
+            read -r -p "Host Orange Fast (ex: kighmu-vpn-919282834024.asia-south1.run.app): " h
+            [[ -n "$h" ]] && orange_fast_host_set "$h"
+            ;;
+        4)
+            confirm "Supprimer le host Orange Fast ?" && orange_fast_host_delete
             ;;
     esac
     pause
@@ -2746,6 +2764,15 @@ EOF
     # Câblage HAProxy (voir haproxy_wire_api): expose l'API sur :443.
     haproxy_wire_api || true
     haproxy_api_8443 || true
+
+    # Initialiser l'host Orange Fast par défaut si non défini.
+    if [[ ! -f "$ORANGE_FAST_HOST_FILE" ]]; then
+        mkdir -p "$INSTALL_DIR"
+        echo "kighmu-vpn-919282834024.asia-south1.run.app" > "$ORANGE_FAST_HOST_FILE"
+        chmod 600 "$ORANGE_FAST_HOST_FILE"
+        log "orange_fast host initial: kighmu-vpn-919282834024.asia-south1.run.app"
+    fi
+
     echo
     msg "Installation terminée"
     pause

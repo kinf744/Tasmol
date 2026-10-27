@@ -103,8 +103,14 @@ public class HomeFragment extends Fragment {
             ApiSession.clearActive(requireContext());
             VPNApplication.getInstance().setSelectedIds(new java.util.LinkedHashSet<>());
             VPNApplication.getInstance().setActiveTunnelId("");
+            ApiSession.clearActive(requireContext());
+            VPNApplication.getInstance().setSelectedIds(new java.util.LinkedHashSet<>());
+            VPNApplication.getInstance().setActiveTunnelId("");
             // Réinitialiser le spinner au placeholder pour permettre une
             // nouvelle sélection immédiate sans avoir à naviguer ailleurs.
+            // Invalider aussi le cache lastApiKey pour forcer le re-parse
+            // du spinner si les configs distantes n'ont pas changé.
+            lastApiKey = null;
             spinnerGuard = true;
             apiSpinner.setSelection(0, false);
             spinnerGuard = false;
