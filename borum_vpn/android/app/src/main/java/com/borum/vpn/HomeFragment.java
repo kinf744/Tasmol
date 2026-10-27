@@ -103,6 +103,11 @@ public class HomeFragment extends Fragment {
             ApiSession.clearActive(requireContext());
             VPNApplication.getInstance().setSelectedIds(new java.util.LinkedHashSet<>());
             VPNApplication.getInstance().setActiveTunnelId("");
+            // Réinitialiser le spinner au placeholder pour permettre une
+            // nouvelle sélection immédiate sans avoir à naviguer ailleurs.
+            spinnerGuard = true;
+            apiSpinner.setSelection(0, false);
+            spinnerGuard = false;
             Toast.makeText(getContext(), "Config retirée", Toast.LENGTH_SHORT).show();
             refreshStatus();
         });
