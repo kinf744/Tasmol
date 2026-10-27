@@ -337,6 +337,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "MTN 100Mo"
                 elif mode == "xray" and isp == "":
                     label = f"XRAY {tier}Mo"
+                elif mode == "orange_fast":
+                    label = "Orange Fast"
                 else:
                     continue
                 if mode in ("sshslowdns", "v2raydns") and mode_total.get(mode, 0) > 1:
