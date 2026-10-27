@@ -2112,8 +2112,8 @@ SQL
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
     fi
-    if (( want_orange_fast )) && (( cnt_orange_fast < 2 )); then
-        error "Orange Fast : $cnt_orange_fast/2 configs insérées — famille incomplète"; ok_cfgs=0
+    if (( want_orange_fast )) && (( cnt_orange_fast < 1 )); then
+        error "Orange Fast : $cnt_orange_fast/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
         error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2125,7 +2125,7 @@ SQL
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( ok_cfgs )); then
-        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/2)"
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1)"
     else
         warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
     fi
