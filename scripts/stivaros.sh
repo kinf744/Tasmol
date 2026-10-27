@@ -1982,7 +1982,7 @@ create_user() {
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-4,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
