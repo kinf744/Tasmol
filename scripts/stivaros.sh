@@ -1975,6 +1975,7 @@ create_user() {
     echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
+    echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
@@ -1985,12 +1986,13 @@ create_user() {
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns)) -ge 1 ]] \
+    if want 5; then want_orange_fast=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -2002,6 +2004,8 @@ create_user() {
     if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
     # slowdns implique ssh + v2ray
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
+    # Orange Fast utilise le tunnel Xray (VLESS WS TLS)
+    if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -2051,7 +2055,10 @@ SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', 
 -- uuid propre au compte, path = path du tunnel Xray.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH' FROM users WHERE uuid='$uuid';
-
+SQL
+    fi
+    if (( want_orange_fast )); then
+    cat << SQL
 -- Orange Fast: VLESS WS TLS, host configurable via le panel (orange_fast_host_set)
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
@@ -2094,15 +2101,19 @@ SQL
     # Vérification par famille : compte les lignes réellement insérées et
     # signale toute famille incomplète (l'utilisateur voit immédiatement
     # ce qui manque dans l'app au lieu d'un spinner silencieusement vide).
-    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0
+    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_orange_fast=0
     cnt() { sqlite3 -batch "$DB_PATH" "SELECT COUNT(*) FROM vpn_configs WHERE user_id=(SELECT id FROM users WHERE uuid='$uuid') AND $1;"; }
     cnt_xray=$(cnt "mode IN ('', 'xray')")
     cnt_zivpn=$(cnt "mode='zivpn'")
     cnt_sshdns=$(cnt "mode='sshslowdns'")
     cnt_v2dns=$(cnt "mode='v2raydns'")
+    cnt_orange_fast=$(cnt "mode='orange_fast'")
     local ok_cfgs=1
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_orange_fast )) && (( cnt_orange_fast < 2 )); then
+        error "Orange Fast : $cnt_orange_fast/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
         error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2114,7 +2125,7 @@ SQL
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( ok_cfgs )); then
-        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2)"
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/2)"
     else
         warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
     fi
