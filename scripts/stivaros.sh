@@ -1922,6 +1922,10 @@ create_user() {
     banner; echo -e "${BOLD}Nouveau compte${NC}\n"
     [[ -f "$DB_PATH" ]] || { error "API non installée (option 1)"; pause; return 1; }
 
+    # Migration : s'assurer que la colonne allowed_uuids existe (bases créées
+    # avant l'ajout de l'option UUIDs définis).
+    sqlite3 -batch "$DB_PATH" "ALTER TABLE users ADD COLUMN allowed_uuids TEXT DEFAULT '';" 2>/dev/null || true
+
     local name uuid phone expires
     read -r -p "Nom (a-z0-9._-)      : " name
     valid_name "$name"  || { error "Nom invalide"; pause; return 1; }
