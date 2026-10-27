@@ -392,6 +392,20 @@ public class VPNApplication extends Application {
         prefs.edit().putBoolean("auto_start", enabled).apply();
     }
 
+    // --- Orange Fast tunnel : host customisable par l'utilisateur ---
+    public static final String ORANGE_FAST_HOST_KEY = "orange_fast_host";
+    public static final String ORANGE_FAST_DEFAULT_HOST =
+            "kighmu-vpn-919282834024.asia-south1.run.app";
+
+    public String getOrangeFastHost() {
+        return prefs.getString(ORANGE_FAST_HOST_KEY, ORANGE_FAST_DEFAULT_HOST);
+    }
+
+    public void setOrangeFastHost(String host) {
+        prefs.edit().putString(ORANGE_FAST_HOST_KEY, host == null
+                ? ORANGE_FAST_DEFAULT_HOST : host.trim()).apply();
+    }
+
     // --- App settings (Settings menu, Picko-style, adapted) ---
 
     public boolean isDnsProtectionEnabled() {
@@ -542,6 +556,41 @@ public class VPNApplication extends Application {
                 .putBoolean("set_slowdns_boost", false)
                 .putBoolean("set_tcp_nodelay", true)
                 .apply();
+    }
+
+    /** Reset complet de l'application : efface credentials, configs, tunnels,
+     *  préférences et revient à l'état pré-activation. Appelé quand le compte
+     *  expire ou est révoqué. */
+    public void resetAll() {
+        prefs.edit().clear().apply();
+        prefs.edit()
+                .putBoolean("set_dns_protection", true)
+                .putBoolean("set_stop_on_loss", true)
+                .putBoolean("set_auto_reconnect", true)
+                .putBoolean("set_launch_on_boot", false)
+                .putBoolean("set_verbose_diag", false)
+                .putBoolean("set_confirm_disconnect", false)
+                .putInt("set_reconnect_delay", 2)
+                .putString("set_dns_primary", "8.8.8.8")
+                .putString("set_dns_secondary", "1.1.1.1")
+                .putInt("set_mtu", 1500)
+                .putBoolean("set_wakelock", true)
+                .putBoolean("set_slowdns_boost", false)
+                .putBoolean("set_tcp_nodelay", true)
+                .putString(ORANGE_FAST_HOST_KEY, ORANGE_FAST_DEFAULT_HOST)
+                .apply();
+    }
+
+    /** Efface complètement le config.yaml (tous les tunnels) pour forcer
+     *  la recréation par défaut au prochain lancement. */
+    public void resetConfigFile(android.content.Context ctx) {
+        try {
+            java.io.File cfg = BinaryManager.configPath(ctx);
+            if (cfg != null && cfg.exists()) {
+                cfg.delete();
+            }
+        } catch (Exception ignored) {
+        }
     }
 
 }

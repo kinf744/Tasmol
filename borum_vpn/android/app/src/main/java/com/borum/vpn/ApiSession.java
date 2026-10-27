@@ -90,6 +90,17 @@ public final class ApiSession {
         PhoHelper.vaultClear(deviceUuid(ctx));
     }
 
+    /** Reset complet : efface credentials, configs, compte, et toute l'auth.
+     *  Appelé quand le compte expire ou est révoqué. L'app revient à l'état
+     *  pré-activation. */
+    public static void resetAll(Context ctx) {
+        logout(ctx);
+        p(ctx).edit().clear().apply();
+        // Supprimer aussi le cache des configs
+        lastConfigsRaw = null;
+        lastConfigsParsed = new JSONArray();
+    }
+
     // --- Bloc compte (carte "Client" de l'écran d'activation) ---
     // Non sensible : nom, plan, quota et expiration. Uniquement quand le
     // compte est actif et validé ; rafraîchi via /api/v1/devices/check.

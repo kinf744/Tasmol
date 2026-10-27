@@ -199,6 +199,22 @@ public class SettingsFragment extends Fragment {
             gov = "";
         }
         version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
+
+        // ── Orange Fast host ──────────────────────────────────────────
+        final EditText orangeHost = v.findViewById(R.id.settings_orange_host);
+        orangeHost.setText(app.getOrangeFastHost());
+        v.findViewById(R.id.settings_orange_save).setOnClickListener(view -> {
+            String h = orangeHost.getText().toString().trim();
+            if (h.isEmpty()) {
+                toast("Host invalide");
+                return;
+            }
+            app.setOrangeFastHost(h);
+            // Recréer le config.yaml pour que le nouvel host soit pris en
+            // compte par le tunnel Orange Fast (VLESS WS TLS).
+            app.resetConfigFile(requireContext());
+            toast("Orange Fast host enregistré - recréation config");
+        });
     }
 
     private void saveDnsFields(EditText dns1, EditText dns2) {

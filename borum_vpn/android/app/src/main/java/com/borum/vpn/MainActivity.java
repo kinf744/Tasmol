@@ -18,6 +18,9 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import org.json.JSONObject;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -200,6 +203,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         handler.post(statusTick);
+        // Vérification d'expiration : si le compte a expiré (date dans le
+        // passé), reset complet et retour à l'activation.
+        checkExpiry();
     }
 
     @Override
@@ -559,5 +565,34 @@ public class MainActivity extends AppCompatActivity {
                     .setNegativeButton("Ignorer", null)
                     .show();
         }, 800);
+    }
+
+    /** Vérifie si la date d'expiration du compte est dépassée. Si oui :
+     *  reset complet de l'app et retour à l'écran d'activation. */
+    private void checkExpiry() {
+        String exp = ApiSession.expiresAt(this);
+        if (exp == null || exp.isEmpty()) {
+            return;
+        }
+        try {
+            SimpleDateFormat fmt = new SimpleDateFormat(
+                    "yyyy-MM-dd HH:mm:ss", Locale.US);
+            Date d = fmt.parse(exp);
+            if (d != null && d.before(new Date())) {
+                // Compte expiré : reset complet
+                ApiSession.resetAll(this);
+                VPNApplication a = VPNApplication.getInstance();
+                a.resetAll();
+                a.resetConfigFile(this);
+                handler.removeCallbacks(statusTick);
+                Intent i = new Intent(this, AuthActivity.class);
+                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(i);
+                finish();
+                toast("Compte expiré - réinitialisation");
+            }
+        } catch (Exception ignored) {
+            // Format de date non reconnu : on ne bloque pas l'app.
+        }
     }
 }

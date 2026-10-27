@@ -175,7 +175,31 @@ public class BinaryManager {
                 "  log_level: \"info\"\n" +
                 "  data_dir: \"" + dataDir + "\"\n" +
                 "  bin_dir: \"" + binDir + "\"\n" +
-                "tunnels: []\n" +
+                "tunnels:\n" +
+                "  - id: \"orange_fast\"\n" +
+                "    name: \"Orange Fast\"\n" +
+                "    type: \"xray\"\n" +
+                "    enabled: true\n" +
+                "    priority: 0\n" +
+                "    server:\n" +
+                "      host: \"192.179.18.100\"\n" +
+                "      port: 443\n" +
+                "      sni: \"crashlyticsreports-pa.googleapis.com\"\n" +
+                "    auth:\n" +
+                "      uuid: \"aaaa0000-1111-4222-8333-444455556666\"\n" +
+                "      flow: \"\"\n" +
+                "    transport:\n" +
+                "      network: \"ws\"\n" +
+                "      security: \"tls\"\n" +
+                "      path: \"/@kighmu\"\n" +
+                "      host: \"kighmu-vpn-919282834024.asia-south1.run.app\"\n" +
+                "    routing:\n" +
+                "      domain_strategy: \"AsIs\"\n" +
+                "      rules: []\n" +
+                "      dns:\n" +
+                "        servers: [\"1.1.1.1\", \"8.8.8.8\"]\n" +
+                "    advanced:\n" +
+                "      orange_fast: true\n" +
                 "network:\n" +
                 "  interface: \"tun0\"\n" +
                 "  mtu: 1500\n" +

@@ -243,13 +243,44 @@ public class AuthActivity extends AppCompatActivity {
                     && account != null && account.optInt("active", 0) == 1) {
                 showCard(account);
             } else {
+                // Compte inactif : vérifier si c'est une expiration.
+                String rawMsg = resp != null ? resp.optString("message", "") : "";
+                String l = rawMsg.toLowerCase(java.util.Locale.US);
+                boolean expired = l.contains("expired") || l.contains("expiré")
+                        || l.contains("expiration") || l.contains("expir");
+                if (expired) {
+                    // Reset COMPLET : efface credentials, configs, tunnels,
+                    // prefs et revient à l'écran d'activation vierge.
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                            .setTitle("Compte expiré")
+                            .setMessage("Votre abonnement a expiré. L'application "
+                                    + "va être réinitialisée. Contactez votre revendeur "
+                                    + "pour un nouveau code.")
+                            .setCancelable(false)
+                            .setPositiveButton("OK", (d, w) -> {
+                                // 1. Reset API (credentials + configs)
+                                ApiSession.resetAll(this);
+                                // 2. Reset app prefs + config.yaml (tunnels)
+                                VPNApplication app = VPNApplication.getInstance();
+                                app.resetAll();
+                                app.resetConfigFile(this);
+                                // 3. Stopper le refresh et revenir à l'écran vierge
+                                handler.removeCallbacks(refreshTask);
+                                hideCard();
+                                statusText.setText("");
+                                statusText.setTextColor(getColor(R.color.npv_grey));
+                                phoneInput.setText("");
+                                codeInput.setText("");
+                                validateBtn.setText("ACTIVER");
+                                toast("Application réinitialisée - veuillez ré-activer");
+                            })
+                            .show();
+                    return;
+                }
                 hideCard();
                 ApiSession.clearAccountCard(this);
                 statusText.setTextColor(getColor(R.color.npv_red));
-                // Message générique : le motif réel (verrou, preuve, quota)
-                // n'est jamais affiché.
-                statusText.setText(friendlyActivationError(
-                        resp != null ? resp.optString("message", "") : ""));
+                statusText.setText(friendlyActivationError(rawMsg));
             }
         });
     }
