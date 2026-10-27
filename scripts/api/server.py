@@ -78,6 +78,7 @@ def init_db():
             name TEXT DEFAULT '',
             activation_code TEXT NOT NULL,
             device_install_id TEXT DEFAULT '',
+            allowed_uuids TEXT DEFAULT '',
             app_version TEXT DEFAULT '',
             created_at TEXT DEFAULT (datetime('now')),
             expires_at TEXT,
@@ -114,9 +115,10 @@ def init_db():
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
                      ("path", "TEXT DEFAULT ''"),
-                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
-        # quota_mb/bytes_used ciblent la table users
-        table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
+                     ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0"),
+                     ("allowed_uuids", "TEXT DEFAULT ''")]:
+        # quota_mb/bytes_used/allowed_uuids ciblent la table users
+        table = "users" if col in ("quota_mb", "bytes_used", "allowed_uuids") else "vpn_configs"
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}")
         except Exception:
@@ -159,11 +161,14 @@ def find_users(identifier):
     ident = (identifier or "").strip()
     conn = get_db()
     rows = list(conn.execute(
-        "SELECT * FROM users WHERE uuid = ? OR device_install_id = ? OR phone = ?",
-        (ident, ident, ident)).fetchall())
+        "SELECT * FROM users WHERE uuid = ? OR device_install_id = ? OR phone = ? OR allowed_uuids = ?",
+        (ident, ident, ident, ident)).fetchall())
     if ident and len(ident) <= 64 and "%" not in ident and "_" not in ident:
         rows += conn.execute(
             "SELECT * FROM users WHERE (',' || device_install_id || ',') LIKE ?",
+            ("%,%" + ident + ",%",)).fetchall()
+        rows += conn.execute(
+            "SELECT * FROM users WHERE (',' || allowed_uuids || ',') LIKE ?",
             ("%,%" + ident + ",%",)).fetchall()
     rows = [dict(r) for r in rows]
     seen, out = set(), []
@@ -230,10 +235,12 @@ class APIHandler(BaseHTTPRequestHandler):
         if not user["multi_device"]:
             bound_list = [d.strip().lower()
                           for d in (user["device_install_id"] or "").split(",") if d.strip()]
+            allowed_list = [d.strip().lower()
+                            for d in (user.get("allowed_uuids") or "").split(",") if d.strip()]
+            bound_list.extend(allowed_list)
             if not bound_list:
                 return None, ({"success": False,
-                               "message": "Compte mono-appareil sans appareil lié : "
-                                          "activez-le d'abord depuis votre téléphone"}, 403)
+                               "message": "Compte mono-appareil sans appareil lié ni UUID autorisé"}, 403)
             if uuid.strip().lower() not in bound_list:
                 return None, ({"success": False,
                                "message": "Compte verrouillé sur un autre appareil"}, 403)

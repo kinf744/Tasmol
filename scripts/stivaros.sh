@@ -1937,14 +1937,27 @@ create_user() {
     echo -e "  ${BOLD}Appareils autorisés pour ce compte :${NC}"
     echo -e "   ${CYAN}1${NC}) Mono-appareil — verrouillé sur un seul UUID"
     echo -e "   ${CYAN}2${NC}) Multi-appareils — tout UUID accepté (compte partageable)"
-    local dev_mode multi_device=0 dev_uuid=""
+    echo -e "   ${CYAN}3${NC}) UUIDs définis — liste séparée par des virgules"
+    local dev_mode multi_device=0 dev_uuid="" allowed_uuids=""
     read -r -p "Choix [1]: " dev_mode
     case "${dev_mode:-1}" in
         1) multi_device=0 ;;
         2) multi_device=1 ;;
+        3) multi_device=0 ;;
         *) error "Choix invalide"; pause; return 1 ;;
     esac
-    if [[ "$multi_device" == "0" ]]; then
+    if [[ "$dev_mode" == "3" ]]; then
+        read -r -p "UUIDs (virgule-séparés): " allowed_uuids
+        allowed_uuids=$(printf '%s' "$allowed_uuids" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+        if [[ -n "$allowed_uuids" ]]; then
+            local IFS=','
+            for u in $allowed_uuids; do
+                valid_uuid "$u" || { error "UUID invalide: $u"; pause; return 1; }
+            done
+        else
+            info "Vide : aucun UUID autorisé (compte inutilisable jusqu'à ajout manuel)"
+        fi
+    elif [[ "$multi_device" == "0" ]]; then
         read -r -p "UUID appareil        : " dev_uuid
         if [[ -n "$dev_uuid" ]]; then
             valid_uuid "$dev_uuid" || { error "UUID invalide (format 8-4-4-4-12 hex)"; pause; return 1; }
@@ -2039,8 +2052,8 @@ create_user() {
     sql_err=$(mktemp)
     {
     cat << SQL
-INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id)
-VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb, $multi_device, '$(sqlq "$dev_uuid")');
+INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id, allowed_uuids)
+VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb, $multi_device, '$(sqlq "$dev_uuid")', '$(sqlq "$allowed_uuids")');
 SQL
     if (( want_xray )); then
     cat << SQL
@@ -2176,6 +2189,174 @@ SQL
         echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
     fi
     echo -e "${GREEN}════════════════════════════════════════${NC}"
+    pause
+}
+
+# ── Gestion des configs d'un compte existant ──────────────────────────────
+manage_configs() {
+    banner; echo -e "${BOLD}Gérer les configs d'un compte${NC}\n"
+    [[ -f "$DB_PATH" ]] || { error "API non installée (option 1)"; pause; return 1; }
+
+    # Choisir le compte
+    local i=0 ids=() names=()
+    while IFS='|' read -r id name; do
+        i=$((i + 1))
+        ids+=("$id"); names+=("$name")
+        printf "  ${CYAN}%d${NC}) %s\n" "$i" "${name:-<sans nom>}"
+    done < <(sqlite3 -batch "$DB_PATH" "SELECT id, COALESCE(name,'') FROM users WHERE active=1 ORDER BY id;")
+    [[ $i -eq 0 ]] && { warn "Aucun compte actif"; pause; return 1; }
+    echo
+    local c
+    printf "  ${GOLD}► Compte${NC} ${WHITE}:${NC} "; read -r c
+    [[ "$c" =~ ^[0-9]+$ ]] && [[ "$c" -ge 1 && "$c" -le "$i" ]] || { error "Choix invalide"; pause; return 1; }
+    local uid=${ids[$((c-1))]}
+    local uname=${names[$((c-1))]}
+
+    # Afficher les configs actuelles
+    echo
+    echo -e "  ${BOLD}Configs actuelles de '${WHITE}${uname}${NC}' :${NC}"
+    local j=0 cfg_ids=() cfg_modes=() cfg_labels=()
+    while IFS='|' read -r cid mode label; do
+        j=$((j + 1))
+        cfg_ids+=("$cid"); cfg_modes+=("$mode"); cfg_labels+=("${label:-$mode}")
+        printf "   ${CYAN}%d${NC}) %s (mode=%s, id=%s)\n" "$j" "${label:-$mode}" "$mode" "$cid"
+    done < <(sqlite3 -batch "$DB_PATH" \
+        "SELECT id, mode, label FROM vpn_configs WHERE user_id=$uid ORDER BY id;")
+    [[ $j -eq 0 ]] && echo -e "  ${GRAY}Aucune config${NC}"
+
+    echo
+    echo "  1) Ajouter des configs à ce compte"
+    echo "  2) Retirer des configs de ce compte"
+    echo "  0) Retour"
+    echo
+    local o
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r o
+    case "$o" in
+        1)
+            add_configs_to_user "$uid"
+            ;;
+        2)
+            [[ ${#cfg_ids[@]} -eq 0 ]] && { warn "Aucune config à retirer"; pause; return; }
+            read -r -p "N° config à retirer (ex: 1,3 ou 0 pour tout): " sel
+            sel=$(printf '%s' "$sel" | tr -d ' ')
+            [[ -n "$sel" ]] || sel="0"
+            if [[ "$sel" == "0" ]]; then
+                sqlite3 -batch "$DB_PATH" "DELETE FROM vpn_configs WHERE user_id=$uid;"
+                msg "Toutes les configs du compte #$uid retirées"
+            else
+                local IFS=','
+                for n in $sel; do
+                    [[ "$n" =~ ^[0-9]+$ ]] && [[ "$n" -ge 1 && "$n" -le "$j" ]] || { warn "N° ignoré: $n"; continue; }
+                    sqlite3 -batch "$DB_PATH" "DELETE FROM vpn_configs WHERE id=${cfg_ids[$((n-1))]};"
+                done
+                unset IFS
+                msg "Config(s) retirée(s) du compte #$uid"
+            fi
+            ;;
+        0) return ;;
+        *) error "Choix invalide" ;;
+    esac
+    pause
+}
+
+# Ajouter des configs à un utilisateur existant (reprend la logique de create_user)
+add_configs_to_user() { # $1 user_id
+    local uid="$1"
+    local name phone expires code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
+    local server_addr e_name e_phone e_srv e_sshuser e_ns4 e_nv4 e_pub
+    name=$(sqlite3 -batch "$DB_PATH" "SELECT name FROM users WHERE id=$uid;")
+    phone=$(sqlite3 -batch "$DB_PATH" "SELECT phone FROM users WHERE id=$uid;")
+    expires=$(sqlite3 -batch "$DB_PATH" "SELECT expires_at FROM users WHERE id=$uid;")
+    code=$(sqlite3 -batch "$DB_PATH" "SELECT activation_code FROM users WHERE id=$uid;")
+    server_addr=$(get_domain)
+    server_addr=${server_addr:-$(hostname -I | awk '{print $1}')}
+    xray_uuid=$(gen_uuid)
+    zivpn_pass=$(gen_pass 12)
+    ssh_pass=$(gen_pass 12)
+    ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
+    ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
+    nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
+    nv4=${nv4:-$(head -1 "$SLOWDNS_DIR/nv4/ns.conf" 2>/dev/null || true)}
+    dnstt_pub=$(cat "$SLOWDNS_DIR/server.pub" 2>/dev/null | tr -d '[:space:]')
+    local ssh_user="u$(printf '%s' "$phone" | tr -dc '0-9')"
+
+    echo
+    echo -e "  ${BOLD}Configs à ajouter au compte #$uid :${NC}"
+    echo -e "   ${CYAN}1${NC}) XRAY   (MTN 150/100 + Orange illimité)"
+    echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
+    echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
+    echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
+    echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
+    echo -e "   ${CYAN}0${NC}) Toutes"
+    local cfg_sel
+    read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
+    cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
+    [[ -n "$cfg_sel" ]] || cfg_sel="0"
+    case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
+    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    want() { [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]; }
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
+    if want 1; then want_xray=1; fi
+    if want 2; then want_zivpn=1; fi
+    if want 3; then want_sshdns=1; fi
+    if want 4; then want_v2dns=1; fi
+    if want 5; then want_orange_fast=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
+        || { error "Aucune config choisie"; pause; return 1; }
+
+    local sql_err
+    sql_err=$(mktemp)
+    {
+    if (( want_xray )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT $uid, '$server_addr', 443, 'vless', 'ws', 1, 'mtnplay.com', '$server_addr', 'mtn', '', '', '150', '$xray_uuid', '/vless';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT $uid, '$server_addr', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$server_addr', 'mtn', '', '', '100', '$xray_uuid', '/vless';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT $uid, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH';
+SQL
+    fi
+    if (( want_orange_fast )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT $uid, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH';
+SQL
+    fi
+    if (( want_zivpn )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT $uid, '$server_addr', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$server_addr', '$server_addr', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT $uid, '$server_addr', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$server_addr', '$server_addr', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES';
+SQL
+    fi
+    if (( want_sshdns )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+SELECT $uid, '$server_addr', 22, 'ssh', 'dnstt', 0, '$server_addr', '$server_addr', '', 'sshslowdns', '150', '$xray_uuid', '$ns4', '$dnstt_pub', '$ssh_user', '$ssh_pass';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+SELECT $uid, '$server_addr', 22, 'ssh', 'dnstt', 0, '$server_addr', '$server_addr', '', 'sshslowdns', '150', '$xray_uuid', '$ns4', '$dnstt_pub', '$ssh_user', '$ssh_pass';
+SQL
+    fi
+    if (( want_v2dns )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+SELECT $uid, '$server_addr', $V2RAY_PORT, 'vless', 'dnstt', 0, '$server_addr', '$server_addr', '', 'v2raydns', '150', '$xray_uuid', '$nv4', '$dnstt_pub';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+SELECT $uid, '$server_addr', $V2RAY_PORT, 'vless', 'dnstt', 0, '$server_addr', '$server_addr', '', 'v2raydns', '150', '$xray_uuid', '$nv4', '$dnstt_pub';
+SQL
+    fi
+    } | sqlite3 -batch "$DB_PATH" 2> "$sql_err" || true
+    if [[ -s "$sql_err" ]]; then
+        error "Erreurs SQL :"; sed 's/^/    /' "$sql_err" >&2
+    fi
+    rm -f "$sql_err"
+    msg "Configs ajoutées au compte #$uid"
+    if (( want_sshdns )); then ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"; fi
+    if (( want_zivpn )) && tunnel_active zivpn; then zivpn_update_passwords 2>/dev/null || true; fi
+    if (( want_xray )); then xray_sync_uuids 2>/dev/null || true; fi
+    if (( want_xray || want_v2dns )); then v2ray_sync_users 2>/dev/null || true; fi
     pause
 }
 
@@ -2918,7 +3099,8 @@ menu() {
         box_line "  ${GOLD}${BOLD}8${NC} ${WHITE})${NC} Config Orange ${GRAY}(host)${NC}"
         box_line "  ${GOLD}${BOLD}9${NC} ${WHITE})${NC} Quotas & consommation"
         box_sep
-        box_line " ${RED}${BOLD}10${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}10${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
+        box_line " ${RED}${BOLD}11${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -2935,7 +3117,8 @@ menu() {
             7) manage_devices || true ;;
             8) orange_menu || true ;;
             9) quotas_menu || true ;;
-            10) uninstall_all || true ;;
+            10) manage_configs || true ;;
+            11) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
