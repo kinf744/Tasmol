@@ -78,6 +78,58 @@ readonly ORANGE_FAST_HOST_FILE="$INSTALL_DIR/orange_fast_host.txt"
 readonly ORANGE_FAST_PATH="/@kighmu"
 readonly ORANGE_FAST_UUID="aaaa0000-1111-4222-8333-444455556666"
 
+# ── Décalage horaire VPS <-> heure locale utilisateur ─────────────────────
+# Le VPS peut avoir un fuseau horaire different de celui de l'utilisateur.
+# TZ_OFFSET_HOURS = nombre d'heures a ajouter aux dates calculees localement
+# pour obtenir l'heure locale de l'utilisateur (ex: +1 si le VPS a 1h de retard).
+readonly TZ_OFFSET_FILE="$INSTALL_DIR/tz_offset"
+
+# Detecte le decalage entre l'heure systeme du VPS et UTC.
+# Retourne un nombre entier d'heures (positif si le VPS est en avance sur UTC).
+detect_tz_offset() {
+    local offset_raw
+    offset_raw=$(date +%z 2>/dev/null || echo "+0000")
+    # date +%z retourne +0100, -0500, etc. -> extraire les heures.
+    local sign="${offset_raw:0:1}"
+    local hh="${offset_raw:1:2}"
+    local mm="${offset_raw:3:2}"
+    local sign_val=1
+    [[ "$sign" == "-" ]] && sign_val=-1
+    echo $((sign_val * (10#$hh + 10#$mm / 60)))
+}
+
+# Lit le decalage configure (fichier) ou detecte automatiquement.
+get_tz_offset() {
+    if [[ -f "$TZ_OFFSET_FILE" ]]; then
+        local stored
+        stored=$(cat "$TZ_OFFSET_FILE" 2>/dev/null | tr -d '[:space:]')
+        if [[ "$stored" =~ ^-?[0-9]+$ ]]; then
+            echo "$stored"
+            return
+        fi
+    fi
+    detect_tz_offset
+}
+
+# Applique le decalage a une date donnee (YYYY-MM-DD ou YYYY-MM-DD HH:MM:SS).
+# Retourne la date decalee au meme format.
+apply_tz_offset() {
+    local input_date="$1"
+    local offset
+    offset=$(get_tz_offset)
+    [[ -z "$input_date" || "$offset" == "0" ]] && { echo "$input_date"; return; }
+    # Utilise date -u pour travailler en UTC puis ajoute le decalage.
+    local fmt_in fmt_out
+    if [[ "$input_date" =~ [0-9]{2}:[0-9]{2}:[0-9]{2} ]]; then
+        fmt_in="%Y-%m-%d %H:%M:%S"
+        fmt_out="%Y-%m-%d %H:%M:%S"
+    else
+        fmt_in="%Y-%m-%d"
+        fmt_out="%Y-%m-%d"
+    fi
+    date -u -d "$input_date $offset hours" "+$fmt_out" 2>/dev/null || echo "$input_date"
+}
+
 # Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
 readonly XRAY_STATS_ADDR="127.0.0.1:10085"
 readonly V2RAY_STATS_ADDR="127.0.0.1:10087"
@@ -1975,10 +2027,12 @@ create_user() {
     uuid=$(gen_uuid)
     read -r -p "Expiration (jours ex: 5, ou date YYYY-MM-DD): " expires
     if [[ "$expires" =~ ^[0-9]+$ ]]; then
-        # Saisie en nombre de jours : date d'aujourd'hui + N jours
+        # Saisie en nombre de jours : date d'aujourd'hui + N jours (UTC + decalage)
         local days="$expires"
-        expires=$(date -d "+${days} days" +%F)
-        info "Expiration calculee: $expires (+${days} jours)"
+        local raw_expires
+        raw_expires=$(date -u -d "+${days} days" +%F)
+        expires=$(apply_tz_offset "$raw_expires")
+        info "Expiration calculee: $expires (+${days} jours, decalage +$(get_tz_offset)h)"
     else
         valid_date "$expires" || { error "Date invalide"; pause; return 1; }
         [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
@@ -2252,8 +2306,10 @@ create_test_user() {
     uuid=$(gen_uuid)
     read -r -p "Duree en heures (ex: 24, 48, 72): " hours
     [[ "$hours" =~ ^[0-9]+$ ]] || { error "Duree invalide (nombre d'heures)"; pause; return 1; }
-    expires=$(date -d "+${hours} hours" +%F\ %T)
-    info "Expiration calculee: $expires (+${hours} heures)"
+    local raw_expires
+    raw_expires=$(date -u -d "+${hours} hours" +%F\ %T)
+    expires=$(apply_tz_offset "$raw_expires")
+    info "Expiration calculee: $expires (+${hours} heures, decalage +$(get_tz_offset)h)"
 
     local quota_mb
     quota_mb=$(read_quota_gb "Quota data en Go (0 = illimite, ex: 0.15 ou 12.57): ") \
@@ -3342,6 +3398,45 @@ manage_devices() {
     pause
 }
 
+# ── Configuration du decalage horaire ─────────────────────────────────────
+tz_offset_menu() {
+    banner; echo -e "${BOLD}Decalage horaire VPS${NC}\n"
+    local current
+    current=$(get_tz_offset)
+    echo -e "  Decalage actuel : ${CYAN}${current}h${NC}"
+    echo -e "  (valeur detectee automatiquement ou definie manuellement)"
+    echo
+    echo "  Ce decalage est ajoute aux dates d'expiration calculees localement"
+    echo "  pour correspondre a votre heure locale (ex: +1 si le VPS a 1h de retard)."
+    echo
+    echo "  1) Re-detecter automatiquement"
+    echo "  2) Definir manuellement (ex: 1, -1, 0)"
+    echo "  0) Retour"
+    echo
+    local c
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c
+    case "$c" in
+        1)
+            local auto
+            auto=$(detect_tz_offset)
+            echo "$auto" > "$TZ_OFFSET_FILE"
+            chmod 600 "$TZ_OFFSET_FILE"
+            msg "Decalage detecte et enregistre: +${auto}h"
+            ;;
+        2)
+            local manual
+            read -r -p "Decalage en heures (ex: 1, -1, 0): " manual
+            [[ "$manual" =~ ^-?[0-9]+$ ]] || { error "Valeur invalide"; pause; return; }
+            echo "$manual" > "$TZ_OFFSET_FILE"
+            chmod 600 "$TZ_OFFSET_FILE"
+            msg "Decalage enregistre: +${manual}h"
+            ;;
+        0) return ;;
+        *) error "Choix invalide" ;;
+    esac
+    pause
+}
+
 menu() {
     while true; do
         banner
@@ -3361,7 +3456,8 @@ menu() {
         box_line "  ${GOLD}${BOLD}10${NC} ${WHITE})${NC} Quotas & consommation"
         box_sep
         box_line "  ${GOLD}${BOLD}11${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
-        box_line " ${RED}${BOLD}12${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}12${NC} ${WHITE})${NC} Decalage horaire VPS ${GRAY}(actuel: +$(get_tz_offset)h)${NC}"
+        box_line " ${RED}${BOLD}13${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -3380,7 +3476,8 @@ menu() {
             9) orange_menu || true ;;
             10) quotas_menu || true ;;
             11) manage_configs || true ;;
-            12) uninstall_all || true ;;
+            12) tz_offset_menu || true ;;
+            13) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
