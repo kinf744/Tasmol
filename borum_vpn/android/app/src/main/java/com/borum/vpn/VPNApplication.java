@@ -109,6 +109,11 @@ public class VPNApplication extends Application {
         } catch (Exception e) {
             Log.e("VPNApplication", "ensureReady failed on launch", e);
         }
+
+        // Surveillance continue de l'expiration du compte : verifie toutes les
+        // 5 minutes si le compte a expire, meme en arriere-plan et pendant une
+        // connexion VPN active. Declenche reset complet + retour a l'activation.
+        ExpiryGuard.getInstance(this).start();
     }
 
     public static VPNApplication getInstance() {
