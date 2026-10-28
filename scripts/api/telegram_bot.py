@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # ════════════════════════════════════════════════════════════════════════════
 # STIVAROS VPN — Bot Telegram (gestion comptes, services, infos VPS)
-# Version simplifiée — uniquement ce qui concerne stivaros.sh
+# Sélection par numéro pour la création de compte (jours / heures)
 # ════════════════════════════════════════════════════════════════════════════
-import json, os, sqlite3, sys, subprocess, html
+import json, os, sqlite3, sys, subprocess, html, uuid, random
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -13,7 +13,6 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 BASE      = Path("/opt/stivaros")
 DB_PATH   = BASE / "stivaros.db"
 CONFIG    = BASE / "tg_bot_config.json"
-STATE     = BASE / "tg_bot_state.json"
 LOG_FILE  = Path("/var/log/stivaros-tg-bot.log")
 
 def log(msg):
@@ -71,17 +70,17 @@ GESTION_KB = InlineKeyboardMarkup([
 ])
 
 # ════════════════════════════════════════════════════════════════════════════
-# HANDLERS
+# HANDLERS CALLBACK
 # ════════════════════════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id):
         await update.message.reply_text("⛔ Non autorisé.")
         return
-    text = ("🤖 <b>Stivaros VPN Bot</b>\n"
-            "Gérez votre panel VPN depuis Telegram.\n\n"
-            "Sélectionnez une option :")
-    await update.message.reply_text(text, reply_markup=MAIN_KB, parse_mode="HTML")
+    context.user_data.clear()
+    await update.message.reply_text(
+        "🤖 <b>Stivaros VPN Bot</b>\nGérez votre panel VPN depuis Telegram.\n\nSélectionnez une option :",
+        reply_markup=MAIN_KB, parse_mode="HTML")
 
 async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -95,15 +94,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "🤖 <b>Stivaros VPN Bot</b>\nSélectionnez une option :",
             reply_markup=MAIN_KB, parse_mode="HTML")
+
     elif d == "menu_gestion":
         await q.edit_message_text(
             "⚙️ <b>Gestion</b>\n\nSélectionnez une commande :",
             reply_markup=GESTION_KB, parse_mode="HTML")
+
     elif d == "menu_aide":
         await q.edit_message_text(
             "❓ <b>Aide</b>\n\n"
             "/start — Menu principal\n"
-            "/create &lt;nom&gt; &lt;tel&gt; &lt;jours&gt; — Créer un compte\n"
+            "/create — Créer un compte (sélection par numéro)\n"
             "/list — Lister les comptes\n"
             "/delete &lt;id&gt; — Supprimer un compte\n"
             "/quota &lt;id&gt; &lt;Go&gt; — Modifier le quota data\n"
@@ -111,19 +112,43 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/services — État des services\n"
             "/help — Cette aide",
             reply_markup=GESTION_KB, parse_mode="HTML")
+
+    # ── Création de compte par numéro ──
     elif d == "cmd_create":
+        context.user_data.clear()
+        context.user_data["create_step"] = "type"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("1. Compte normal (jours)", callback_data="create_type_jours")],
+            [InlineKeyboardButton("2. Compte TEST (heures)", callback_data="create_type_heures")],
+            [InlineKeyboardButton("⬅️ Retour", callback_data="menu_gestion")],
+        ])
         await q.edit_message_text(
-            "📝 <b>Créer un compte</b>\n\n"
-            "Utilisation : <code>/create &lt;nom&gt; &lt;tel&gt; &lt;jours&gt;</code>\n"
-            "Exemple : <code>/create client1 674000000 30</code>\n\n"
-            "Le compte sera créé avec une durée de X jours et un code d'activation à 6 chiffres.",
-            reply_markup=GESTION_KB, parse_mode="HTML")
+            "📝 <b>Créer un compte — Choisissez le type :</b>\n\n"
+            "1️⃣ Compte normal : durée en JOURS (ex: 5, 10, 30)\n"
+            "2️⃣ Compte TEST : durée en HEURES (ex: 24, 48, 72)\n\n"
+            "Sélectionnez une option :",
+            reply_markup=kb, parse_mode="HTML")
+
+    elif d == "create_type_jours":
+        context.user_data["create_type"] = "jours"
+        context.user_data["create_step"] = "nom"
+        await q.edit_message_text(
+            "📝 <b>Compte normal (jours)</b>\n\n"
+            "Étape 1/4 — Saisissez le <b>nom</b> du compte :\n"
+            "(lettres, chiffres, . _ - uniquement)",
+            reply_markup=BACK_KB, parse_mode="HTML")
+
+    elif d == "create_type_heures":
+        context.user_data["create_type"] = "heures"
+        context.user_data["create_step"] = "nom"
+        await q.edit_message_text(
+            "📝 <b>Compte TEST (heures)</b>\n\n"
+            "Étape 1/4 — Saisissez le <b>nom</b> du compte :\n"
+            "(lettres, chiffres, . _ - uniquement)",
+            reply_markup=BACK_KB, parse_mode="HTML")
+
     elif d == "cmd_list":
-        await q.edit_message_text(
-            "📋 <b>Lister les comptes</b>\n\n"
-            "Utilisation : <code>/list</code>\n\n"
-            "Affiche les 15 comptes les plus récents avec leur statut, quota et consommation.",
-            reply_markup=GESTION_KB, parse_mode="HTML")
+        await liste_comptes(q, context)
     elif d == "cmd_delete":
         await q.edit_message_text(
             "🗑 <b>Supprimer un compte</b>\n\n"
@@ -150,6 +175,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Utilisation : <code>/services</code>\n\n"
             "Affiche l'état (actif/arrêté) de tous les services du panel Stivaros.",
             reply_markup=GESTION_KB, parse_mode="HTML")
+
     elif d == "menu_comptes":
         await liste_comptes(q, context)
     elif d == "menu_services":
@@ -158,44 +184,144 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await etat_vps(q, context)
 
 # ════════════════════════════════════════════════════════════════════════════
-# COMMANDES TEXTE
+# HANDLERS TEXTE (saisie étape par étape)
 # ════════════════════════════════════════════════════════════════════════════
 
-async def create_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id):
         await update.message.reply_text("⛔ Non autorisé.")
         return
-    if len(context.args) < 3:
-        await update.message.reply_text("Usage: /create &lt;nom&gt; &lt;tel&gt; &lt;jours&gt;\nEx: /create client1 674000000 30", parse_mode="HTML")
+
+    text = update.message.text.strip()
+    step = context.user_data.get("create_step", "")
+
+    if not step:
+        # Pas de création en cours, ignorer ou traiter comme commande inconnue
+        await update.message.reply_text("Utilisez /start pour accéder au menu.")
         return
-    name, phone, jours = context.args[0], context.args[1], context.args[2]
-    if not jours.isdigit() or int(jours) < 1:
-        await update.message.reply_text("❌ Nombre de jours invalide.")
+
+    # ── Étape : nom ──
+    if step == "nom":
+        if not text or not all(c.isalnum() or c in "._-" for c in text):
+            await update.message.reply_text(
+                "❌ Nom invalide. Utilisez uniquement lettres, chiffres, . _ -\n"
+                "Réessayez :")
+            return
+        context.user_data["create_nom"] = text
+        context.user_data["create_step"] = "tel"
+        await update.message.reply_text(
+            f"✅ Nom enregistré : {text}\n\n"
+            f"Étape 2/4 — Saisissez le <b>téléphone</b> :\n"
+            f"(ex: 674000000)",
+            parse_mode="HTML")
         return
+
+    # ── Étape : téléphone ──
+    if step == "tel":
+        if not text.isdigit() or len(text) < 8:
+            await update.message.reply_text(
+                "❌ Téléphone invalide. Saisissez uniquement des chiffres (min 8).\n"
+                "Réessayez :")
+            return
+        context.user_data["create_tel"] = text
+        context.user_data["create_step"] = "duree"
+        ctype = context.user_data.get("create_type", "jours")
+        unite = "JOURS" if ctype == "jours" else "HEURES"
+        await update.message.reply_text(
+            f"✅ Téléphone enregistré : {text}\n\n"
+            f"Étape 3/4 — Saisissez la durée en {unite} :\n"
+            f"(ex: {'5, 10, 30' if ctype == 'jours' else '24, 48, 72'})",
+            parse_mode="HTML")
+        return
+
+    # ── Étape : durée ──
+    if step == "duree":
+        if not text.isdigit() or int(text) < 1:
+            ctype = context.user_data.get("create_type", "jours")
+            unite = "jours" if ctype == "jours" else "heures"
+            await update.message.reply_text(
+                f"❌ Durée invalide. Saisissez un nombre entier de {unite} (>=1).\n"
+                f"Réessayez :")
+            return
+        context.user_data["create_duree"] = int(text)
+        context.user_data["create_step"] = "confirmer"
+        ctype = context.user_data.get("create_type", "jours")
+        unite = "JOURS" if ctype == "jours" else "HEURES"
+        nom = context.user_data.get("create_nom", "")
+        tel = context.user_data.get("create_tel", "")
+        await update.message.reply_text(
+            f"✅ Durée enregistrée : {text} {unite}\n\n"
+            f"Étape 4/4 — Récapitulatif :\n"
+            f"• Type : {'Compte normal' if ctype == 'jours' else 'Compte TEST'}\n"
+            f"• Nom : {nom}\n"
+            f"• Téléphone : {tel}\n"
+            f"• Durée : {text} {unite}\n\n"
+            f"Envoyez <b>OUI</b> pour confirmer la création, ou <b>NON</b> pour annuler.",
+            parse_mode="HTML", reply_markup=BACK_KB)
+        return
+
+    # ── Étape : confirmation ──
+    if step == "confirmer":
+        if text.upper() == "OUI":
+            await finaliser_creation(update, context)
+        elif text.upper() == "NON":
+            context.user_data.clear()
+            await update.message.reply_text(
+                "❌ Création annulée.", reply_markup=MAIN_KB, parse_mode="HTML")
+        else:
+            await update.message.reply_text(
+                "❌ Réponse invalide. Envoyez <b>OUI</b> ou <b>NON</b>.",
+                parse_mode="HTML")
+        return
+
+async def finaliser_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Crée le compte en base selon le type (jours ou heures)."""
+    nom = context.user_data.get("create_nom", "")
+    tel = context.user_data.get("create_tel", "")
+    duree = context.user_data.get("create_duree", 1)
+    ctype = context.user_data.get("create_type", "jours")
+
     try:
         conn = db()
         cur = conn.cursor()
-        import uuid as uuid_mod, random
-        uid = str(uuid_mod.uuid4())
+        uid = str(uuid.uuid4())
         code = f"{random.randint(100000, 999999):06d}"
         now = datetime.utcnow()
-        expires = (now + timedelta(days=int(jours))).strftime("%Y-%m-%d")
+
+        if ctype == "jours":
+            expires = (now + timedelta(days=duree)).strftime("%Y-%m-%d")
+        else:
+            expires = (now + timedelta(hours=duree)).strftime("%Y-%m-%d %H:%M:%S")
+
         cur.execute(
             "INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id, allowed_uuids) "
             "VALUES (?, ?, ?, ?, ?, 1, 0, 1, '', '')",
-            (uid, phone, name, code, expires))
+            (uid, tel, nom, code, expires))
         conn.commit()
         user_id = cur.lastrowid
         conn.close()
+
+        context.user_data.clear()
         await update.message.reply_text(
-            f"✅ <b>Compte créé</b>\n"
-            f"Nom : {html.escape(name)}\n"
-            f"Téléphone : {phone}\n"
-            f"Code : <b>{code}</b>\n"
-            f"Expire : {expires}\n"
-            f"ID : {user_id}", parse_mode="HTML")
+            f"✅ <b>Compte créé avec succès</b>\n\n"
+            f"• Nom : {html.escape(nom)}\n"
+            f"• Téléphone : {tel}\n"
+            f"• Code : <b>{code}</b>\n"
+            f"• Type : {'Compte normal (jours)' if ctype == 'jours' else 'Compte TEST (heures)'}\n"
+            f"• Durée : {duree}\n"
+            f"• Expire : {expires}\n"
+            f"• ID : {user_id}",
+            parse_mode="HTML", reply_markup=MAIN_KB)
+
     except Exception as e:
-        await update.message.reply_text(f"❌ Erreur : {e}")
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"❌ Erreur lors de la création : {e}",
+            parse_mode="HTML", reply_markup=MAIN_KB)
+
+# ════════════════════════════════════════════════════════════════════════════
+# COMMANDES TEXTE (liste, delete, quota, status, services, help)
+# ════════════════════════════════════════════════════════════════════════════
 
 async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id):
@@ -304,7 +430,7 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "❓ <b>Aide Stivaros VPN Bot</b>\n\n"
         "/start — Menu principal\n"
-        "/create &lt;nom&gt; &lt;tel&gt; &lt;jours&gt; — Créer un compte\n"
+        "/create — Créer un compte (sélection par numéro : jours ou heures)\n"
         "/list — Lister les comptes\n"
         "/delete &lt;id&gt; — Supprimer un compte\n"
         "/quota &lt;id&gt; &lt;Go&gt; — Modifier le quota data\n"
@@ -383,7 +509,6 @@ def main():
         sys.exit(1)
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("create", create_cmd))
     app.add_handler(CommandHandler("list", list_cmd))
     app.add_handler(CommandHandler("delete", delete_cmd))
     app.add_handler(CommandHandler("quota", quota_cmd))
@@ -391,6 +516,7 @@ def main():
     app.add_handler(CommandHandler("services", services_cmd))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CallbackQueryHandler(callback_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     log("Bot Telegram démarré")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
