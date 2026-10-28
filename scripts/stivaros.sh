@@ -130,6 +130,183 @@ apply_tz_offset() {
     date -u -d "$input_date $offset hours" "+$fmt_out" 2>/dev/null || echo "$input_date"
 }
 
+# ── Bot Telegram ──────────────────────────────────────────────────────────
+readonly TG_BOT_FILE="$API_DIR/telegram_bot.py"
+readonly TG_BOT_STATE="$INSTALL_DIR/tg_bot_state.json"
+readonly TG_BOT_SERVICE="stivaros-tg-bot.service"
+readonly TG_BOT_LOG="/var/log/stivaros-tg-bot.log"
+readonly TG_PID_FILE="/var/run/stivaros-tg-bot.pid"
+
+# Verifie si python-telegram-bot est disponible.
+tg_bot_available() {
+    python3 -c "import telegram" 2>/dev/null
+}
+
+# Verifie si le bot tourne.
+tg_bot_running() {
+    [[ -f "$TG_PID_FILE" ]] && kill -0 "$(cat "$TG_PID_FILE")" 2>/dev/null
+}
+
+# Installe les dependances et le fichier du bot.
+install_tg_bot() {
+    banner; echo -e "${BOLD}Installation du bot Telegram${NC}\n"
+    if ! tg_bot_available; then
+        info "Installation de python-telegram-bot…"
+        pip3 install python-telegram-bot 2>/dev/null || pip install python-telegram-bot 2>/dev/null || {
+            error "Impossible d'installer python-telegram-bot"; pause; return 1
+        }
+    fi
+    if [[ ! -f "$TG_BOT_FILE" ]]; then
+        error "Fichier $TG_BOT_FILE introuvable"; pause; return 1
+    fi
+    # Cree le service systemd.
+    cat > "/etc/systemd/system/$TG_BOT_SERVICE" << EOF
+[Unit]
+Description=Stivaros Telegram Bot
+After=network-online.target stivaros-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$API_DIR
+ExecStart=/usr/bin/env python3 $TG_BOT_FILE
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable "$TG_BOT_SERVICE" 2>/dev/null || true
+    msg "Bot Telegram installe. Configurez-le avec l'option 13 (Configuration bot)."
+    pause
+}
+
+# Configure le token et le chat_id autorise.
+configure_tg_bot() {
+    banner; echo -e "${BOLD}Configuration du bot Telegram${NC}\n"
+    echo -e "  1) Definir le token + chat ID autorise"
+    echo -e "  2) Voir l'etat de la configuration"
+    echo -e "  0) Retour"
+    echo
+    local c
+    printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c
+    case "$c" in
+        1)
+            local token chat_id
+            read -r -p "Token du bot (de @BotFather): " token
+            [[ -n "$token" ]] || { error "Token requis"; pause; return; }
+            read -r -p "Votre chat ID (obtenez-le avec @userinfobot): " chat_id
+            [[ -n "$chat_id" ]] || { error "Chat ID requis"; pause; return; }
+            python3 - "$token" "$chat_id" << 'PY'
+import json, sys
+from pathlib import Path
+state_file = Path("/opt/stivaros/tg_bot_state.json")
+try:
+    s = json.loads(state_file.read_text())
+except Exception:
+    s = {}
+s["bot_token"] = sys.argv[1]
+s.setdefault("authorized_chat_ids", [])
+if sys.argv[2] not in s["authorized_chat_ids"]:
+    s["authorized_chat_ids"].append(sys.argv[2])
+s["configured_at"] = __import__("datetime").datetime.now().isoformat()
+state_file.write_text(json.dumps(s, indent=2))
+print("OK")
+PY
+            msg "Configuration enregistrée."
+            ;;
+        2)
+            if [[ -f "$TG_BOT_STATE" ]]; then
+                cat "$TG_BOT_STATE"
+            else
+                warn "Aucune configuration pour le moment."
+            fi
+            ;;
+    esac
+    pause
+}
+
+# Lance le bot Telegram.
+start_tg_bot() {
+    banner; echo -e "${BOLD}Lancement du bot Telegram${NC}\n"
+    if tg_bot_running; then
+        warn "Le bot est deja en cours (PID $(cat "$TG_PID_FILE"))."
+        pause; return
+    fi
+    if [[ ! -f "$TG_BOT_STATE" ]]; then
+        error "Aucune configuration (token/chat ID). Utilisez d'abord l'option 13 → 1."
+        pause; return
+    fi
+    systemctl start "$TG_BOT_SERVICE" 2>/dev/null || {
+        info "Tentative de lancement manuel…"
+        nohup python3 "$TG_BOT_FILE" >> "$TG_BOT_LOG" 2>&1 &
+        echo $! > "$TG_PID_FILE"
+        sleep 2
+    }
+    if tg_bot_running || systemctl is-active --quiet "$TG_BOT_SERVICE" 2>/dev/null; then
+        msg "Bot Telegram demarre avec succès."
+    else
+        error "Echec du demarrage. Voir $TG_BOT_LOG"
+    fi
+    pause
+}
+
+# Arrete le bot Telegram.
+stop_tg_bot() {
+    banner; echo -e "${BOLD}Arret du bot Telegram${NC}\n"
+    systemctl stop "$TG_BOT_SERVICE" 2>/dev/null || true
+    if [[ -f "$TG_PID_FILE" ]]; then
+        kill "$(cat "$TG_PID_FILE")" 2>/dev/null || true
+        rm -f "$TG_PID_FILE"
+    fi
+    msg "Bot Telegram arrete."
+    pause
+}
+
+# Desinstalle le bot Telegram.
+uninstall_tg_bot() {
+    banner; echo -e "${BOLD}Desinstallation du bot Telegram${NC}\n"
+    echo -e "${RED}Ceci arrete et supprime le bot Telegram et sa configuration.${NC}\n"
+    confirm "Confirmer ?" || { info "Annule"; pause; return; }
+    systemctl disable --now "$TG_BOT_SERVICE" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$TG_BOT_SERVICE"
+    systemctl daemon-reload
+    rm -f "$TG_BOT_STATE" "$TG_PID_FILE"
+    rm -f "$TG_BOT_LOG"
+    msg "Bot Telegram desinstalle."
+    pause
+}
+
+# Menu dedie au bot Telegram.
+tg_bot_menu() {
+    while true; do
+        banner; echo -e "${BOLD}${GOLD}Bot Telegram Stivaros${NC}\n"
+        echo -e "  Etat : $(tg_bot_running && echo -e '${GOLD}En ligne${NC}' || echo -e '${RED}Hors ligne${NC}')"
+        echo -e "  Config : $([[ -f "$TG_BOT_STATE" ]] && echo -e '${GOLD}Presente${NC}' || echo -e '${RED}Absente${NC}')"
+        echo
+        echo "  ${CYAN}1${NC}) Installer le bot (dependances + service)"
+        echo "  ${CYAN}2${NC}) Configurer (token + chat ID autorise)"
+        echo "  ${CYAN}3${NC}) Demarrer le bot"
+        echo "  ${CYAN}4${NC}) Arreter le bot"
+        echo "  ${CYAN}5${NC}) Desinstaller le bot"
+        echo "  ${CYAN}0${NC}) Retour"
+        echo
+        local c
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c
+        case "$c" in
+            1) install_tg_bot || true ;;
+            2) configure_tg_bot || true ;;
+            3) start_tg_bot || true ;;
+            4) stop_tg_bot || true ;;
+            5) uninstall_tg_bot || true ;;
+            0) return ;;
+            *) warn "Choix invalide" ;;
+        esac
+    done
+}
+
 # Stats/quota (xray/v2ray exposent leurs compteurs via l'API gRPC locale)
 readonly XRAY_STATS_ADDR="127.0.0.1:10085"
 readonly V2RAY_STATS_ADDR="127.0.0.1:10087"
@@ -3457,7 +3634,8 @@ menu() {
         box_sep
         box_line "  ${GOLD}${BOLD}11${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
         box_line "  ${GOLD}${BOLD}12${NC} ${WHITE})${NC} Decalage horaire VPS ${GRAY}(actuel: +$(get_tz_offset)h)${NC}"
-        box_line " ${RED}${BOLD}13${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}13${NC} ${WHITE})${NC} Bot Telegram ${GRAY}(gestion a distance)${NC}"
+        box_line " ${RED}${BOLD}14${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -3477,7 +3655,8 @@ menu() {
             10) quotas_menu || true ;;
             11) manage_configs || true ;;
             12) tz_offset_menu || true ;;
-            13) uninstall_all || true ;;
+            13) tg_bot_menu || true ;;
+            14) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
