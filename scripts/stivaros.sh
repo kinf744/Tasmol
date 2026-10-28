@@ -174,7 +174,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$API_DIR
-ExecStart=/usr/bin/env python3 $TG_BOT_FILE --bot
+ExecStart=/usr/bin/env python3 $TG_BOT_FILE
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
