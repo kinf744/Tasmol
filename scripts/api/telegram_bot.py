@@ -54,10 +54,21 @@ MAIN_KB = InlineKeyboardMarkup([
     [InlineKeyboardButton("📋 Comptes", callback_data="menu_comptes"),
      InlineKeyboardButton("🔧 Services", callback_data="menu_services")],
     [InlineKeyboardButton("📊 État VPS", callback_data="menu_etat"),
-     InlineKeyboardButton("❓ Aide", callback_data="menu_aide")],
+     InlineKeyboardButton("⚙️ Gestion", callback_data="menu_gestion")],
 ])
 
 BACK_KB = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Retour", callback_data="menu_principal")]])
+
+GESTION_KB = InlineKeyboardMarkup([
+    [InlineKeyboardButton("❓ Aide", callback_data="menu_aide")],
+    [InlineKeyboardButton("/create — Créer un compte", callback_data="cmd_create")],
+    [InlineKeyboardButton("/list — Lister les comptes", callback_data="cmd_list")],
+    [InlineKeyboardButton("/delete — Supprimer un compte", callback_data="cmd_delete")],
+    [InlineKeyboardButton("/quota — Modifier le quota data", callback_data="cmd_quota")],
+    [InlineKeyboardButton("/status — État du panel", callback_data="cmd_status")],
+    [InlineKeyboardButton("/services — État des services", callback_data="cmd_services")],
+    [InlineKeyboardButton("⬅️ Retour", callback_data="menu_principal")],
+])
 
 # ════════════════════════════════════════════════════════════════════════════
 # HANDLERS
@@ -84,6 +95,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(
             "🤖 <b>Stivaros VPN Bot</b>\nSélectionnez une option :",
             reply_markup=MAIN_KB, parse_mode="HTML")
+    elif d == "menu_gestion":
+        await q.edit_message_text(
+            "⚙️ <b>Gestion</b>\n\nSélectionnez une commande :",
+            reply_markup=GESTION_KB, parse_mode="HTML")
     elif d == "menu_aide":
         await q.edit_message_text(
             "❓ <b>Aide</b>\n\n"
@@ -95,7 +110,46 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "/status — État du panel et des tunnels\n"
             "/services — État des services\n"
             "/help — Cette aide",
-            reply_markup=BACK_KB, parse_mode="HTML")
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_create":
+        await q.edit_message_text(
+            "📝 <b>Créer un compte</b>\n\n"
+            "Utilisation : <code>/create &lt;nom&gt; &lt;tel&gt; &lt;jours&gt;</code>\n"
+            "Exemple : <code>/create client1 674000000 30</code>\n\n"
+            "Le compte sera créé avec une durée de X jours et un code d'activation à 6 chiffres.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_list":
+        await q.edit_message_text(
+            "📋 <b>Lister les comptes</b>\n\n"
+            "Utilisation : <code>/list</code>\n\n"
+            "Affiche les 15 comptes les plus récents avec leur statut, quota et consommation.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_delete":
+        await q.edit_message_text(
+            "🗑 <b>Supprimer un compte</b>\n\n"
+            "Utilisation : <code>/delete &lt;id_compte&gt;</code>\n"
+            "Exemple : <code>/delete 42</code>\n\n"
+            "Supprime le compte et toutes ses configurations associées.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_quota":
+        await q.edit_message_text(
+            "💾 <b>Modifier le quota data</b>\n\n"
+            "Utilisation : <code>/quota &lt;id&gt; &lt;Go&gt;</code>\n"
+            "Exemple : <code>/quota 42 10</code>\n"
+            "Mettez 0 pour illimité.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_status":
+        await q.edit_message_text(
+            "📊 <b>État du panel</b>\n\n"
+            "Utilisation : <code>/status</code>\n\n"
+            "Affiche le nombre de comptes totaux, actifs et bloqués/expirés.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
+    elif d == "cmd_services":
+        await q.edit_message_text(
+            "🔧 <b>État des services</b>\n\n"
+            "Utilisation : <code>/services</code>\n\n"
+            "Affiche l'état (actif/arrêté) de tous les services du panel Stivaros.",
+            reply_markup=GESTION_KB, parse_mode="HTML")
     elif d == "menu_comptes":
         await liste_comptes(q, context)
     elif d == "menu_services":
