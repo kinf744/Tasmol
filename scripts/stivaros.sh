@@ -236,8 +236,31 @@ PY
 tg_bot_menu() {
     while true; do
         banner; echo -e "${BOLD}${GOLD}Bot Telegram Stivaros${NC}\n"
-        echo -e "  Etat : $(tg_bot_running && echo -e '${GOLD}En ligne${NC}' || echo -e '${RED}Hors ligne${NC}')"
-        echo -e "  Config : $([[ -f "$TG_BOT_STATE" ]] && echo -e '${GOLD}Presente${NC}' || echo -e '${RED}Absente${NC}')"
+
+        # Statut d'installation : le fichier du bot est-il present ?
+        if [[ -f "$TG_BOT_FILE" ]]; then
+            inst_text="${LIME}INSTALLE${NC}"
+        else
+            inst_text="${RED}NON INSTALLE${NC}"
+        fi
+
+        # Statut de fonctionnement : le bot tourne-t-il ?
+        if tg_bot_running || systemctl is-active --quiet "$TG_BOT_SERVICE" 2>/dev/null; then
+            run_text="${LIME}EN LIGNE${NC}"
+        else
+            run_text="${RED}HORS LIGNE${NC}"
+        fi
+
+        # Statut de configuration : le token/chat ID sont-ils defines ?
+        if [[ -f "$TG_BOT_STATE" ]]; then
+            cfg_text="${LIME}CONFIGURE${NC}"
+        else
+            cfg_text="${RED}NON CONFIGURE${NC}"
+        fi
+
+        echo -e "  Installation : $inst_text"
+        echo -e "  Fonctionnement : $run_text"
+        echo -e "  Configuration : $cfg_text"
         echo
         echo "  ${CYAN}1${NC}) Installer le bot (dependances + service + demarrage)"
         echo "  ${CYAN}2${NC}) Desinstaller le bot (arret + suppression service + config)"
