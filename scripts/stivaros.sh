@@ -1973,10 +1973,17 @@ create_user() {
     # users.uuid = identifiant interne du compte, toujours généré ; le
     # verrou d'appareil vit dans device_install_id (voir init_db).
     uuid=$(gen_uuid)
-    read -r -p "Expiration (YYYY-MM-DD): " expires
-    valid_date "$expires" || { error "Date invalide"; pause; return 1; }
-    [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
-        || { error "Date d'expiration dans le passé"; pause; return 1; }
+    read -r -p "Expiration (jours ex: 5, ou date YYYY-MM-DD): " expires
+    if [[ "$expires" =~ ^[0-9]+$ ]]; then
+        # Saisie en nombre de jours : date d'aujourd'hui + N jours
+        local days="$expires"
+        expires=$(date -d "+${days} days" +%F)
+        info "Expiration calculee: $expires (+${days} jours)"
+    else
+        valid_date "$expires" || { error "Date invalide"; pause; return 1; }
+        [[ "$(date -d "$expires" +%s)" -gt "$(date +%s)" ]] \
+            || { error "Date d'expiration dans le passé"; pause; return 1; }
+    fi
     local quota_mb
     # Saisie en Go (ex: 0.15, 12.57, 2) — convertie en Mo pour quota_mb.
     quota_mb=$(read_quota_gb "Quota data en Go (0 = illimité, ex: 0.15 ou 12.57): ") \
@@ -2188,6 +2195,255 @@ SQL
     fi
     if (( want_v2dns )); then
         echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
+    fi
+    if (( want_sshdns || want_v2dns )); then
+        echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
+    fi
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    pause
+}
+
+# ── Création d'un compte test (duree en heures) ─────────────────────────────
+create_test_user() {
+    banner; echo -e "${BOLD}Nouveau compte TEST (duree en heures)${NC}\n"
+    [[ -f "$DB_PATH" ]] || { error "API non installee (option 1)"; pause; return 1; }
+
+    local name uuid phone hours expires quota_mb
+    read -r -p "Nom (a-z0-9._-)      : " name
+    valid_name "$name"  || { error "Nom invalide"; pause; return 1; }
+    read -r -p "Telephone            : " phone
+    valid_phone "$phone" || { error "Telephone invalide (8-15 chiffres)"; pause; return 1; }
+
+    echo
+    echo -e "  ${BOLD}Appareils autorises pour ce compte :${NC}"
+    echo -e "   ${CYAN}1${NC}) Mono-appareil — verrou sur un seul UUID"
+    echo -e "   ${CYAN}2${NC}) Multi-appareils — tout UUID accepte"
+    echo -e "   ${CYAN}3${NC}) UUIDs defines — listes separees par des virgules"
+    local dev_mode multi_device=0 dev_uuid="" allowed_uuids=""
+    read -r -p "Choix [1]: " dev_mode
+    case "${dev_mode:-1}" in
+        1) multi_device=0 ;;
+        2) multi_device=1 ;;
+        3) multi_device=0 ;;
+        *) error "Choix invalide"; pause; return 1 ;;
+    esac
+    if [[ "$dev_mode" == "3" ]]; then
+        read -r -p "UUIDs (virgule-separes): " allowed_uuids
+        allowed_uuids=$(printf '%s' "$allowed_uuids" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+        if [[ -n "$allowed_uuids" ]]; then
+            local IFS=','
+            for u in $allowed_uuids; do
+                valid_uuid "$u" || { error "UUID invalide: $u"; pause; return 1; }
+            done
+            unset IFS
+        else
+            info "Vide : aucun UUID autorise (compte inutilisable jusqu'a ajout manuel)"
+        fi
+    elif [[ "$multi_device" == "0" ]]; then
+        read -r -p "UUID appareil        : " dev_uuid
+        if [[ -n "$dev_uuid" ]]; then
+            valid_uuid "$dev_uuid" || { error "UUID invalide"; pause; return 1; }
+            dev_uuid=$(printf '%s' "$dev_uuid" | tr -d '[:space:]' | tr 'A-F' 'a-f')
+        else
+            info "Vide : le compte se verrouillera au premier appareil qui l'active"
+        fi
+    fi
+
+    uuid=$(gen_uuid)
+    read -r -p "Duree en heures (ex: 24, 48, 72): " hours
+    [[ "$hours" =~ ^[0-9]+$ ]] || { error "Duree invalide (nombre d'heures)"; pause; return 1; }
+    expires=$(date -d "+${hours} hours" +%F\ %T)
+    info "Expiration calculee: $expires (+${hours} heures)"
+
+    local quota_mb
+    quota_mb=$(read_quota_gb "Quota data en Go (0 = illimite, ex: 0.15 ou 12.57): ") \
+        || { error "Quota invalide"; pause; return 1; }
+
+    # Configs : meme choix que create_user
+    echo
+    echo -e "  ${BOLD}Configs a inclure dans l'API :${NC}"
+    echo -e "   ${CYAN}1${NC}) XRAY   (MTN 150/100 + Orange illimite)"
+    echo -e "   ${CYAN}2${NC}) ZIVPN  (Camtel UDP)"
+    echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
+    echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
+    echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
+    echo -e "   ${CYAN}0${NC}) Toutes"
+    local cfg_sel
+    read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
+    cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
+    [[ -n "$cfg_sel" ]] || cfg_sel="0"
+    case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
+    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Selection invalide"; pause; return 1; }
+    want() { [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]; }
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
+    if want 1; then want_xray=1; fi
+    if want 2; then want_zivpn=1; fi
+    if want 3; then want_sshdns=1; fi
+    if want 4; then want_v2dns=1; fi
+    if want 5; then want_orange_fast=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
+        || { error "Aucune config choisie"; pause; return 1; }
+
+    echo
+    info "Verification des tunnels…"
+    local ok=1
+    if (( want_xray )); then ensure_tunnel xray || ok=0; fi
+    if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
+    if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
+    if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
+    [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
+
+    local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
+    domain=$(get_domain)
+    server_addr=${domain:-$(hostname -I | awk '{print $1}')}
+    code=$(gen_code)
+    xray_uuid=$(gen_uuid)
+    zivpn_pass=$(gen_pass 12)
+    ssh_pass=$(gen_pass 12)
+    ns4=$(head -1 "$SLOWDNS_DIR/ns4.conf" 2>/dev/null || true)
+    ns4=${ns4:-$(head -1 "$SLOWDNS_DIR/ns.conf" 2>/dev/null || true)}
+    nv4=$(head -1 "$SLOWDNS_DIR/nv4.conf" 2>/dev/null || true)
+    nv4=${nv4:-$(head -1 "$SLOWDNS_DIR/nv4/ns.conf" 2>/dev/null || true)}
+    dnstt_pub=$(cat "$SLOWDNS_DIR/server.pub" 2>/dev/null | tr -d '[:space:]')
+
+    local ssh_user="u$(printf '%s' "$phone" | tr -dc '0-9')"
+
+    local e_name e_phone e_srv e_sshuser e_ns4 e_nv4 e_pub
+    e_name=$(sqlq "$name"); e_phone=$(sqlq "$phone")
+    e_srv=$(sqlq "$server_addr"); e_sshuser=$(sqlq "$ssh_user")
+    e_ns4=$(sqlq "$ns4"); e_nv4=$(sqlq "$nv4"); e_pub=$(sqlq "$dnstt_pub")
+
+    local sql_err
+    sql_err=$(mktemp)
+    {
+    cat << SQL
+INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id, allowed_uuids)
+VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb, $multi_device, '$(sqlq "$dev_uuid")', '$(sqlq "$allowed_uuids")');
+SQL
+    if (( want_xray )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'mtnplay.com', '$e_srv', 'mtn', '', '', '150', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
+SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', '', '100', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+
+-- Orange illimite: SNI/adresse fixes, host XHTTP administrable (menu 8),
+-- uuid propre au compte, path = path du tunnel Xray.
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_orange_fast )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_zivpn )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', 'camtel', 'zivpn', '150', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+SELECT id, '$e_srv', $ZIVPN_PORT, 'zivpn', 'udp', 0, '$e_srv', '$e_srv', '', 'zivpn', '100', '$xray_uuid', '$zivpn_pass', '$ZIVPN_RANGES' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_sshdns )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+SELECT id, '$e_srv', 22, 'ssh', 'dnstt', 0, '$e_srv', '$e_srv', '', 'sshslowdns', '150', '$xray_uuid', '$e_ns4', '$e_pub', '$e_sshuser', '$ssh_pass' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_v2dns )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+SELECT id, '$e_srv', $V2RAY_PORT, 'vless', 'dnstt', 0, '$e_srv', '$e_srv', '', 'v2raydns', '150', '$xray_uuid', '$e_nv4', '$e_pub' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    } | sqlite3 -batch "$DB_PATH" 2> "$sql_err" || true
+    if [[ -s "$sql_err" ]]; then
+        error "Erreurs SQL pendant la creation des configs :"
+        sed 's/^/    /' "$sql_err" >&2
+    fi
+    rm -f "$sql_err"
+
+    # Verification par famille
+    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_orange_fast=0
+    cnt() { sqlite3 -batch "$DB_PATH" "SELECT COUNT(*) FROM vpn_configs WHERE user_id=(SELECT id FROM users WHERE uuid='$uuid') AND $1;"; }
+    cnt_xray=$(cnt "mode IN ('', 'xray')")
+    cnt_zivpn=$(cnt "mode='zivpn'")
+    cnt_sshdns=$(cnt "mode='sshslowdns'")
+    cnt_v2dns=$(cnt "mode='v2raydns'")
+    cnt_orange_fast=$(cnt "mode='orange_fast'")
+    local ok_cfgs=1
+    if (( want_xray )) && (( cnt_xray < 3 )); then
+        error "XRAY : $cnt_xray/3 configs inseres — famille incomplete"; ok_cfgs=0
+    fi
+    if (( want_orange_fast )) && (( cnt_orange_fast < 1 )); then
+        error "Orange Fast : $cnt_orange_fast/1 configs inseres — famille incomplete"; ok_cfgs=0
+    fi
+    if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
+        error "ZIVPN : $cnt_zivpn/2 configs inseres — famille incomplete"; ok_cfgs=0
+    fi
+    if (( want_sshdns )) && (( cnt_sshdns < 2 )); then
+        error "SSH+SlowDNS : $cnt_sshdns/2 configs inseres — famille incomplete"; ok_cfgs=0
+    fi
+    if (( want_v2dns )) && (( cnt_v2dns < 2 )); then
+        error "V2Ray+SlowDNS : $cnt_v2dns/2 configs inseres — famille incomplete"; ok_cfgs=0
+    fi
+    if (( ok_cfgs )); then
+        msg "Configs verifiees par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1)"
+    else
+        warn "Supprimez ce compte et recreez-le, ou completez les familles manquantes a la main"
+    fi
+
+    # Provisionne les identifiants cote tunnels.
+    if (( want_sshdns )); then
+        ssh_account_upsert "$ssh_user" "$ssh_pass" "$(date -d "$expires" +%F 2>/dev/null || date +%F)"
+    fi
+    if (( want_zivpn )) && tunnel_active zivpn; then
+        zivpn_cleanup_expired
+        grep -v "^$uuid|" "$ZIVPN_USER_FILE" > "$ZIVPN_USER_FILE.tmp" 2>/dev/null || true
+        echo "$uuid|$zivpn_pass|$expires" >> "$ZIVPN_USER_FILE.tmp"
+        mv "$ZIVPN_USER_FILE.tmp" "$ZIVPN_USER_FILE"; chmod 600 "$ZIVPN_USER_FILE"
+        zivpn_update_passwords || true
+    fi
+    if (( want_xray )); then xray_sync_uuids || true; fi
+    if (( want_xray || want_v2dns )); then v2ray_sync_users || true; fi
+
+    log "compte test cree: $name ($phone) expire $expires"
+    echo
+    echo -e "${GREEN}════════════════════════════════════════${NC}"
+    echo -e "${GREEN}  Compte TEST cree${NC}"
+    echo -e "  Nom        : $name"
+    echo -e "  Telephone  : $phone"
+    echo -e "  Code 6 ch. : ${BOLD}$code${NC}"
+    echo -e "  Duree      : ${hours} heures"
+    echo -e "  Expire     : $expires"
+    if [[ "$multi_device" == "1" ]]; then
+        echo -e "  Appareils  : ${CYAN}multi-appareils (tout UUID accepte)${NC}"
+    else
+        echo -e "  Appareils  : ${YELLOW}mono-appareil — verrou UUID strict${NC}"
+        echo -e "  UUID lie   : ${dev_uuid:-<verrou a la premiere activation>}"
+    fi
+    echo -e "${GREEN}  ── Configs generees ──${NC}"
+    if (( want_xray )); then
+        echo -e "${CYAN}  XRAY       : $server_addr:443 vless+xhttp+tls uuid=$xray_uuid${NC}"
+    fi
+    if (( want_zivpn )); then
+        echo -e "${CYAN}  ZIVPN      : $server_addr:$ZIVPN_PORT pass=$zivpn_pass${NC}"
+    fi
+    if (( want_sshdns )); then
+        echo -e "${CYAN}  SSH+SlowDNS: NS=$ns4 user=$ssh_user pass=$ssh_pass${NC}"
+    fi
+    if (( want_v2dns )); then
+        echo -e "${CYAN}  V2Ray+SlowDNS: NS=$nv4 uuid=$xray_uuid port=$V2RAY_PORT${NC}"
+    fi
+    if (( want_orange_fast )); then
+        echo -e "${CYAN}  Orange Fast: $ORANGE_FAST_ADDR:443 vless+ws+tls uuid=$ORANGE_FAST_UUID${NC}"
     fi
     if (( want_sshdns || want_v2dns )); then
         echo -e "${CYAN}  dnstt pub  : $dnstt_pub${NC}"
@@ -3092,19 +3348,20 @@ menu() {
         # Un seul cadre: supervision (dashboard) + options du menu.
         dashboard
         box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Installer / réparer le panel ${GRAY}(API + tunnels)${NC}"
-        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} ${LIME}Créer un compte${NC}"
-        box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} Lister les comptes"
-        box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Supprimer des comptes"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} ${LIME}Créer un compte (jours)${NC}"
+        box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} ${YELLOW}Créer un compte TEST (heures)${NC}"
+        box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Lister les comptes"
+        box_line "  ${GOLD}${BOLD}5${NC} ${WHITE})${NC} Supprimer des comptes"
         box_sep
-        box_line "  ${GOLD}${BOLD}5${NC} ${WHITE})${NC} Gestion des tunnels"
-        box_line "  ${GOLD}${BOLD}6${NC} ${WHITE})${NC} État des tunnels"
+        box_line "  ${GOLD}${BOLD}6${NC} ${WHITE})${NC} Gestion des tunnels"
+        box_line "  ${GOLD}${BOLD}7${NC} ${WHITE})${NC} État des tunnels"
         box_sep
-        box_line "  ${GOLD}${BOLD}7${NC} ${WHITE})${NC} Appareils & verrou UUID"
-        box_line "  ${GOLD}${BOLD}8${NC} ${WHITE})${NC} Config Orange ${GRAY}(host)${NC}"
-        box_line "  ${GOLD}${BOLD}9${NC} ${WHITE})${NC} Quotas & consommation"
+        box_line "  ${GOLD}${BOLD}8${NC} ${WHITE})${NC} Appareils & verrou UUID"
+        box_line "  ${GOLD}${BOLD}9${NC} ${WHITE})${NC} Config Orange ${GRAY}(host)${NC}"
+        box_line "  ${GOLD}${BOLD}10${NC} ${WHITE})${NC} Quotas & consommation"
         box_sep
-        box_line "  ${GOLD}${BOLD}10${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
-        box_line " ${RED}${BOLD}11${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}11${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
+        box_line " ${RED}${BOLD}12${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -3114,15 +3371,16 @@ menu() {
         case "$c" in
             1) install_all || true ;;
             2) create_user || true ;;
-            3) list_users || true ;;
-            4) delete_users || true ;;
-            5) tunnel_menu || true ;;
-            6) tunnels_status || true ;;
-            7) manage_devices || true ;;
-            8) orange_menu || true ;;
-            9) quotas_menu || true ;;
-            10) manage_configs || true ;;
-            11) uninstall_all || true ;;
+            3) create_test_user || true ;;
+            4) list_users || true ;;
+            5) delete_users || true ;;
+            6) tunnel_menu || true ;;
+            7) tunnels_status || true ;;
+            8) manage_devices || true ;;
+            9) orange_menu || true ;;
+            10) quotas_menu || true ;;
+            11) manage_configs || true ;;
+            12) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
