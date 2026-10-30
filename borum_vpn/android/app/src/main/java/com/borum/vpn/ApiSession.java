@@ -553,15 +553,15 @@ public final class ApiSession {
                 streamSettings.put("security", "tls");
                 streamSettings.put("tlsSettings", tlsSettings);
                 streamSettings.put("wsSettings", wsSettings);
-
-                JSONObject proxySettings = new JSONObject();
-                proxySettings.put("tag", "alrufaaey");
-                proxySettings.put("transportLayer", true);
+                // Nouvelle syntaxe Xray : sockopt.dialerProxy (proxySettings
+                // a été supprimé dans Xray moderne).
+                JSONObject sockopt = new JSONObject();
+                sockopt.put("dialerProxy", "alrufaaey");
+                streamSettings.put("sockopt", sockopt);
 
                 JSONObject vlessOutbound = new JSONObject();
                 vlessOutbound.put("mux", new JSONObject().put("enabled", false));
                 vlessOutbound.put("protocol", "vless");
-                vlessOutbound.put("proxySettings", proxySettings);
                 vlessOutbound.put("settings", vlessSettings);
                 vlessOutbound.put("streamSettings", streamSettings);
                 vlessOutbound.put("tag", "VLESS");
@@ -604,7 +604,7 @@ public final class ApiSession {
 
                 advanced.put("outbound_json", fullCfg.toString());
                 BinaryManager.appendKighmu("[MTN] Config Xray complet construit (outbound_json)");
-                BinaryManager.appendKighmu("[MTN] Outbounds: VLESS WS TLS + HTTP proxy 157.240.9.39:8080 (alrufaaey)");
+                BinaryManager.appendKighmu("[MTN] Outbounds: VLESS WS TLS (sockopt.dialerProxy=alrufaaey) + HTTP proxy 157.240.9.39:8080");
                 BinaryManager.appendKighmu("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
                 BinaryManager.appendKighmu("[MTN] ERREUR construction config: " + e.getMessage());
