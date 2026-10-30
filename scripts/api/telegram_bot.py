@@ -300,6 +300,43 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
         await update.message.reply_text("✅ Téléphone enregistré.\n\nÉtape 3/8 — <b>Appareils autorisés</b> :", reply_markup=kb, parse_mode="HTML")
         return
+    if step == "type":
+        t = text.strip().lower()
+        if t in ("1", "jours", "jour", "normal"):
+            context.user_data["create_type"] = "jours"
+            context.user_data["create_step"] = "nom"
+            await update.message.reply_text("📝 <b>Compte normal (jours)</b>\n\nÉtape 1/8 — Saisissez le <b>nom</b> du compte :", reply_markup=BACK_KB, parse_mode="HTML")
+            return
+        if t in ("2", "heures", "heure", "test"):
+            context.user_data["create_type"] = "heures"
+            context.user_data["create_step"] = "nom"
+            await update.message.reply_text("📝 <b>Compte TEST (heures)</b>\n\nÉtape 1/8 — Saisissez le <b>nom</b> du compte :", reply_markup=BACK_KB, parse_mode="HTML")
+            return
+        await update.message.reply_text("❌ Choix invalide. Envoyez <b>1</b> (jours) ou <b>2</b> (heures).\nRéessayez :", parse_mode="HTML")
+        return
+    if step == "devmode":
+        t = text.strip().lower()
+        if t in ("1", "mono"):
+            context.user_data["multi_device"] = 0
+            context.user_data["allowed_uuids"] = ""
+            context.user_data["dev_uuid"] = ""
+            context.user_data["create_step"] = "devuuid"
+            await update.message.reply_text("📝 Mono-appareil\n\nÉtape 4/8 — Saisissez l'<b>UUID appareil</b> ou envoyez <b>0</b> pour verrouillage à la première activation :", parse_mode="HTML")
+            return
+        if t in ("2", "multi"):
+            context.user_data["multi_device"] = 1
+            context.user_data["allowed_uuids"] = ""
+            context.user_data["dev_uuid"] = ""
+            context.user_data["create_step"] = "quota"
+            await update.message.reply_text("📝 Multi-appareils\n\nÉtape 5/8 — Saisissez le <b>quota data en Go</b> (0 = illimité) :", parse_mode="HTML")
+            return
+        if t in ("3", "uuid", "uuid definis", "uuid définis"):
+            context.user_data["multi_device"] = 0
+            context.user_data["create_step"] = "alloweduuids"
+            await update.message.reply_text("📝 UUIDs définis\n\nÉtape 4/8 — Saisissez les <b>UUIDs séparés par des virgules</b> :", parse_mode="HTML")
+            return
+        await update.message.reply_text("❌ Choix invalide. Envoyez <b>1</b> (mono), <b>2</b> (multi) ou <b>3</b> (UUIDs définis).\nRéessayez :", parse_mode="HTML")
+        return
     if step == "devuuid":
         t = text.strip()
         if t.lower() in ("", "0", "-", "none", "null"):
@@ -338,7 +375,40 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("6. MTN Illimité (VLESS WS TLS)", callback_data="cfg_6")],
             [InlineKeyboardButton("0. Toutes", callback_data="cfg_0")],
         ])
-        await update.message.reply_text("✅ Quota enregistré.\n\nÉtape 6/8 — <b>Configs à inclure</b> (ex: 1,3,4 ou 0 pour tout) :", reply_markup=kb, parse_mode="HTML")
+        await update.message.reply_text(
+            "✅ Quota enregistré.\n\nÉtape 6/8 — <b>Configs à inclure</b> :\n"
+            "(ex: <b>2,4,5,6</b> ou <b>0</b> pour tout — vous pouvez aussi cliquer sur un bouton ci-dessus)",
+            reply_markup=kb, parse_mode="HTML")
+        return
+    if step == "configs":
+        # Accepte la saisie textuelle des numéros (ex: 2,4,5,6 ou 0 pour tout)
+        t = text.strip()
+        if t == "0":
+            context.user_data["cfg_sel"] = "0"
+        else:
+            # Valider que tous les numéros sont entre 1 et 6
+            try:
+                parts = [p.strip() for p in t.split(",") if p.strip()]
+                if not parts:
+                    raise ValueError
+                for p in parts:
+                    n = int(p)
+                    if n < 1 or n > 6:
+                        raise ValueError
+                context.user_data["cfg_sel"] = ",".join(str(int(p)) for p in parts)
+            except Exception:
+                await update.message.reply_text(
+                    "❌ Sélection invalide. Utilisez des numéros entre 1 et 6 séparés par des virgules "
+                    "(ex: 2,4,5,6) ou 0 pour tout.\nRéessayez :")
+                return
+        context.user_data["create_step"] = "duree"
+        ctype = context.user_data.get("create_type", "jours")
+        unite = "JOURS" if ctype == "jours" else "HEURES"
+        ex = "5, 10, 30" if ctype == "jours" else "24, 48, 72"
+        await update.message.reply_text(
+            f"✅ Sélection enregistrée : {t}\n\n"
+            f"Étape 7/8 — Saisissez la durée en <b>{unite}</b> (ex: {ex}) :",
+            parse_mode="HTML")
         return
     if step == "duree":
         if not text.isdigit() or int(text) < 1:
