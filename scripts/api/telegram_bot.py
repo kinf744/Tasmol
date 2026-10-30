@@ -526,39 +526,81 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
     if not context.args:
-        # Afficher la liste des comptes avec noms et IDs pour choisir quoi supprimer
+        # Afficher la liste complète des comptes triés par ID (croissant)
         try:
             conn = db()
-            rows = conn.execute("SELECT id, name, phone, expires_at, active FROM users ORDER BY id DESC LIMIT 25").fetchall()
+            rows = conn.execute("SELECT id, name, phone, expires_at, active FROM users ORDER BY id ASC").fetchall()
             conn.close()
             if not rows:
                 return await update.message.reply_text("Aucun compte à supprimer.")
-            text = "🗑 <b>Supprimer un compte</b>\n\nSélectionnez l'ID du compte à supprimer :\n\n"
+            text = "🗑 <b>Supprimer un ou plusieurs comptes</b>\n\nComptes disponibles :\n\n"
             for r in rows:
                 st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
-                text += f"• #{r['id']} {html.escape(r['name'] or '-')} | {r['phone']} | {st}\n"
-            text += "\nUtilisation : <code>/delete &lt;id&gt;</code>"
+                text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
+                         f"⏰ {r['expires_at']} | {st}\n")
+            text += "\n💡 Utilisation : <code>/delete 1,2,3</code> (plusieurs IDs séparés par des virgules)"
             await update.message.reply_text(text, parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(f"❌ Erreur : {e}")
         return
     try:
-        uid=int(context.args[0]); conn=db(); cur=conn.cursor()
-        row = conn.execute("SELECT name FROM users WHERE id=?", (uid,)).fetchone()
-        cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (uid,))
-        cur.execute("DELETE FROM users WHERE id=?", (uid,))
+        # Accepter plusieurs IDs séparés par des virgules : /delete 1,2,3
+        ids_raw = str(context.args[0])
+        ids = [int(x.strip()) for x in ids_raw.split(",") if x.strip()]
+        if not ids:
+            return await update.message.reply_text("❌ Aucun ID valide.")
+        conn = db(); cur = conn.cursor()
+        noms = []
+        for uid in ids:
+            row = conn.execute("SELECT name FROM users WHERE id=?", (uid,)).fetchone()
+            if row:
+                noms.append(row["name"])
+            cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (uid,))
+            cur.execute("DELETE FROM users WHERE id=?", (uid,))
         conn.commit(); conn.close()
-        nom = row["name"] if row else "?"
-        await update.message.reply_text(f"✅ Compte #{uid} ({html.escape(nom)}) supprimé avec ses configs.")
+        liste = ", ".join(f"#{i}" for i in ids)
+        nom_txt = ", ".join(html.escape(n or "?") for n in noms)
+        await update.message.reply_text(f"✅ Comptes {liste} ({nom_txt}) supprimés avec leurs configs.")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
 
 async def quota_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
-    if len(context.args)<2: return await update.message.reply_text("Usage: /quota &lt;id&gt; &lt;Go&gt; (0 = illimité)")
+    if len(context.args) < 2:
+        # Afficher la liste complète des comptes triés par ID (croissant)
+        try:
+            conn = db()
+            rows = conn.execute("SELECT id, name, phone, expires_at, active, quota_mb FROM users ORDER BY id ASC").fetchall()
+            conn.close()
+            if not rows:
+                return await update.message.reply_text("Aucun compte.")
+            text = "💾 <b>Modifier le quota data de plusieurs comptes</b>\n\nComptes disponibles :\n\n"
+            for r in rows:
+                st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
+                q = fmt_bytes(r["quota_mb"]*1024*1024) if r["quota_mb"] and r["quota_mb"] > 0 else "Illimité"
+                text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
+                         f"⏰ {r['expires_at']} | 📊 {q} | {st}\n")
+            text += "\n💡 Utilisation : <code>/quota 1,2,3 10</code> (IDs séparés par des virgules, puis quota en Go)"
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Erreur : {e}")
+        return
     try:
-        uid,gb=int(context.args[0]),float(str(context.args[1]).replace(',','.')); quota_mb=int(gb*1024); conn=db(); conn.execute("UPDATE users SET quota_mb=? WHERE id=?", (quota_mb,uid)); conn.commit(); conn.close()
-        await update.message.reply_text(f"✅ Quota compte #{uid} mis à jour : {gb} Go")
+        # Format : /quota 1,2,3 10  (plusieurs IDs, puis quota en Go)
+        ids_raw = str(context.args[0])
+        ids = [int(x.strip()) for x in ids_raw.split(",") if x.strip()]
+        if not ids:
+            return await update.message.reply_text("❌ Aucun ID valide.")
+        gb = float(str(context.args[1]).replace(',', '.'))
+        if gb < 0:
+            return await update.message.reply_text("❌ Quota invalide (>= 0).")
+        quota_mb = int(gb * 1024)
+        conn = db()
+        conn.execute(f"UPDATE users SET quota_mb={quota_mb} WHERE id IN ({','.join('?' * len(ids))})", ids)
+        conn.commit(); conn.close()
+        liste = ", ".join(f"#{i}" for i in ids)
+        qstr = "Illimité" if quota_mb == 0 else f"{gb} Go"
+        await update.message.reply_text(f"✅ Quota des comptes {liste} mis à jour : {qstr}")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
 
