@@ -438,21 +438,42 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
             dnstt_pub = ""
         ssh_user = "u" + ''.join(re.findall(r'\d', tel)) or ("u" + str(random.randint(100000,999999)))
         sql_list = []
-        sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path) SELECT id, '{sqlq(server_addr)}', 443, 'vless', 'ws', 1, 'mtnplay.com', '{sqlq(server_addr)}', 'mtn', '', '', '150', '{sqlq(xray_uuid)}', '/vless' FROM users WHERE uuid='{sqlq(uid)}';")
-        sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path) SELECT id, '{sqlq(server_addr)}', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '{sqlq(server_addr)}', 'mtn', '', '', '100', '{sqlq(xray_uuid)}', '/vless' FROM users WHERE uuid='{sqlq(uid)}';")
-        sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_ADDR)}', 443, 'vless', 'xhttp', 1, '{sqlq(ORANGE_ADDR)}', '{sqlq(orange_host_get())}', 'orange', 'xray', '0', '{sqlq(xray_uuid)}', '{sqlq(XRAY_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+        # cfg_0 = Toutes : toutes les variantes. Sinon : une seule config par
+        # option choisie (évite l'affichage de configs non demandées dans l'app).
+        all_configs = (cfg_sel == '0')
+
+        # 1) XRAY (MTN 150/100 + Orange illimité)
+        if want_xray:
+            sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path) SELECT id, '{sqlq(server_addr)}', 443, 'vless', 'ws', 1, 'mtnplay.com', '{sqlq(server_addr)}', 'mtn', '', '', '150', '{sqlq(xray_uuid)}', '/vless' FROM users WHERE uuid='{sqlq(uid)}';")
+            if all_configs:
+                sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path) SELECT id, '{sqlq(server_addr)}', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '{sqlq(server_addr)}', 'mtn', '', '', '100', '{sqlq(xray_uuid)}', '/vless' FROM users WHERE uuid='{sqlq(uid)}';")
+                sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_ADDR)}', 443, 'vless', 'xhttp', 1, '{sqlq(ORANGE_ADDR)}', '{sqlq(orange_host_get())}', 'orange', 'xray', '0', '{sqlq(xray_uuid)}', '{sqlq(XRAY_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 5) Orange Fast (VLESS WS TLS)
         if want_orange_fast:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_FAST_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(ORANGE_FAST_SNI)}', '{sqlq(orange_fast_host_get())}', 'orange_fast', 'orange_fast', '0', '{sqlq(ORANGE_FAST_UUID)}', '{sqlq(ORANGE_FAST_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 6) MTN Illimité (VLESS WS TLS)
         if want_mtn_unlimited:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(MTN_UNLIMITED_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(MTN_UNLIMITED_SNI)}', '{sqlq(mtn_unlimited_host_get())}', 'mtn', 'mtn_unlimited', '0', '{sqlq(MTN_UNLIMITED_UUID)}', '{sqlq(MTN_UNLIMITED_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 2) ZIVPN (Camtel UDP)
         if want_zivpn:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range) SELECT id, '{sqlq(server_addr)}', {ZIVPN_PORT}, 'zivpn', 'udp', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', 'camtel', 'zivpn', '150', '{sqlq(xray_uuid)}', '{sqlq(zivpn_pass)}', '{sqlq(ZIVPN_RANGES)}' FROM users WHERE uuid='{sqlq(uid)}';")
-            sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range) SELECT id, '{sqlq(server_addr)}', {ZIVPN_PORT}, 'zivpn', 'udp', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'zivpn', '100', '{sqlq(xray_uuid)}', '{sqlq(zivpn_pass)}', '{sqlq(ZIVPN_RANGES)}' FROM users WHERE uuid='{sqlq(uid)}';")
+            if all_configs:
+                sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range) SELECT id, '{sqlq(server_addr)}', {ZIVPN_PORT}, 'zivpn', 'udp', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'zivpn', '100', '{sqlq(xray_uuid)}', '{sqlq(zivpn_pass)}', '{sqlq(ZIVPN_RANGES)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 3) SSH + SlowDNS
         if want_sshdns:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass) SELECT id, '{sqlq(server_addr)}', 22, 'ssh', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'sshslowdns', '150', '{sqlq(xray_uuid)}', '{sqlq(ns4)}', '{sqlq(dnstt_pub)}', '{sqlq(ssh_user)}', '{sqlq(ssh_pass)}' FROM users WHERE uuid='{sqlq(uid)}';")
-            sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass) SELECT id, '{sqlq(server_addr)}', 22, 'ssh', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'sshslowdns', '150', '{sqlq(xray_uuid)}', '{sqlq(ns4)}', '{sqlq(dnstt_pub)}', '{sqlq(ssh_user)}', '{sqlq(ssh_pass)}' FROM users WHERE uuid='{sqlq(uid)}';")
+            if all_configs:
+                sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass) SELECT id, '{sqlq(server_addr)}', 22, 'ssh', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'sshslowdns', '150', '{sqlq(xray_uuid)}', '{sqlq(ns4)}', '{sqlq(dnstt_pub)}', '{sqlq(ssh_user)}', '{sqlq(ssh_pass)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 4) V2Ray + SlowDNS
         if want_v2dns:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey) SELECT id, '{sqlq(server_addr)}', {V2RAY_PORT}, 'vless', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'v2raydns', '150', '{sqlq(xray_uuid)}', '{sqlq(nv4)}', '{sqlq(dnstt_pub)}' FROM users WHERE uuid='{sqlq(uid)}';")
+            if all_configs:
+                sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey) SELECT id, '{sqlq(server_addr)}', {V2RAY_PORT}, 'vless', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'v2raydns', '150', '{sqlq(xray_uuid)}', '{sqlq(nv4)}', '{sqlq(dnstt_pub)}' FROM users WHERE uuid='{sqlq(uid)}';")
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey) SELECT id, '{sqlq(server_addr)}', {V2RAY_PORT}, 'vless', 'dnstt', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'v2raydns', '150', '{sqlq(xray_uuid)}', '{sqlq(nv4)}', '{sqlq(dnstt_pub)}' FROM users WHERE uuid='{sqlq(uid)}';")
         conn = db(); cur = conn.cursor()
         try:
@@ -504,10 +525,31 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
-    if not context.args: return await update.message.reply_text("Usage: /delete &lt;id_compte&gt;")
+    if not context.args:
+        # Afficher la liste des comptes avec noms et IDs pour choisir quoi supprimer
+        try:
+            conn = db()
+            rows = conn.execute("SELECT id, name, phone, expires_at, active FROM users ORDER BY id DESC LIMIT 25").fetchall()
+            conn.close()
+            if not rows:
+                return await update.message.reply_text("Aucun compte à supprimer.")
+            text = "🗑 <b>Supprimer un compte</b>\n\nSélectionnez l'ID du compte à supprimer :\n\n"
+            for r in rows:
+                st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
+                text += f"• #{r['id']} {html.escape(r['name'] or '-')} | {r['phone']} | {st}\n"
+            text += "\nUtilisation : <code>/delete &lt;id&gt;</code>"
+            await update.message.reply_text(text, parse_mode="HTML")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Erreur : {e}")
+        return
     try:
-        uid=int(context.args[0]); conn=db(); cur=conn.cursor(); cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (uid,)); cur.execute("DELETE FROM users WHERE id=?", (uid,)); conn.commit(); conn.close()
-        await update.message.reply_text(f"✅ Compte #{uid} supprimé avec ses configs.")
+        uid=int(context.args[0]); conn=db(); cur=conn.cursor()
+        row = conn.execute("SELECT name FROM users WHERE id=?", (uid,)).fetchone()
+        cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (uid,))
+        cur.execute("DELETE FROM users WHERE id=?", (uid,))
+        conn.commit(); conn.close()
+        nom = row["name"] if row else "?"
+        await update.message.reply_text(f"✅ Compte #{uid} ({html.escape(nom)}) supprimé avec ses configs.")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
 
