@@ -35,6 +35,11 @@ public class MainActivity extends AppCompatActivity {
     private String pendingTunnelId = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
+    // Dernière vérification de validité côté serveur (ms). Throttlé pour ne
+    // pas spammer l'API : max 1 vérification par minute.
+    private long lastServerCheckMs = 0;
+    private static final long SERVER_CHECK_INTERVAL_MS = 60_000;
+
     private final Runnable statusTick = new Runnable() {
         @Override
         public void run() {
@@ -45,6 +50,10 @@ public class MainActivity extends AppCompatActivity {
             if (f instanceof HomeFragment && ((HomeFragment) f).isAdded()) {
                 ((HomeFragment) f).refreshStatus();
             }
+            // Vérification fiable côté serveur : si le compte a été supprimé
+            // ou expiré depuis le panel/API/bot, réinitialiser l'app en
+            // conservant l'UUID de l'appareil.
+            checkServerValidity();
             if (!isFinishing() && !isDestroyed()) {
                 handler.postDelayed(this, 2000);
             }
@@ -206,6 +215,9 @@ public class MainActivity extends AppCompatActivity {
         // Vérification d'expiration : si le compte a expiré (date dans le
         // passé), reset complet et retour à l'activation.
         checkExpiry();
+        // Vérification fiable côté serveur (suppression/expiration depuis le
+        // panel ou le bot Telegram).
+        checkServerValidity();
     }
 
     @Override
@@ -641,5 +653,52 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
             // Format de date non reconnu : on ne bloque pas l'app.
         }
+    }
+
+    /**
+     * Vérifie côté serveur (API) si le compte est toujours valide.
+     * Throttlé à 1 vérification par minute pour ne pas spammer le serveur.
+     * Si le compte a été supprimé ou expiré côté serveur (panel API ou bot
+     * Telegram), réinitialise l'app en conservant l'UUID de l'appareil pour
+     * revenir à l'écran d'activation.
+     */
+    private void checkServerValidity() {
+        if (!ApiSession.isAuthenticated(this)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - lastServerCheckMs < SERVER_CHECK_INTERVAL_MS) {
+            return;
+        }
+        lastServerCheckMs = now;
+
+        PhoHelper.check(ApiSession.deviceUuid(this), (resp, err) -> {
+            if (err != null || resp == null) {
+                // Coupure réseau : on ne bloque pas l'app, on réessaiera au
+                // prochain tick (dans 1 minute au plus tôt).
+                return;
+            }
+            boolean activated = resp.optBoolean("activated", false);
+            JSONObject account = resp.optJSONObject("account");
+            boolean active = account != null && account.optInt("active", 0) == 1;
+            if (!activated || !active) {
+                runOnUiThread(() -> {
+                    ApiSession.resetAll(MainActivity.this);
+                    VPNApplication a = VPNApplication.getInstance();
+                    if (a != null) {
+                        a.resetAll();
+                        a.resetConfigFile(MainActivity.this);
+                    }
+                    handler.removeCallbacks(statusTick);
+                    cancelDisconnectWatchdogs();
+                    Intent i = new Intent(MainActivity.this, AuthActivity.class);
+                    i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                    startActivity(i);
+                    finish();
+                    showToast("Compte désactivé côté serveur - réinitialisation");
+                });
+            }
+        });
     }
 }
