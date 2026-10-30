@@ -565,10 +565,15 @@ public class VPNApplication extends Application {
 
     /** Reset complet de l'application : efface credentials, configs, tunnels,
      *  préférences et revient à l'état pré-activation. Appelé quand le compte
-     *  expire ou est révoqué. */
+     *  expire ou est révoqué. Le thème et la langue sont préservés. */
     public void resetAll() {
+        // Préserver le thème et la langue choisis par l'utilisateur.
+        String theme = prefs.getString("set_theme", "system");
+        String lang = prefs.getString("set_lang", "system");
         prefs.edit().clear().apply();
         prefs.edit()
+                .putString("set_theme", theme)
+                .putString("set_lang", lang)
                 .putBoolean("set_dns_protection", true)
                 .putBoolean("set_stop_on_loss", true)
                 .putBoolean("set_auto_reconnect", true)

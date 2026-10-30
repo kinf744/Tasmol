@@ -58,6 +58,9 @@ public class SettingsFragment extends Fragment {
     private void initSettingsView(View v) {
         VPNApplication app = VPNApplication.getInstance();
         View portInput = v.findViewById(R.id.settings_port);
+        if (portInput != null) {
+            // placeholder (gardé pour la cohérence du layout)
+        }
 
         // Intégrité seule (le bloc Android ID est retiré : l'identité est
         // désormais dérivée nativement et ne doit plus être affichée).
@@ -65,7 +68,10 @@ public class SettingsFragment extends Fragment {
                 ProfileTransfer.isRooted()
                         ? getString(R.string.settings_root_detected)
                         : getString(R.string.settings_no_root));
-        ((TextView) v.findViewById(R.id.settings_root)).setText(integrity);
+        TextView rootView = v.findViewById(R.id.settings_root);
+        if (rootView != null) {
+            rootView.setText(integrity);
+        }
 
         // ── Thème : Système / Clair / Sombre ────────────────────────────
         String theme = UiPrefs.getTheme(requireContext());
@@ -80,9 +86,12 @@ public class SettingsFragment extends Fragment {
                 getActivity().recreate();
             }
         };
-        v.findViewById(R.id.settings_theme_system).setOnClickListener(themePick);
-        v.findViewById(R.id.settings_theme_light).setOnClickListener(themePick);
-        v.findViewById(R.id.settings_theme_dark).setOnClickListener(themePick);
+        View ts = v.findViewById(R.id.settings_theme_system);
+        View tl = v.findViewById(R.id.settings_theme_light);
+        View td = v.findViewById(R.id.settings_theme_dark);
+        if (ts != null) ts.setOnClickListener(themePick);
+        if (tl != null) tl.setOnClickListener(themePick);
+        if (td != null) td.setOnClickListener(themePick);
 
         // ── Langue : Système / Français / English ───────────────────────
         String lang = UiPrefs.getLang(requireContext());
@@ -97,9 +106,12 @@ public class SettingsFragment extends Fragment {
                 getActivity().recreate();
             }
         };
-        v.findViewById(R.id.settings_lang_system).setOnClickListener(langPick);
-        v.findViewById(R.id.settings_lang_fr).setOnClickListener(langPick);
-        v.findViewById(R.id.settings_lang_en).setOnClickListener(langPick);
+        View ls = v.findViewById(R.id.settings_lang_system);
+        View lf = v.findViewById(R.id.settings_lang_fr);
+        View le = v.findViewById(R.id.settings_lang_en);
+        if (ls != null) ls.setOnClickListener(langPick);
+        if (lf != null) lf.setOnClickListener(langPick);
+        if (le != null) le.setOnClickListener(langPick);
 
         bindSwitch(v, R.id.settings_dns, app.isDnsProtectionEnabled(),
                 app::setDnsProtectionEnabled);
@@ -121,57 +133,76 @@ public class SettingsFragment extends Fragment {
                 app::setTcpNoDelayEnabled);
 
         delayText = v.findViewById(R.id.settings_delay);
-        delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
-        v.findViewById(R.id.settings_delay_minus).setOnClickListener(view -> {
-            app.setReconnectDelaySeconds(app.getReconnectDelaySeconds() - 1);
+        if (delayText != null) {
             delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
-        });
-        v.findViewById(R.id.settings_delay_plus).setOnClickListener(view -> {
-            app.setReconnectDelaySeconds(app.getReconnectDelaySeconds() + 1);
-            delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
-        });
+        }
+        View delayMinus = v.findViewById(R.id.settings_delay_minus);
+        View delayPlus = v.findViewById(R.id.settings_delay_plus);
+        if (delayMinus != null && delayPlus != null && delayText != null) {
+            delayMinus.setOnClickListener(view -> {
+                app.setReconnectDelaySeconds(app.getReconnectDelaySeconds() - 1);
+                delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
+            });
+            delayPlus.setOnClickListener(view -> {
+                app.setReconnectDelaySeconds(app.getReconnectDelaySeconds() + 1);
+                delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
+            });
+        }
 
         final TextView mtuText = v.findViewById(R.id.settings_mtu);
-        mtuText.setText(String.valueOf(app.getCustomMtu()));
-        v.findViewById(R.id.settings_mtu_minus).setOnClickListener(view -> {
-            int m = app.getCustomMtu() - 100;
-            app.setCustomMtu(m);
+        if (mtuText != null) {
             mtuText.setText(String.valueOf(app.getCustomMtu()));
-            toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
-        });
-        v.findViewById(R.id.settings_mtu_plus).setOnClickListener(view -> {
-            int m = app.getCustomMtu() + 100;
-            app.setCustomMtu(m);
-            mtuText.setText(String.valueOf(app.getCustomMtu()));
-            toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
-        });
+        }
+        View mtuMinus = v.findViewById(R.id.settings_mtu_minus);
+        View mtuPlus = v.findViewById(R.id.settings_mtu_plus);
+        if (mtuMinus != null && mtuPlus != null && mtuText != null) {
+            mtuMinus.setOnClickListener(view -> {
+                int m = app.getCustomMtu() - 100;
+                app.setCustomMtu(m);
+                mtuText.setText(String.valueOf(app.getCustomMtu()));
+                toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
+            });
+            mtuPlus.setOnClickListener(view -> {
+                int m = app.getCustomMtu() + 100;
+                app.setCustomMtu(m);
+                mtuText.setText(String.valueOf(app.getCustomMtu()));
+                toast("MTU " + app.getCustomMtu() + " - prochaine connexion");
+            });
+        }
 
-        final EditText dns1 = v.findViewById(R.id.settings_dns_primary);
-        final EditText dns2 = v.findViewById(R.id.settings_dns_secondary);
-        dns1.setText(app.getCustomDnsPrimary());
-        dns2.setText(app.getCustomDnsSecondary());
-        android.view.View.OnFocusChangeListener saveDns = (view, hasFocus) -> {
-            if (!hasFocus) {
-                saveDnsFields(dns1, dns2);
-            }
-        };
-        dns1.setOnFocusChangeListener(saveDns);
-        dns2.setOnFocusChangeListener(saveDns);
+        final         EditText dns1 = v.findViewById(R.id.settings_dns_primary);
+        EditText dns2 = v.findViewById(R.id.settings_dns_secondary);
+        if (dns1 != null && dns2 != null) {
+            dns1.setText(app.getCustomDnsPrimary());
+            dns2.setText(app.getCustomDnsSecondary());
+            android.view.View.OnFocusChangeListener saveDns = (view, hasFocus) -> {
+                if (!hasFocus) {
+                    saveDnsFields(dns1, dns2);
+                }
+            };
+            dns1.setOnFocusChangeListener(saveDns);
+            dns2.setOnFocusChangeListener(saveDns);
+        }
 
         EditText port = v.findViewById(R.id.settings_port);
-        port.setText(String.valueOf(app.getManagePort()));
-        v.findViewById(R.id.settings_save_port).setOnClickListener(view -> {
-            try {
-                int p = Integer.parseInt(port.getText().toString().trim());
-                if (p < 0 || p > 65535) {
-                    throw new NumberFormatException();
+        if (port != null) {
+            port.setText(String.valueOf(app.getManagePort()));
+        }
+        View savePort = v.findViewById(R.id.settings_save_port);
+        if (savePort != null && port != null) {
+            savePort.setOnClickListener(view -> {
+                try {
+                    int p = Integer.parseInt(port.getText().toString().trim());
+                    if (p < 0 || p > 65535) {
+                        throw new NumberFormatException();
+                    }
+                    app.setManagePort(p);
+                    toast("Enregistré - appliqué à la prochaine connexion");
+                } catch (NumberFormatException e) {
+                    toast("Port invalide");
                 }
-                app.setManagePort(p);
-                toast("Enregistré - appliqué à la prochaine connexion");
-            } catch (NumberFormatException e) {
-                toast("Port invalide");
-            }
-        });
+            });
+        }
 
         v.findViewById(R.id.settings_reset).setOnClickListener(view ->
                 new AlertDialog.Builder(requireContext())
@@ -198,23 +229,30 @@ public class SettingsFragment extends Fragment {
         if (gov == null) {
             gov = "";
         }
-        version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
+        if (version != null) {
+            version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
+        }
 
         // ── Orange Fast host ──────────────────────────────────────────
         final EditText orangeHost = v.findViewById(R.id.settings_orange_host);
-        orangeHost.setText(app.getOrangeFastHost());
-        v.findViewById(R.id.settings_orange_save).setOnClickListener(view -> {
-            String h = orangeHost.getText().toString().trim();
-            if (h.isEmpty()) {
-                toast("Host invalide");
-                return;
-            }
-            app.setOrangeFastHost(h);
-            // Recréer le config.yaml pour que le nouvel host soit pris en
-            // compte par le tunnel Orange Fast (VLESS WS TLS).
-            app.resetConfigFile(requireContext());
-            toast("Orange Fast host enregistré - recréation config");
-        });
+        final View orangeSave = v.findViewById(R.id.settings_orange_save);
+        if (orangeHost != null) {
+            orangeHost.setText(app.getOrangeFastHost());
+        }
+        if (orangeSave != null && orangeHost != null) {
+            orangeSave.setOnClickListener(view -> {
+                String h = orangeHost.getText().toString().trim();
+                if (h.isEmpty()) {
+                    toast("Host invalide");
+                    return;
+                }
+                app.setOrangeFastHost(h);
+                // Recréer le config.yaml pour que le nouvel host soit pris en
+                // compte par le tunnel Orange Fast (VLESS WS TLS).
+                app.resetConfigFile(requireContext());
+                toast("Orange Fast host enregistré - recréation config");
+            });
+        }
     }
 
     private void saveDnsFields(EditText dns1, EditText dns2) {
@@ -267,25 +305,46 @@ public class SettingsFragment extends Fragment {
 
     private void bindSwitch(View root, int id, boolean initial, BoolSetter setter) {
         Switch sw = root.findViewById(id);
+        if (sw == null) {
+            return;
+        }
         sw.setChecked(initial);
         sw.setOnCheckedChangeListener((btn, checked) -> setter.set(checked));
     }
 
     private void refreshSwitches(View v) {
         VPNApplication app = VPNApplication.getInstance();
-        ((Switch) v.findViewById(R.id.settings_dns)).setChecked(app.isDnsProtectionEnabled());
-        ((Switch) v.findViewById(R.id.settings_stop_loss)).setChecked(app.isStopOnNetworkLossEnabled());
-        ((Switch) v.findViewById(R.id.settings_reconnect)).setChecked(app.isAutoReconnectEnabled());
-        ((Switch) v.findViewById(R.id.settings_boot)).setChecked(app.isLaunchOnBootEnabled());
-        ((Switch) v.findViewById(R.id.settings_verbose)).setChecked(app.isVerboseDiagnosticsEnabled());
-        ((Switch) v.findViewById(R.id.settings_confirm)).setChecked(app.isConfirmDisconnectEnabled());
-        ((Switch) v.findViewById(R.id.settings_wakelock)).setChecked(app.isWakeLockEnabled());
-        ((Switch) v.findViewById(R.id.settings_boost)).setChecked(app.isSlowDnsBoostEnabled());
-        ((Switch) v.findViewById(R.id.settings_tcpnodelay)).setChecked(app.isTcpNoDelayEnabled());
-        delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
-        ((TextView) v.findViewById(R.id.settings_mtu)).setText(String.valueOf(app.getCustomMtu()));
-        ((EditText) v.findViewById(R.id.settings_dns_primary)).setText(app.getCustomDnsPrimary());
-        ((EditText) v.findViewById(R.id.settings_dns_secondary)).setText(app.getCustomDnsSecondary());
+        setSwitchChecked(v, R.id.settings_dns, app.isDnsProtectionEnabled());
+        setSwitchChecked(v, R.id.settings_stop_loss, app.isStopOnNetworkLossEnabled());
+        setSwitchChecked(v, R.id.settings_reconnect, app.isAutoReconnectEnabled());
+        setSwitchChecked(v, R.id.settings_boot, app.isLaunchOnBootEnabled());
+        setSwitchChecked(v, R.id.settings_verbose, app.isVerboseDiagnosticsEnabled());
+        setSwitchChecked(v, R.id.settings_confirm, app.isConfirmDisconnectEnabled());
+        setSwitchChecked(v, R.id.settings_wakelock, app.isWakeLockEnabled());
+        setSwitchChecked(v, R.id.settings_boost, app.isSlowDnsBoostEnabled());
+        setSwitchChecked(v, R.id.settings_tcpnodelay, app.isTcpNoDelayEnabled());
+        if (delayText != null) {
+            delayText.setText(String.valueOf(app.getReconnectDelaySeconds()));
+        }
+        TextView mtv = v.findViewById(R.id.settings_mtu);
+        if (mtv != null) {
+            mtv.setText(String.valueOf(app.getCustomMtu()));
+        }
+        EditText dns1v = v.findViewById(R.id.settings_dns_primary);
+        if (dns1v != null) {
+            dns1v.setText(app.getCustomDnsPrimary());
+        }
+        EditText dns2v = v.findViewById(R.id.settings_dns_secondary);
+        if (dns2v != null) {
+            dns2v.setText(app.getCustomDnsSecondary());
+        }
+    }
+
+    private void setSwitchChecked(View root, int id, boolean checked) {
+        View sw = root.findViewById(id);
+        if (sw instanceof Switch) {
+            ((Switch) sw).setChecked(checked);
+        }
     }
 
     private void toast(String msg) {
@@ -295,6 +354,9 @@ public class SettingsFragment extends Fragment {
     /** État visuel d'une option pilule (Thème/Langue). */
     private void bindPill(View v, int id, boolean selected) {
         TextView t = v.findViewById(id);
+        if (t == null) {
+            return;
+        }
         int color = selected ? R.color.npv_green : R.color.npv_grey;
         t.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), color));
         t.setTypeface(null, selected ? android.graphics.Typeface.BOLD

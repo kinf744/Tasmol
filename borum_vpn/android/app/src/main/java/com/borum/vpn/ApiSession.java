@@ -88,17 +88,19 @@ public final class ApiSession {
         clearAccountCard(ctx);
         p(ctx).edit().putBoolean(K_AUTHED, false).apply();
         PhoHelper.vaultClear(deviceUuid(ctx));
+        SecurityGuard.resetSecurity(ctx);
     }
 
     /** Reset complet : efface credentials, configs, compte, et toute l'auth.
      *  Appelé quand le compte expire ou est révoqué. L'app revient à l'état
      *  pré-activation. */
     public static void resetAll(Context ctx) {
+        String uuid = deviceUuid(ctx); // capturer avant le clear
         logout(ctx);
         p(ctx).edit().clear().apply();
-        // Supprimer aussi le cache des configs
-        lastConfigsRaw = null;
-        lastConfigsParsed = new JSONArray();
+        // Supprimer aussi le cache des configs pour cet appareil
+        lastConfigsRaw.remove(uuid);
+        lastConfigsParsed.remove(uuid);
     }
 
     // --- Bloc compte (carte "Client" de l'écran d'activation) ---
@@ -135,26 +137,36 @@ public final class ApiSession {
     public static void saveConfigs(Context ctx, JSONArray configs) {
         PhoHelper.vaultPut(ctx, deviceUuid(ctx), V_CONFIGS,
                 configs == null ? "[]" : configs.toString());
-        lastConfigsRaw = null; // force le re-parse au prochain accès
+        lastConfigsRaw.remove(deviceUuid(ctx));
+        lastConfigsParsed.remove(deviceUuid(ctx));
     }
 
     // Cache anti-reparse : le tick UI d'accueil (2 s) relisait et re-parsait
     // TOUT le JSON des configs depuis le coffre chiffré à chaque tick.
-    private static String lastConfigsRaw = null;
-    private static JSONArray lastConfigsParsed = new JSONArray();
+    // Clé par UUID d'appareil pour éviter qu'un compte ne voie les configs
+    // d'un autre après un changement de compte sans redémarrage.
+    private static final java.util.Map<String, String> lastConfigsRaw = new java.util.HashMap<>();
+    private static final java.util.Map<String, JSONArray> lastConfigsParsed = new java.util.HashMap<>();
 
     public static JSONArray configs(Context ctx) {
-        String raw = PhoHelper.vaultGet(deviceUuid(ctx), V_CONFIGS);
-        if (raw != null && raw.equals(lastConfigsRaw)) {
-            return lastConfigsParsed;
+        String uuid = deviceUuid(ctx);
+        String raw = PhoHelper.vaultGet(uuid, V_CONFIGS);
+        String cachedRaw = lastConfigsRaw.get(uuid);
+        if (raw != null && raw.equals(cachedRaw)) {
+            JSONArray cached = lastConfigsParsed.get(uuid);
+            if (cached != null) {
+                return cached;
+            }
         }
+        JSONArray parsed;
         try {
-            lastConfigsParsed = new JSONArray(raw);
+            parsed = new JSONArray(raw);
         } catch (Exception e) {
-            lastConfigsParsed = new JSONArray();
+            parsed = new JSONArray();
         }
-        lastConfigsRaw = raw;
-        return lastConfigsParsed;
+        lastConfigsRaw.put(uuid, raw);
+        lastConfigsParsed.put(uuid, parsed);
+        return parsed;
     }
 
     // --- Active API tunnel ---

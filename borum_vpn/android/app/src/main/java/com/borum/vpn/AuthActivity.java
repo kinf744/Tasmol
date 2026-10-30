@@ -77,7 +77,9 @@ public class AuthActivity extends AppCompatActivity {
         accLimit = findViewById(R.id.auth_acc_limit);
         accRemaining = findViewById(R.id.auth_acc_remaining);
 
-        uuidText.setText(ApiSession.deviceUuid(this));
+        if (uuidText != null) {
+            uuidText.setText(ApiSession.deviceUuid(this));
+        }
         if (ApiSession.isAuthenticated(this)) {
             phoneInput.setText(ApiSession.phone(this));
             codeInput.setText(ApiSession.code(this));
@@ -96,13 +98,16 @@ public class AuthActivity extends AppCompatActivity {
             refreshAccount(true); // sonde initiale, avec ou sans cache
         }
 
-        findViewById(R.id.auth_copy).setOnClickListener(v -> {
-            ClipboardManager cm =
-                    (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            cm.setPrimaryClip(ClipData.newPlainText("device uuid",
-                    ApiSession.deviceUuid(this)));
-            Toast.makeText(this, "UUID copié", Toast.LENGTH_SHORT).show();
-        });
+        View authCopy = findViewById(R.id.auth_copy);
+        if (authCopy != null) {
+            authCopy.setOnClickListener(v -> {
+                ClipboardManager cm =
+                        (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                cm.setPrimaryClip(ClipData.newPlainText("device uuid",
+                        ApiSession.deviceUuid(this)));
+                Toast.makeText(this, "UUID copié", Toast.LENGTH_SHORT).show();
+            });
+        }
 
         validateBtn.setOnClickListener(v -> {
             // Ligne de trace immédiate au clic: permet de distinguer
@@ -111,11 +116,16 @@ public class AuthActivity extends AppCompatActivity {
             validate();
         });
 
-        // Liens Telegram : redirection directe vers Telegram (canal + inbox).
-        findViewById(R.id.auth_tg_channel).setOnClickListener(v ->
-                openTelegram("https://t.me/lkgcddtoogv"));
-        findViewById(R.id.auth_tg_inbox).setOnClickListener(v ->
-                openTelegram("https://t.me/kighmu"));
+        View authTgChannel = findViewById(R.id.auth_tg_channel);
+        View authTgInbox = findViewById(R.id.auth_tg_inbox);
+        if (authTgChannel != null) {
+            authTgChannel.setOnClickListener(v ->
+                    openTelegram("https://t.me/lkgcddtoogv"));
+        }
+        if (authTgInbox != null) {
+            authTgInbox.setOnClickListener(v ->
+                    openTelegram("https://t.me/kighmu"));
+        }
     }
 
     private void openTelegram(String url) {

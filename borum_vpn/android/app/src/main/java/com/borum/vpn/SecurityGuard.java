@@ -122,6 +122,12 @@ public final class SecurityGuard {
                 .apply();
     }
 
+    /** Efface l'état mémoire de l'horloge (appelé lors du reset de compte). */
+    public static void resetSecurity(Context ctx) {
+        if (ctx == null) return;
+        p(ctx).edit().remove(K_LAST_MONO).remove(K_LAST_WALL).apply();
+    }
+
     // ---------- helpers ----------
 
     private static boolean isExpired(String iso) {

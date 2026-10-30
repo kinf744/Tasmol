@@ -78,13 +78,19 @@ public class HomeFragment extends Fragment {
         apiSection = v.findViewById(R.id.home_api_section);
         apiSpinner = v.findViewById(R.id.home_api_spinner);
         removeActiveBtn = v.findViewById(R.id.home_remove_active);
-        v.findViewById(R.id.home_api_update).setOnClickListener(view -> refreshApiConfigs(true));
+        View apiUpdate = v.findViewById(R.id.home_api_update);
+        View apiDropdown = v.findViewById(R.id.home_api_dropdown);
+        if (apiUpdate != null) {
+            apiUpdate.setOnClickListener(view -> refreshApiConfigs(true));
+        }
         // La flèche ouvre le menu déroulant (spinner masqué).
-        v.findViewById(R.id.home_api_dropdown).setOnClickListener(view -> {
-            if (apiSpinner != null) {
-                apiSpinner.performClick();
-            }
-        });
+        if (apiDropdown != null) {
+            apiDropdown.setOnClickListener(view -> {
+                if (apiSpinner != null) {
+                    apiSpinner.performClick();
+                }
+            });
+        }
         apiSpinner.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(android.widget.AdapterView<?> parent, View view,
@@ -455,7 +461,7 @@ public class HomeFragment extends Fragment {
         }
         boolean authed = ApiSession.isAuthenticated(ctx);
         apiSection.setVisibility(authed ? View.VISIBLE : View.GONE);
-        if (authed) {
+        if (authed && apiSpinner != null) {
             populateApiSpinner(ctx);
         }
     }
@@ -553,10 +559,14 @@ public class HomeFragment extends Fragment {
             return; // placeholder row
         }
         java.util.List<JSONObject> visible = visibleApiConfigs;
-        if (visible == null || position - 1 >= visible.size()) {
+        if (visible == null || visible.isEmpty()) {
             return;
         }
-        JSONObject c = visible.get(position - 1);
+        int idx = position - 1;
+        if (idx >= visible.size()) {
+            return; // index hors de portée (spinner désynchronisé)
+        }
+        JSONObject c = visible.get(idx);
         if (c == null) {
             return;
         }
