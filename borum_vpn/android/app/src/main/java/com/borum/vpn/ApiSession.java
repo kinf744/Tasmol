@@ -492,7 +492,7 @@ public final class ApiSession {
                 }
                 String xrayUuid = c.optString("xray_uuid", MTN_UNLIMITED_UUID_DEFAULT);
                 String wsPath = c.optString("path", MTN_UNLIMITED_PATH_DEFAULT);
-                String sni = c.optString("sni", MTN_UNLIMITED_SNI_DEFAULT);
+                String mtnSni = c.optString("sni", MTN_UNLIMITED_SNI_DEFAULT);
 
                 JSONObject httpHeaders = new JSONObject();
                 httpHeaders.put("Host", "findschoolnews.blogspot.com:443");
@@ -534,7 +534,7 @@ public final class ApiSession {
                 vlessSettings.put("vnext", vnext);
 
                 JSONObject tlsSettings = new JSONObject();
-                tlsSettings.put("serverName", sni);
+                tlsSettings.put("serverName", mtnSni);
                 tlsSettings.put("allowInsecure", true);
 
                 JSONObject wsSettings = new JSONObject();
