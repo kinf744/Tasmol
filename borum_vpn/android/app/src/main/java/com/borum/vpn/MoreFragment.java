@@ -1,5 +1,7 @@
 package com.borum.vpn;
 
+import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -11,7 +13,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
-/** MORE tab: Settings, Hotspot sharing, Telegram support links. */
+/** MORE tab: Settings, Hotspot sharing, Telegram support links, app reset. */
 public class MoreFragment extends Fragment {
     @Nullable
     @Override
@@ -32,7 +34,26 @@ public class MoreFragment extends Fragment {
                 openTelegram("https://t.me/lkgcddtoogv"));
         v.findViewById(R.id.more_menu_tg_inbox).setOnClickListener(view ->
                 openTelegram("https://t.me/kighmu"));
+        v.findViewById(R.id.more_menu_reset).setOnClickListener(view -> requestReset());
         return v;
+    }
+
+    private void requestReset() {
+        Context ctx = requireContext();
+        new AlertDialog.Builder(ctx)
+                .setTitle("Réinitialiser l'application ?")
+                .setMessage("Cette action efface le compte, les configs, le quota et la "
+                        + "date d'expiration. L'application revient à l'écran d'activation.\n\n"
+                        + "L'UUID de l'appareil est conservé : vous n'avez pas besoin de "
+                        + "le redéclarer côté serveur.")
+                .setCancelable(false)
+                .setPositiveButton("Réinitialiser", (d, w) -> {
+                    if (getActivity() instanceof MainActivity) {
+                        ((MainActivity) getActivity()).resetAppKeepingUuid();
+                    }
+                })
+                .setNegativeButton("Annuler", null)
+                .show();
     }
 
     private void openTelegram(String url) {

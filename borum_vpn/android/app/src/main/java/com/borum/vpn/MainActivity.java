@@ -420,6 +420,36 @@ public class MainActivity extends AppCompatActivity {
         System.exit(10);
     }
 
+    /**
+     * Réinitialise l'application : efface compte, configs, quota, expiration,
+     * mais conserve l'UUID de l'appareil (dérivé du matériel, donc inchangé).
+     * Retourne à l'écran d'activation.
+     */
+    public void resetAppKeepingUuid() {
+        // Déconnecte le VPN si une session est active
+        if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
+            disconnectVpn();
+        }
+        // Efface credentials + configs (l'UUID device est dérivé du matériel,
+        // il sera identique après reset car Pho/DeviceIdentity le régénère à
+        // partir de l'empreinte matériel).
+        ApiSession.resetAll(this);
+        VPNApplication app = VPNApplication.getInstance();
+        if (app != null) {
+            app.resetAll();
+            app.resetConfigFile(this);
+        }
+        handler.removeCallbacks(statusTick);
+        cancelDisconnectWatchdogs();
+        // Retour à l'écran d'activation (vierge, UUID conservé)
+        Intent i = new Intent(this, AuthActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK |
+                   Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(i);
+        finish();
+        showToast("Application réinitialisée (UUID conservé)");
+    }
+
     /** Restart the service so edited configs take effect. */
     public void restartVpn() {
         String active = TasVpnService.getActiveTunnelId();
