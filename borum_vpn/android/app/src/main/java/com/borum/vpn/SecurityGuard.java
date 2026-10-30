@@ -26,6 +26,7 @@ import org.json.JSONObject;
 public final class SecurityGuard {
     private static final String PREFS = "borum_security";
     private static final String K_LAST_MONO = "last_mono_realtime";
+    private static final String K_LAST_WALL = "last_wall_millis";
     private static final long CLOCK_TOLERANCE_MS = 30_000; // 30s de tolérance
 
     private SecurityGuard() {
@@ -82,20 +83,32 @@ public final class SecurityGuard {
     /**
      * Détecte un recul de l'horloge murale depuis la dernière observation.
      * Retourne un message d'erreur si contournement suspecté, null sinon.
+     *
+     * SystemClock.elapsedRealtime() est monotonique SAUF après un redémarrage
+     * de l'appareil, auquel cas il repart de 0. Un simple recul du compteur
+     * mono ne doit donc pas être interprété comme un contournement si
+     * l'heure murale (System.currentTimeMillis) a, elle, avancé entre-temps.
      */
     private static String checkClockTampering(Context ctx) {
         long nowMono = SystemClock.elapsedRealtime();
+        long nowWall = System.currentTimeMillis();
         long lastMono = p(ctx).getLong(K_LAST_MONO, -1);
+        long lastWall = p(ctx).getLong(K_LAST_WALL, -1);
 
-        if (lastMono >= 0) {
-            long delta = nowMono - lastMono;
-            if (delta < -CLOCK_TOLERANCE_MS) {
-                // L'horloge a reculé : tentative de contournement d'expiration
-                return "Horloge système modifiée. "
-                        + "Réglage de l'heure interdit pendant un abonnement actif.";
+        if (lastMono >= 0 && lastWall >= 0) {
+            long deltaMono = nowMono - lastMono;
+            if (deltaMono < -CLOCK_TOLERANCE_MS) {
+                // Le compteur mono a reculé : soit redémarrage de l'appareil,
+                // soit contournement d'horloge. On tranche avec l'heure murale.
+                if (nowWall < lastWall - CLOCK_TOLERANCE_MS) {
+                    // L'heure murale a aussi reculé : vrai contournement.
+                    return "Horloge système modifiée. "
+                            + "Réglage de l'heure interdit pendant un abonnement actif.";
+                }
+                // Sinon : redémarrage normal (mono reset, mur avancé) — on laisse passer.
             }
         }
-        p(ctx).edit().putLong(K_LAST_MONO, nowMono).apply();
+        p(ctx).edit().putLong(K_LAST_MONO, nowMono).putLong(K_LAST_WALL, nowWall).apply();
         return null;
     }
 
@@ -103,7 +116,10 @@ public final class SecurityGuard {
      *  établie ou un check API réussi). */
     public static void noteSuccessfulCheck(Context ctx) {
         if (ctx == null) return;
-        p(ctx).edit().putLong(K_LAST_MONO, SystemClock.elapsedRealtime()).apply();
+        p(ctx).edit()
+                .putLong(K_LAST_MONO, SystemClock.elapsedRealtime())
+                .putLong(K_LAST_WALL, System.currentTimeMillis())
+                .apply();
     }
 
     // ---------- helpers ----------
