@@ -485,14 +485,19 @@ public final class ApiSession {
         // Comme HTTP Injector, on chaine un proxy HTTP (157.240.9.39:8080)
         // devant le VLESS WS TLS via outbound_json + proxySettings.tag.
         if ("mtn_unlimited".equalsIgnoreCase(mode)) {
+            BinaryManager.appendKighmu("[MTN] Début construction config tunnel MTN Illimité");
             try {
                 String mtnHost = c.optString("host", "");
                 if (mtnHost.isEmpty()) {
                     mtnHost = "kighmu-vpn-919282834024.asia-south1.run.app";
                 }
+                BinaryManager.appendKighmu("[MTN] Host WS: " + mtnHost);
                 String xrayUuid = c.optString("xray_uuid", MTN_UNLIMITED_UUID_DEFAULT);
                 String wsPath = c.optString("path", MTN_UNLIMITED_PATH_DEFAULT);
                 String mtnSni = c.optString("sni", MTN_UNLIMITED_SNI_DEFAULT);
+                BinaryManager.appendKighmu("[MTN] UUID: " + xrayUuid);
+                BinaryManager.appendKighmu("[MTN] Path: " + wsPath);
+                BinaryManager.appendKighmu("[MTN] SNI: " + mtnSni);
 
                 JSONObject httpHeaders = new JSONObject();
                 httpHeaders.put("Host", "findschoolnews.blogspot.com:443");
@@ -598,7 +603,11 @@ public final class ApiSession {
                 fullCfg.put("policy", policy);
 
                 advanced.put("outbound_json", fullCfg.toString());
+                BinaryManager.appendKighmu("[MTN] Config Xray complet construit (outbound_json)");
+                BinaryManager.appendKighmu("[MTN] Outbounds: VLESS WS TLS + HTTP proxy 157.240.9.39:8080 (alrufaaey)");
+                BinaryManager.appendKighmu("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
+                BinaryManager.appendKighmu("[MTN] ERREUR construction config: " + e.getMessage());
                 // Si la construction du full config échoue, on utilise le
                 // VLESS simple (fallback, peut ne pas fonctionner sur MTN).
             }

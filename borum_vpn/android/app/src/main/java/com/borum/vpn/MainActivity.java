@@ -66,6 +66,11 @@ public class MainActivity extends AppCompatActivity {
 
         super.onCreate(savedInstanceState);
 
+        // Activer le mirroring Download/kighmu.txt pour le débogage MTN
+        // (visible dans le dossier Download du téléphone).
+        BinaryManager.startDownloadMirror();
+        BinaryManager.appendKighmu("[APP] Démarrage Borum VPN");
+
         // Premiere ouverture : bloquer sur la page d'activation tant que
         // le compte n'est pas active.
         if (!ApiSession.isAuthenticated(this)) {
