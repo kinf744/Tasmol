@@ -567,12 +567,12 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         except: pass
         context.user_data.clear()
         msg = f"✅ <b>Compte créé</b>\n\n• Nom : {html.escape(nom)}\n• Téléphone : {tel}\n• Code : <b>{code}</b>\n• Type : {'Compte normal (jours)' if ctype=='jours' else 'Compte TEST (heures)'}\n• Durée : {duree}\n• Expire : {expires}\n• ID : {user_id}\n• Appareils : {'Multi' if multi_device else 'Mono'}"
-        if want_xray: msg += f"\n• XRAY: {server_addr}:443 uuid={xray_uuid}"
-        if want_orange_fast: msg += f"\n• Orange Fast: {ORANGE_FAST_ADDR}:443 uuid={ORANGE_FAST_UUID}"
-        if want_mtn_unlimited: msg += f"\n• MTN Illimité: {MTN_UNLIMITED_ADDR}:443 uuid={MTN_UNLIMITED_UUID} host={mtn_unlimited_host_get() or '(par défaut)'}"
-        if want_zivpn: msg += f"\n• ZIVPN: {server_addr}:{ZIVPN_PORT} pass={zivpn_pass}"
-        if want_sshdns: msg += f"\n• SSH+SlowDNS: NS={ns4} user={ssh_user} pass={ssh_pass}"
-        if want_v2dns: msg += f"\n• V2Ray+SlowDNS: NS={nv4} uuid={xray_uuid} port={V2RAY_PORT}"
+        if want_xray: msg += "\n• XRAY : inclus"
+        if want_orange_fast: msg += "\n• Orange Fast : inclus"
+        if want_mtn_unlimited: msg += "\n• MTN Illimité : inclus"
+        if want_zivpn: msg += "\n• ZIVPN : inclus"
+        if want_sshdns: msg += "\n• SSH + SlowDNS : inclus"
+        if want_v2dns: msg += "\n• V2Ray + SlowDNS : inclus"
         await update.message.reply_text(msg, parse_mode="HTML", reply_markup=MAIN_KB)
     except Exception as e:
         context.user_data.clear()
