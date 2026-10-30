@@ -18,19 +18,6 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import org.json.JSONObject;
 
-/**
- * Trophy-icon screen: activate this device against the remote config API.
- * On success the credentials are stored, the Home "SERVER CONFIGS"
- * section becomes available, and a "Client" card (name / phone / plan /
- * expiry / data limit / data remaining) is shown below the button.
- *
- * The card is visible ONLY while the account is validated AND active;
- * it refreshes every 30s so "Données restantes" tracks real consumption.
- *
- * Une fois l'activation réussie, l'utilisateur ne peut plus revenir sur
- * cet écran : onCreate() redirige immédiatement vers MainActivity si le
- * compte est déjà authentifié.
- */
 public class AuthActivity extends AppCompatActivity {
     private EditText phoneInput;
     private EditText codeInput;
@@ -55,7 +42,6 @@ public class AuthActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_auth);
 
-        // Déjà activé : on ne revient JAMAIS sur l'écran d'activation.
         if (ApiSession.isAuthenticated(this)) {
             Intent i = new Intent(this, MainActivity.class);
             i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -87,15 +73,14 @@ public class AuthActivity extends AppCompatActivity {
             statusText.setText("Connecté à l'API" + (exp.isEmpty() ? "" : " — expire: " + exp));
             statusText.setTextColor(getColor(R.color.npv_green));
             validateBtn.setText("RE-VALIDER");
-            // Cache local, puis rafraîchissement réseau : la carte ne reste
-            // visible que si le compte est toujours actif côté serveur.
+
             JSONObject cached = ApiSession.accountCard(this);
             if (cached != null) {
                 cardVisible = true;
                 accountCard.setVisibility(View.VISIBLE);
                 fillCard(cached);
             }
-            refreshAccount(true); // sonde initiale, avec ou sans cache
+            refreshAccount(true); 
         }
 
         View authCopy = findViewById(R.id.auth_copy);
@@ -110,8 +95,7 @@ public class AuthActivity extends AppCompatActivity {
         }
 
         validateBtn.setOnClickListener(v -> {
-            // Ligne de trace immédiate au clic: permet de distinguer
-            // "le bouton ne répond pas" de "la requête échoue".
+
             TasVpnService.logEvent("info", "api", "[activation] clic VALIDER");
             validate();
         });
@@ -134,7 +118,7 @@ public class AuthActivity extends AppCompatActivity {
         try {
             startActivity(intent);
         } catch (Exception e) {
-            // Si l'app Telegram n'est pas installée, ouvrir dans le navigateur.
+
             intent.setData(Uri.parse(url));
             try {
                 startActivity(intent);
@@ -166,8 +150,7 @@ public class AuthActivity extends AppCompatActivity {
         statusText.setTextColor(getColor(R.color.npv_grey));
         statusText.setText("Vérification…");
         String uuid = ApiSession.deviceUuid(this);
-        // Journal masqué : ni le téléphone, ni l'UUID, ni le code (le
-        // journal est consultable dans l'onglet LOGS et partageable).
+
         TasVpnService.logEvent("info", "api", "[activation] début — téléphone=****"
                 + phone.substring(Math.max(0, phone.length() - 3))
                 + " uuid=****" + uuid.substring(Math.max(0, uuid.length() - 4))
@@ -176,8 +159,7 @@ public class AuthActivity extends AppCompatActivity {
         PhoHelper.activate(phone, code, uuid, (resp, err) -> {
             validateBtn.setEnabled(true);
             if (err != null) {
-                // Message volontairement générique : ni le domaine, ni le
-                // mécanisme de sécurité, ni la stack ne sont affichés.
+
                 String friendly = "Connexion au serveur impossible. Vérifiez votre réseau.";
                 statusText.setTextColor(getColor(R.color.npv_red));
                 statusText.setText(friendly);
@@ -206,14 +188,14 @@ public class AuthActivity extends AppCompatActivity {
             i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(i);
             finish();
-            // Carte compte : uniquement pour un compte validé ET actif.
+
             JSONObject account = resp.optJSONObject("account");
             if (account != null && account.optInt("active", 0) == 1) {
                 showCard(account);
             } else {
                 hideCard();
             }
-            // Prefetch configs so Home shows the list immediately.
+
             PhoHelper.configs(uuid, code, (r2, e2) -> {
                 if (r2 != null && r2.optBoolean("success", false)) {
                     ApiSession.saveConfigs(this, r2.optJSONArray("configs"));
@@ -222,16 +204,10 @@ public class AuthActivity extends AppCompatActivity {
         });
     }
 
-    /** Rafraîchit la carte depuis /api/v1/devices/check (uuid d'appareil). */
     private void refreshAccount() {
         refreshAccount(false);
     }
 
-    /**
-     * probe=true : compte authentifié mais carte pas encore visible (première
-     * ouverture après mise à jour, cache vide) — on interroge quand même le
-     * serveur pour décider d'afficher ou non.
-     */
     private void refreshAccount(boolean probe) {
         if (!cardVisible && !probe) {
             return;
@@ -242,17 +218,14 @@ public class AuthActivity extends AppCompatActivity {
         }
         PhoHelper.check(ApiSession.deviceUuid(this), (resp, err) -> {
             if (err != null || resp == null) {
-                // Coupure réseau : conserver le cache affiché ET reprogrammer
-                // — sans ce re-arm, une seule erreur figeait le quota pour
-                // toute la session (bug "données restantes toujours fixes").
+
                 scheduleRefresh();
                 return;
             }
             JSONObject account = resp.optJSONObject("account");
             if (resp.optBoolean("activated", false)
                     && account != null && account.optInt("active", 0) == 1) {
-                // Stocker l'heure serveur pour estimer l'expiration sans
-                // dépendre de l'horloge locale (décalage serveur ↔ appareil).
+
                 try {
                     long serverMs = 0;
                     String st = resp.optString("server_time", "");
@@ -272,14 +245,13 @@ public class AuthActivity extends AppCompatActivity {
                 }
                 showCard(account);
             } else {
-                // Compte inactif : vérifier si c'est une expiration.
+
                 String rawMsg = resp != null ? resp.optString("message", "") : "";
                 String l = rawMsg.toLowerCase(java.util.Locale.US);
                 boolean expired = l.contains("expired") || l.contains("expiré")
                         || l.contains("expiration") || l.contains("expir");
                 if (expired) {
-                    // Reset COMPLET : efface credentials, configs, tunnels,
-                    // prefs et revient à l'écran d'activation vierge.
+
                     new androidx.appcompat.app.AlertDialog.Builder(this)
                             .setTitle("Compte expiré")
                             .setMessage("Votre abonnement a expiré. L'application "
@@ -287,13 +259,13 @@ public class AuthActivity extends AppCompatActivity {
                                     + "pour un nouveau code.")
                             .setCancelable(false)
                             .setPositiveButton("OK", (d, w) -> {
-                                // 1. Reset API (credentials + configs)
+
                                 ApiSession.resetAll(this);
-                                // 2. Reset app prefs + config.yaml (tunnels)
+
                                 VPNApplication app = VPNApplication.getInstance();
                                 app.resetAll();
                                 app.resetConfigFile(this);
-                                // 3. Stopper le refresh et revenir à l'écran vierge
+
                                 handler.removeCallbacks(refreshTask);
                                 hideCard();
                                 statusText.setText("");
@@ -372,12 +344,6 @@ public class AuthActivity extends AppCompatActivity {
         Toast.makeText(this, m, Toast.LENGTH_SHORT).show();
     }
 
-    /**
-     * Message d'échec d'activation volontairement GÉNÉRIQUE : les messages
-     * serveur bruts révèlent le fonctionnement interne (verrou d'appareil,
-     * preuve matérielle, quotas, tentatives) — on ne montre au client que
-     * la décision, jamais le mécanisme.
-     */
     private String friendlyActivationError(String raw) {
         String l = raw == null ? "" : raw.toLowerCase(java.util.Locale.US);
         if (l.contains("too many") || l.contains("trop de")) {

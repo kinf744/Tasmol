@@ -4,23 +4,11 @@ import androidx.appcompat.app.AppCompatDelegate;
 
 import androidx.core.os.LocaleListCompat;
 
-/**
- * Thème (Système / Clair / Sombre) et langue (Système / Français / English)
- * — persistés dans les préférences de l'app et réappliqués au démarrage.
- *
- * Le thème pilote AppCompatDelegate.setDefaultNightMode : la palette
- * npv_* vit dans values/colors.xml (clair) et values-night/colors.xml
- * (sombre, palette historique) — toutes les vues qui référencent
- * @color/npv_* basculent automatiquement.
- *
- * La langue pilote AppCompatDelegate.setApplicationLocales (per-app
- * locale, backporté par appcompat 1.6). "system" remet la liste vide.
- */
 public final class UiPrefs {
 
     public static final String PREFS = "borum_vpn_prefs";
-    private static final String K_THEME = "set_theme";   // system|light|dark
-    private static final String K_LANG = "set_lang";     // system|fr|en
+    private static final String K_THEME = "set_theme";   
+    private static final String K_LANG = "set_lang";     
 
     private UiPrefs() {
     }
@@ -28,8 +16,6 @@ public final class UiPrefs {
     private static android.content.SharedPreferences p(android.content.Context ctx) {
         return ctx.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE);
     }
-
-    // ── Thème ────────────────────────────────────────────────────────────
 
     public static String getTheme(android.content.Context ctx) {
         return p(ctx).getString(K_THEME, "system");
@@ -40,7 +26,6 @@ public final class UiPrefs {
         applyTheme(mode);
     }
 
-    /** Applique le thème persisté (à appeler au démarrage de l'app). */
     public static void applySavedTheme(android.content.Context ctx) {
         applyTheme(getTheme(ctx));
     }
@@ -55,8 +40,6 @@ public final class UiPrefs {
         }
     }
 
-    // ── Langue ───────────────────────────────────────────────────────────
-
     public static String getLang(android.content.Context ctx) {
         return p(ctx).getString(K_LANG, "system");
     }
@@ -66,7 +49,6 @@ public final class UiPrefs {
         applyLang(mode);
     }
 
-    /** Applique la langue persistée (à appeler au démarrage de l'app). */
     public static void applySavedLang(android.content.Context ctx) {
         applyLang(getLang(ctx));
     }

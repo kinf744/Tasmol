@@ -9,12 +9,6 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Random;
 
-/**
- * End-to-end latency through a SOCKS5 UDP ASSOCIATE relay: opens the
- * association, sends a DNS A query for www.google.com and times the answer.
- * Works with any UDP-capable SOCKS upstream (Xray, uz_core). Returns ms,
- * or -1 on any failure.
- */
 public final class SocksUdpPing {
     private SocksUdpPing() {
     }
@@ -28,7 +22,6 @@ public final class SocksUdpPing {
             InputStream in = ctrl.getInputStream();
             OutputStream out = ctrl.getOutputStream();
 
-            // Greeting: VER=5, 1 method, NO AUTH.
             out.write(new byte[]{0x05, 0x01, 0x00});
             out.flush();
             byte[] greet = new byte[2];
@@ -37,10 +30,9 @@ public final class SocksUdpPing {
                 return -1;
             }
 
-            // UDP ASSOCIATE to 0.0.0.0:0.
             out.write(new byte[]{0x05, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00});
             out.flush();
-            // Reply: VER REP RSV ATYP BND.ADDR BND.PORT
+
             byte[] head = new byte[4];
             readFully(in, head, 0, 4, timeoutMs);
             if (head[0] != 0x05 || head[1] != 0x00) {
@@ -69,13 +61,13 @@ public final class SocksUdpPing {
             byte[] ip;
             int relayPort;
             if (atyp == 0x03) {
-                return -1; // domain relay: resolve not worth it here
+                return -1; 
             } else {
                 ip = new byte[addrLen];
                 System.arraycopy(rest, 0, ip, 0, addrLen);
                 relayPort = ((rest[addrLen] & 0xFF) << 8) | (rest[addrLen + 1] & 0xFF);
                 if (isUnspecified(ip)) {
-                    // 0.0.0.0 means "same as the SOCKS server".
+
                     ip = InetAddress.getByName(socksHost).getAddress();
                 }
             }
@@ -85,15 +77,15 @@ public final class SocksUdpPing {
             byte[] packet = new byte[4 + 4 + 2 + query.length];
             int o = 0;
             packet[o++] = 0x00;
-            packet[o++] = 0x00; // RSV
-            packet[o++] = 0x00; // FRAG
-            packet[o++] = 0x01; // ATYP IPv4 (8.8.8.8)
+            packet[o++] = 0x00; 
+            packet[o++] = 0x00; 
+            packet[o++] = 0x01; 
             packet[o++] = 8;
             packet[o++] = 8;
             packet[o++] = 8;
             packet[o++] = 8;
             packet[o++] = 0x00;
-            packet[o++] = 0x35; // port 53
+            packet[o++] = 0x35; 
             System.arraycopy(query, 0, packet, o, query.length);
 
             udp = new DatagramSocket();
@@ -107,7 +99,6 @@ public final class SocksUdpPing {
             udp.receive(resp);
             long dt = System.currentTimeMillis() - t0;
 
-            // Strip SOCKS UDP header, match DNS transaction id.
             int hlen = 4 + 4 + 2;
             if (resp.getLength() < hlen + 2) {
                 return -1;
@@ -157,7 +148,6 @@ public final class SocksUdpPing {
         return true;
     }
 
-    /** Minimal DNS A query for www.google.com with random transaction id. */
     private static byte[] buildDnsQuery() {
         Random r = new Random();
         int id = r.nextInt(0xFFFF);
@@ -166,15 +156,15 @@ public final class SocksUdpPing {
         q[0] = (byte) (id >> 8);
         q[1] = (byte) id;
         q[2] = 0x01;
-        q[3] = 0x00; // standard query, recursion desired
+        q[3] = 0x00; 
         q[4] = 0x00;
-        q[5] = 0x01; // QDCOUNT=1
+        q[5] = 0x01; 
         System.arraycopy(qname, 0, q, 12, qname.length);
         int tail = 12 + qname.length;
         q[tail] = 0x00;
-        q[tail + 1] = 0x01; // QTYPE A
+        q[tail + 1] = 0x01; 
         q[tail + 2] = 0x00;
-        q[tail + 3] = 0x01; // QCLASS IN
+        q[tail + 3] = 0x01; 
         return q;
     }
 }

@@ -23,10 +23,6 @@ import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
 
-/**
- * borum VPN - modern native home (no browser/WebView dependency, fully
- * offline-capable). Bottom tabs: Home / Servers / Tools / Settings.
- */
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_VPN_PERMISSION = 1001;
 
@@ -35,8 +31,6 @@ public class MainActivity extends AppCompatActivity {
     private String pendingTunnelId = null;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
-    // Dernière vérification de validité côté serveur (ms). Throttlé pour ne
-    // pas spammer l'API : max 1 vérification par minute.
     private long lastServerCheckMs = 0;
     private static final long SERVER_CHECK_INTERVAL_MS = 60_000;
 
@@ -50,9 +44,7 @@ public class MainActivity extends AppCompatActivity {
             if (f instanceof HomeFragment && ((HomeFragment) f).isAdded()) {
                 ((HomeFragment) f).refreshStatus();
             }
-            // Vérification fiable côté serveur : si le compte a été supprimé
-            // ou expiré depuis le panel/API/bot, réinitialiser l'app en
-            // conservant l'UUID de l'appareil.
+
             checkServerValidity();
             if (!isFinishing() && !isDestroyed()) {
                 handler.postDelayed(this, 2000);
@@ -66,13 +58,9 @@ public class MainActivity extends AppCompatActivity {
 
         super.onCreate(savedInstanceState);
 
-        // Activer le mirroring Download/kighmu.txt pour le débogage MTN
-        // (visible dans le dossier Download du téléphone).
         BinaryManager.startDownloadMirror();
         BinaryManager.appendKighmu("[APP] Démarrage Borum VPN");
 
-        // Premiere ouverture : bloquer sur la page d'activation tant que
-        // le compte n'est pas active.
         if (!ApiSession.isAuthenticated(this)) {
             Intent i = new Intent(this, AuthActivity.class);
             i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -80,8 +68,6 @@ public class MainActivity extends AppCompatActivity {
             finish();
             return;
         }
-
-        // Thème déjà appliqué par UiPrefs (VPNApplication.onCreate).
 
         setContentView(R.layout.activity_main);
 
@@ -110,7 +96,6 @@ public class MainActivity extends AppCompatActivity {
         registerNetworkWatch();
     }
 
-    /** Public fragment swap for sub-screens (Settings / Hotspot under More). */
     public void showFragment(Fragment fragment, String tag) {
         getSupportFragmentManager()
                 .beginTransaction()
@@ -118,7 +103,6 @@ public class MainActivity extends AppCompatActivity {
                 .commit();
     }
 
-    /** "Démarrer au lancement": offer one-tap reconnect of the last tunnel. */
     private void offerLaunchReconnect() {
         if (!app.isLaunchOnBootEnabled()) {
             return;
@@ -160,7 +144,6 @@ public class MainActivity extends AppCompatActivity {
 
     private android.net.ConnectivityManager.NetworkCallback networkWatch = null;
 
-    /** "Arrêter sur perte réseau": disconnect cleanly when uplink drops. */
     private void registerNetworkWatch() {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
             return;
@@ -217,11 +200,9 @@ public class MainActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         handler.post(statusTick);
-        // Vérification d'expiration : si le compte a expiré (date dans le
-        // passé), reset complet et retour à l'activation.
+
         checkExpiry();
-        // Vérification fiable côté serveur (suppression/expiration depuis le
-        // panel ou le bot Telegram).
+
         checkServerValidity();
     }
 
@@ -249,12 +230,8 @@ public class MainActivity extends AppCompatActivity {
         bottomNav.setSelectedItemId(R.id.nav_more);
     }
 
-    // --- VPN connect flow (shared by Home tab and dialogs) ---
-
     public void toggleVpn() {
-        // Disconnect is always available: while CONNECTING it supersedes
-        // the retry loop (plus nuclear long-press), while connected it
-        // stops the session.
+
         if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
             requestDisconnect();
         } else {
@@ -271,10 +248,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void disconnectVpn() {
-        // startService() can throw IllegalStateException when the app is not
-        // in the foreground on API 31+ (background start restriction). Left
-        // uncaught it crashed the main thread from the UncaughtExceptionHandler
-        // and the disconnect simply never happened.
+
         try {
             Intent intent = new Intent(this, TasVpnService.class);
             intent.setAction(TasVpnService.ACTION_DISCONNECT);
@@ -285,34 +259,15 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         showToast("Disconnecting...");
-        // Two-stage watchdog. Teardown is time-bounded on both sides, so a
-        // healthy disconnect finishes in ~1-3s and nothing shows. Only a
-        // genuinely wedged service pops the dialog — the check is armed past
-        // the 15s forced cleanup.
+
         handler.postDelayed(stuckToastTask, 8000);
         handler.postDelayed(stuckCheckTask, 18000);
     }
 
-    /**
-     * True while something is still up: a live session, a start in flight, or
-     * a Go teardown that has not come back.
-     *
-     * <p>Délègue au prédicat complet du service (inclut le thread de
-     * connexion en vol et le contrôleur publié non promu) : stopSession()
-     * remet controller/starting à faux dès la première ligne, donc un
-     * contrôle qui ne regarderait que ces deux drapeaux conclurait « propre »
-     * pendant qu'une tentative reconstruit la session.
-     */
     private boolean vpnTeardownOutstanding() {
         return TasVpnService.hasSessionActivity();
     }
 
-    /**
-     * Best-effort stop that does not depend on the service being startable:
-     * flags the generation invalid, drops the notification and, past a short
-     * delay, kills the process. Android always revokes the VPN key of a dead
-     * service, so this is the guaranteed way to make the key disappear.
-     */
     private void forceStopVpn() {
         try {
             Intent intent = new Intent(this, TasVpnService.class);
@@ -327,7 +282,6 @@ public class MainActivity extends AppCompatActivity {
         }, 3500);
     }
 
-    /** Power-button path: confirm first when the setting requires it. */
     public void requestDisconnect() {
         if ((TasVpnService.isRunning() || TasVpnService.isStarting())
                 && app.isConfirmDisconnectEnabled()) {
@@ -342,9 +296,6 @@ public class MainActivity extends AppCompatActivity {
         disconnectVpn();
     }
 
-    // Watchdogs de déconnexion identifiés, annulés dès qu'une nouvelle
-    // connexion démarre (sinon "VPN stuck" apparaît à tort ~18 s après,
-    // pendant que le tunnel tourne).
     private final Runnable stuckToastTask = () -> {
         if (isFinishing() || isDestroyed()) {
             return;
@@ -363,13 +314,11 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean stuckDialogShowing = false;
 
-    /** If a disconnect left the service alive, propose a nuclear cleanup. */
     private void checkDisconnectStuck() {
         if (!vpnTeardownOutstanding()) {
             return;
         }
-        // BadTokenException sinon : l'activité peut être détruite entre le
-        // postDelayed et l'affichage (long disconnect + sortie de l'app).
+
         if (stuckDialogShowing || isFinishing() || isDestroyed()) {
             return;
         }
@@ -391,22 +340,9 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * Nuclear disconnect: ask the service to stop, then — whether it
-     * cooperates or not — kill our own process. Dying takes every child
-     * (xray, zivpn, dnstt, ssh), thread and socket with us, and Android
-     * always revokes the VPN (key icon) of a dead service. Guaranteed
-     * cleanup for the "error + refuses to disconnect" case.
-     */
     public void nuclearDisconnect() {
         cancelDisconnectWatchdogs();
-        // The service tears down with a short bound (4s instead of 15s), drops
-        // the notification immediately and arms its own process-kill watchdog
-        // at 5s. The Go core now really does kill the helper processes (xray,
-        // uz_core, hysteria, openssh, dnstt) on this path. Our own kill is
-        // armed at 3.5s so that, when an Activity is alive, finishAffinity()
-        // closes the task cleanly before the process goes; when it is not,
-        // the service-side watchdog still guarantees the key is gone.
+
         try {
             Intent intent = new Intent(this, TasVpnService.class);
             intent.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
@@ -414,12 +350,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
         }
         showToast("Nuclear disconnect: killing all VPN processes...");
-        // Dernier recours à 3.5s : le processus ne meurt QUE si une session
-        // est encore vivante (teardown Go coincé ou tentative de connexion
-        // toujours en vol — y compris en retry-sleep / avant publication du
-        // contrôleur, via connectInFlight). Si la déconnexion a réussi
-        // proprement (cas CONNECTED typique), l'application reste ouverte :
-        // un nucléaire « propre » ne doit pas se fermer comme un crash.
+
         handler.postDelayed(() -> {
             if (TasVpnService.hasSessionActivity()) {
                 forceKillProcess();
@@ -427,7 +358,6 @@ public class MainActivity extends AppCompatActivity {
         }, 3500);
     }
 
-    /** Kill our own process: children die, system revokes the VPN key. */
     public void forceKillProcess() {
         try {
             finishAffinity();
@@ -437,19 +367,12 @@ public class MainActivity extends AppCompatActivity {
         System.exit(10);
     }
 
-    /**
-     * Réinitialise l'application : efface compte, configs, quota, expiration,
-     * mais conserve l'UUID de l'appareil (dérivé du matériel, donc inchangé).
-     * Retourne à l'écran d'activation.
-     */
     public void resetAppKeepingUuid() {
-        // Déconnecte le VPN si une session est active
+
         if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
             disconnectVpn();
         }
-        // Efface credentials + configs (l'UUID device est dérivé du matériel,
-        // il sera identique après reset car Pho/DeviceIdentity le régénère à
-        // partir de l'empreinte matériel).
+
         ApiSession.resetAll(this);
         VPNApplication app = VPNApplication.getInstance();
         if (app != null) {
@@ -458,7 +381,7 @@ public class MainActivity extends AppCompatActivity {
         }
         handler.removeCallbacks(statusTick);
         cancelDisconnectWatchdogs();
-        // Retour à l'écran d'activation (vierge, UUID conservé)
+
         Intent i = new Intent(this, AuthActivity.class);
         i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK |
                    Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -467,7 +390,6 @@ public class MainActivity extends AppCompatActivity {
         showToast("Application réinitialisée (UUID conservé)");
     }
 
-    /** Restart the service so edited configs take effect. */
     public void restartVpn() {
         String active = TasVpnService.getActiveTunnelId();
         if (active == null || active.isEmpty()) {
@@ -498,7 +420,7 @@ public class MainActivity extends AppCompatActivity {
                     .show();
             return;
         }
-        // Locked profiles: refuse expired, foreign-device or rooted bindings.
+
         for (JSONObject t : ProfileTransfer.selectedTunnels(this, selected)) {
             String reason = ProfileTransfer.lockReason(this, t);
             if (reason != null && !reason.isEmpty()) {
@@ -507,18 +429,12 @@ public class MainActivity extends AppCompatActivity {
             }
         }
 
-        // SecurityGuard: blocage si quota épuisé, abonnement expiré, ou
-        // contournement d'horloge détecté. Le serveur refuse de toute façon,
-        // mais bloquer côté client évite l'affichage d'une connexion
-        // "en cours" qui échouera inévitablement.
         String blockErr = SecurityGuard.checkConnectionAllowed(this);
         if (blockErr != null) {
             showToast(blockErr);
             return;
         }
 
-        // Home connects ALL selected profiles at once (single mode for 1,
-        // round-robin for 2+).
         String first = selected.iterator().next();
         app.setActiveTunnelId(first);
         if (selected.size() >= 2) {
@@ -573,12 +489,6 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
     }
 
-    /**
-     * Un crash du lancement precedent a ete enregistre : on propose de le
-     * copier dans Download. Sans ce rappel l'utilisateur ne voit jamais le
-     * rapport (l'app n'a pas le droit d'ecrire dans Download directement,
-     * et le fichier interne est invisible depuis le gestionnaire de fichiers).
-     */
     private void offerCrashReport() {
         if (app == null || !app.hasPendingCrash()) {
             return;
@@ -614,16 +524,13 @@ public class MainActivity extends AppCompatActivity {
         }, 800);
     }
 
-    /** Vérifie si la date d'expiration du compte est dépassée. Si oui :
-     *  reset complet de l'app et retour à l'écran d'activation. */
     private void checkExpiry() {
         String exp = ApiSession.expiresAt(this);
         if (exp == null || exp.isEmpty()) {
             return;
         }
         try {
-            // Heure serveur estimée pour éviter le faux positif quand
-            // l'horloge locale a un décalage vs le serveur (ex. +1h).
+
             long nowServerMs = ApiSession.estimatedServerTimeMs(this);
             Date now = nowServerMs >= 0 ? new Date(nowServerMs) : new Date();
 
@@ -643,7 +550,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (d != null && d.before(now)) {
-                // Compte expiré : reset complet
+
                 ApiSession.resetAll(this);
                 VPNApplication a = VPNApplication.getInstance();
                 a.resetAll();
@@ -656,17 +563,10 @@ public class MainActivity extends AppCompatActivity {
                 showToast("Compte expiré - réinitialisation");
             }
         } catch (Exception ignored) {
-            // Format de date non reconnu : on ne bloque pas l'app.
+
         }
     }
 
-    /**
-     * Vérifie côté serveur (API) si le compte est toujours valide.
-     * Throttlé à 1 vérification par minute pour ne pas spammer le serveur.
-     * Si le compte a été supprimé ou expiré côté serveur (panel API ou bot
-     * Telegram), réinitialise l'app en conservant l'UUID de l'appareil pour
-     * revenir à l'écran d'activation.
-     */
     private void checkServerValidity() {
         if (!ApiSession.isAuthenticated(this)) {
             return;
@@ -679,8 +579,7 @@ public class MainActivity extends AppCompatActivity {
 
         PhoHelper.check(ApiSession.deviceUuid(this), (resp, err) -> {
             if (err != null || resp == null) {
-                // Coupure réseau : on ne bloque pas l'app, on réessaiera au
-                // prochain tick (dans 1 minute au plus tôt).
+
                 return;
             }
             boolean activated = resp.optBoolean("activated", false);

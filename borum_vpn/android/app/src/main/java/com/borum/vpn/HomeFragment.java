@@ -18,7 +18,6 @@ import androidx.fragment.app.Fragment;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** HOME tab (NPV Tunnel style): power ring, bracket status, active config. */
 public class HomeFragment extends Fragment {
     private View ring;
     private ImageButton connectBtn;
@@ -36,7 +35,7 @@ public class HomeFragment extends Fragment {
     private String cachedPingKey = "";
     private View apiSection;
     private android.widget.Spinner apiSpinner;
-    // Rangées visibles du spinner (paires SlowDNS fusionnées en une entrée).
+
     private java.util.List<JSONObject> visibleApiConfigs = new java.util.ArrayList<>();
     private android.widget.TextView removeActiveBtn;
     private boolean spinnerGuard = false;
@@ -69,12 +68,11 @@ public class HomeFragment extends Fragment {
                 ((MainActivity) getActivity()).goToConfigs();
             }
         });
-        // Trophy icon (top-right): API activation / account screen.
+
         v.findViewById(R.id.home_premium).setOnClickListener(view ->
                 startActivity(new android.content.Intent(getContext(), AuthActivity.class)));
         pingBtn.setOnClickListener(view -> pingActive());
 
-        // SERVER CONFIGS (API) section.
         apiSection = v.findViewById(R.id.home_api_section);
         apiSpinner = v.findViewById(R.id.home_api_spinner);
         removeActiveBtn = v.findViewById(R.id.home_remove_active);
@@ -83,7 +81,7 @@ public class HomeFragment extends Fragment {
         if (apiUpdate != null) {
             apiUpdate.setOnClickListener(view -> refreshApiConfigs(true));
         }
-        // La flèche ouvre le menu déroulant (spinner masqué).
+
         if (apiDropdown != null) {
             apiDropdown.setOnClickListener(view -> {
                 if (apiSpinner != null) {
@@ -96,7 +94,7 @@ public class HomeFragment extends Fragment {
             public void onItemSelected(android.widget.AdapterView<?> parent, View view,
                                        int position, long rowId) {
                 if (spinnerGuard) {
-                    return; // programmatic population, not a user choice
+                    return; 
                 }
                 onApiConfigChosen(position);
             }
@@ -112,10 +110,7 @@ public class HomeFragment extends Fragment {
             ApiSession.clearActive(requireContext());
             VPNApplication.getInstance().setSelectedIds(new java.util.LinkedHashSet<>());
             VPNApplication.getInstance().setActiveTunnelId("");
-            // Réinitialiser le spinner au placeholder pour permettre une
-            // nouvelle sélection immédiate sans avoir à naviguer ailleurs.
-            // Invalider aussi le cache lastApiKey pour forcer le re-parse
-            // du spinner si les configs distantes n'ont pas changé.
+
             lastApiKey = null;
             spinnerGuard = true;
             apiSpinner.setSelection(0, false);
@@ -128,14 +123,10 @@ public class HomeFragment extends Fragment {
         return v;
     }
 
-    // Cache anti-reparse : showSelectedServer() relistait TOUS les profils
-    // (JSON complet) à chaque tick 2s. On ne re-parse que si la sélection
-    // ou le titre changent.
     private String lastServerKey = null;
 
     public void refreshStatus() {
-        // !isAdded() : fragment détaché pendant un refresh différé (ex. après
-        // une déconnexion longue) — requireContext() planterait sinon.
+
         if (connectBtn == null || getActivity() == null || !isAdded()) {
             return;
         }
@@ -157,8 +148,7 @@ public class HomeFragment extends Fragment {
             showPingIdle(ctx);
         }
         if (!running) {
-            // Launching / (re)connecting: stay on CONNECTING in red,
-            // with the attempt counter across the retry loop.
+
             if (TasVpnService.isStarting()) {
                 ring.setBackgroundResource(R.drawable.ring_power_off);
                 statusText.setText(getString(R.string.home_connecting));
@@ -169,9 +159,7 @@ public class HomeFragment extends Fragment {
                 ensureServerCard();
                 return;
             }
-            // VPN never launched (or stopped): no status at all.
-            // Failures are reported via toast + Logs tab, never as a
-            // persistent on-screen state.
+
             ring.setBackgroundResource(R.drawable.ring_power_off);
             statusText.setText("");
             uptimeText.setText("--:--:--");
@@ -180,13 +168,7 @@ public class HomeFragment extends Fragment {
             ensureServerCard();
             return;
         }
-        // Fragment recréé alors que le VPN tourne déjà (changement d'onglet,
-        // reconnexion proposée au lancement) : la carte serveur — nom,
-        // Host/IP:port et type — repartirait vide. On la remplit depuis la
-        // sélection avant d'appliquer le statut live ci-dessous.
-        // lastServerKey n'est PAS remis à null ici : la clé (sélection +
-        // mtime du config) suffit à re-rendre la carte quand la sélection
-        // change, et évite un listTunnels à chaque tick de 2 s.
+
         ensureServerCard();
 
         try {
@@ -230,13 +212,6 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    /**
-     * Remplit la carte serveur (nom, Host/IP:port, type) depuis la sélection
-     * courante si elle n'a pas encore été rendue. Les fragments sont recréés
-     * à chaque changement d'onglet : sans ce garde-fou, la carte revenait
-     * entièrement vide ("No server selected" / Host/IP:port effacé) dès que
-     * le VPN tournait déjà.
-     */
     private void ensureServerCard() {
         if (serverText == null || getContext() == null) {
             return;
@@ -284,8 +259,7 @@ public class HomeFragment extends Fragment {
                         }
                     }
                 }
-                // SSH SlowDNS / V2Ray SlowDNS sont servis par paire : afficher
-                // le nom du tunnel, pas le nombre de profils.
+
                 serverText.setText(firstName.isEmpty() ? selected.size() + " profils" : firstName);
                 serverDetail.setText(names.toString());
                 serverType.setText(firstType);
@@ -312,9 +286,7 @@ public class HomeFragment extends Fragment {
             int port = server != null ? PingUtil.dialPort(server) : 0;
             boolean hidden = ProfileTransfer.isHideServer(pick)
                     || ProfileTransfer.isApiManaged(pick);
-            // Configs API : jamais d'host:port à l'écran — le nom seul suffit
-            // (ex. "Camtel UDP", "MTN 150Mo"), les adresses restent côté
-            // plan de contrôle.
+
             serverDetail.setText(hidden ? ""
                     : (host.isEmpty() ? "" : host + (port > 0 ? ":" + port : "")));
             serverType.setText(TunnelAdapter.prettyType(pick.optString("type", "")));
@@ -325,9 +297,6 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    // ── PING temps réel ──────────────────────────────────────────────────
-
-    /** Seuil d'affichage : ≤ 215 ms en vert, au-delà en rouge. */
     private static final long PING_GOOD_MS = 215;
 
     private void showPingIdle(android.content.Context ctx) {
@@ -341,7 +310,6 @@ public class HomeFragment extends Fragment {
         cachedPingTarget = null;
     }
 
-    /** Profil actif (cache anti-reliste à chaque tick 2 s). */
     private JSONObject findActiveTarget() {
         String active = VPNApplication.getInstance().getActiveTunnelId();
         String key = active == null ? "" : active;
@@ -368,7 +336,6 @@ public class HomeFragment extends Fragment {
         return target;
     }
 
-    /** Lance une mesure si aucune n'est en vol ; le résultat colore la ligne. */
     private void maybeLivePing() {
         if (pingValue == null || livePingBusy || !isAdded()) {
             return;
@@ -392,13 +359,12 @@ public class HomeFragment extends Fragment {
                 pingValue.setTextColor(androidx.core.content.ContextCompat.getColor(
                         requireContext(), ms <= PING_GOOD_MS ? R.color.npv_green : R.color.npv_red));
             } else if (ms == -2) {
-                // Serveur UDP-only sans session : rien d'affichable.
+
                 pingValue.setText(getString(R.string.home_ping_none));
                 pingValue.setTextColor(androidx.core.content.ContextCompat
                         .getColor(requireContext(), R.color.npv_dim));
             } else {
-                // Échec de mesure : on garde la valeur précédente, on réessaie
-                // au prochain tick.
+
             }
         });
     }
@@ -450,11 +416,6 @@ public class HomeFragment extends Fragment {
         return TunnelAdapter.prettyType(type);
     }
 
-    // ------------------------------------------------------------------
-    // SERVER CONFIGS (remote API) section
-    // ------------------------------------------------------------------
-
-    /** Visible only once the device is activated (trophy screen). */
     private void updateApiSection(android.content.Context ctx) {
         if (apiSection == null || ctx == null) {
             return;
@@ -466,24 +427,18 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    // Empreinte du snapshot de configs : sans ce garde, le spinner entier
-    // était reconstruit à CHAQUE tick 2 s (parse JSON + nouvel adapter +
-    // reset de la sélection) — jauge à l'écran et sélection sautante.
     private String lastApiKey = null;
 
     private void populateApiSpinner(android.content.Context ctx) {
         org.json.JSONArray cfgs = ApiSession.configs(ctx);
         String key = Integer.toHexString(cfgs.toString().hashCode());
         if (key.equals(lastApiKey)) {
-            return; // rien à changer : garder adapter et sélection
+            return; 
         }
         lastApiKey = key;
         java.util.List<String> labels = new java.util.ArrayList<>();
         labels.add(cfgs.length() == 0 ? "— UPDATE —" : " ••• ");
-        // Affichage professionnel : les paires SlowDNS (2 profils servis
-        // pour le round-robin) apparaissent comme UNE SEULE entrée déjà
-        // suffixée « 2 » par l'API (ex. "SSH + SlowDNS 2"), ce qui signifie
-        // "2 profils combinés". L'entrée "… 1" est masquée.
+
         java.util.List<JSONObject> visible = new java.util.ArrayList<>();
         for (int i = 0; i < cfgs.length(); i++) {
             JSONObject c = cfgs.optJSONObject(i);
@@ -492,7 +447,7 @@ public class HomeFragment extends Fragment {
             }
             String mode = c.optString("mode", "");
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
-                // Garder uniquement le dernier profil du mode = « … 2 ».
+
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
                     JSONObject n = cfgs.optJSONObject(j);
@@ -502,7 +457,7 @@ public class HomeFragment extends Fragment {
                     }
                 }
                 if (hasMore) {
-                    continue; // masque « … 1 »
+                    continue; 
                 }
             }
             visible.add(c);
@@ -517,7 +472,6 @@ public class HomeFragment extends Fragment {
         spinnerGuard = false;
     }
 
-    /** UPDATE button: pull the freshest config list from the API. */
     private void refreshApiConfigs(boolean announce) {
         android.content.Context ctx = getContext();
         if (ctx == null || !ApiSession.isAuthenticated(ctx)) {
@@ -553,10 +507,9 @@ public class HomeFragment extends Fragment {
                 });
     }
 
-    /** Dropdown selection: materialize + select the chosen remote config. */
     private void onApiConfigChosen(int position) {
         if (position <= 0 || getContext() == null) {
-            return; // placeholder row
+            return; 
         }
         java.util.List<JSONObject> visible = visibleApiConfigs;
         if (visible == null || visible.isEmpty()) {
@@ -564,7 +517,7 @@ public class HomeFragment extends Fragment {
         }
         int idx = position - 1;
         if (idx >= visible.size()) {
-            return; // index hors de portée (spinner désynchronisé)
+            return; 
         }
         JSONObject c = visible.get(idx);
         if (c == null) {
@@ -573,11 +526,7 @@ public class HomeFragment extends Fragment {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
             String mode = c.optString("mode", "");
-            // Round-robin PAR FAMILLE : choisir une config SlowDNS active
-            // ses profils DE MÊME MODE (SSH SlowDNS 1+2 ensemble, ou
-            // V2Ray SlowDNS 1+2 ensemble) — N connexions dnstt parallèles
-            // sur le même canal = agrégation de débit. Jamais de mix
-            // SSH+V2Ray.
+
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {

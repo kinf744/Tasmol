@@ -10,18 +10,11 @@ import java.util.concurrent.Executors;
 
 import vpnlib.Vpnlib;
 
-/**
- * Java ⇒ Pont Go durci (libpho): activation API pinnée TLS, coffre
- * chiffré au repos, self-check anti-debug. Tout blocage réseau passe ici;
- * aucun endpoint ni secret n'apparaît dans le bytecode Java.
- */
 public final class PhoHelper {
     private static final ExecutorService IO = Executors.newCachedThreadPool();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static boolean ready = false;
 
-    /** Message générique (sans révéler la sonde) si l'environnement est
-     *  compromis : l'API d'activation/configs est la cible — on refuse. */
     private static final String SEC_BLOCKED = "Environnement non autorisé";
 
     public interface Callback {
@@ -64,7 +57,7 @@ public final class PhoHelper {
         if (blocked(cb)) {
             return;
         }
-        // Preuve d'appareil (anti-clonage d'uuid, vérifiée par le serveur).
+
         final String proof = DeviceIdentity.proof(VPNApplication.getInstance(), uuid);
         IO.execute(() -> {
             try {
@@ -102,12 +95,11 @@ public final class PhoHelper {
         });
     }
 
-    /** GET /api/v1/devices/check — statut du compte lié à cet appareil. */
     public static void check(String uuid, Callback cb) {
         if (blocked(cb)) {
             return;
         }
-        // Rafraîchir le routage (SOCKS du tunnel actif si le VPN tourne).
+
         try {
             TasVpnService.updateApiProxy();
         } catch (Throwable ignored) {
@@ -126,8 +118,6 @@ public final class PhoHelper {
             }
         });
     }
-
-    // -- coffre chiffré (jamais de valeur lisible dans SharedPreferences) --
 
     public static void vaultPut(android.content.Context ctx, String uuid, String k, String v) {
         Vpnlib.phoVaultPut(uuid, k, v);

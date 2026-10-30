@@ -13,7 +13,6 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
-/** MORE tab: Settings, Hotspot sharing, Telegram support links, app reset. */
 public class MoreFragment extends Fragment {
     @Nullable
     @Override

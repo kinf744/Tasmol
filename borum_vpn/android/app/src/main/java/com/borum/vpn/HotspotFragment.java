@@ -37,18 +37,10 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 
-/**
- * Hotspot sharing without root: relays a SOCKS endpoint (ours or another
- * VPN app's) onto the LAN (0.0.0.0, FIXED port 8080). A fresh proxy IP in
- * the 172.16.x.x range is assigned at every launch and shown to the user,
- * together with the real-time sent/received traffic counters. Works with
- * or without our VPN connected. Requires the system Wi-Fi hotspot on: the
- * app checks and redirects to the tethering settings otherwise. TCP only.
- */
 public class HotspotFragment extends Fragment {
     private static final String CHANNEL_ID = "borum_hotspot";
     private static final int NOTIFICATION_ID = 43;
-    private static final int PROXY_PORT = TcpRelay.FIXED_PORT; // 8080, fixe
+    private static final int PROXY_PORT = TcpRelay.FIXED_PORT; 
     private static final Random RNG = new Random();
 
     private TextView statusText;
@@ -90,7 +82,7 @@ public class HotspotFragment extends Fragment {
                 ensureAccessPointThenStart();
             }
         });
-        // Tap the proxy address to copy it to the clipboard.
+
         proxyText.setOnClickListener(view -> {
             String t = proxyText.getText().toString();
             if (!t.isEmpty() && !t.equals("—") && getContext() != null) {
@@ -136,7 +128,7 @@ public class HotspotFragment extends Fragment {
             statusText.setText("ARRÊTÉ");
             statusText.setTextColor(0xFF9E9E9E);
             proxyText.setText("—");
-            // Port affiché en permanence : il ne change jamais (8080).
+
             portText.setText(String.valueOf(PROXY_PORT));
             upText.setText("0 B");
             downText.setText("0 B");
@@ -145,7 +137,6 @@ public class HotspotFragment extends Fragment {
         }
     }
 
-    /** Step 1: the system access point must be on — check, else redirect. */
     private void ensureAccessPointThenStart() {
         if (isWifiApEnabled()) {
             startRelay();
@@ -172,7 +163,6 @@ public class HotspotFragment extends Fragment {
                 .show();
     }
 
-    /** Best-effort hotspot check via hidden API (may fail per ROM). */
     private boolean isWifiApEnabled() {
         try {
             WifiManager wm = (WifiManager) requireContext().getApplicationContext()
@@ -183,7 +173,7 @@ public class HotspotFragment extends Fragment {
             Method m = wm.getClass().getDeclaredMethod("getWifiApState");
             m.setAccessible(true);
             Object state = m.invoke(wm);
-            // WIFI_AP_STATE_ENABLED == 13
+
             return state instanceof Integer && ((Integer) state) == 13;
         } catch (Exception e) {
             return false;
@@ -191,9 +181,7 @@ public class HotspotFragment extends Fragment {
     }
 
     private void startRelay() {
-        // Cible automatique : le SOCKS de notre tunnel actif (127.0.0.1).
-        // Sans VPN connecté, on peut partager la connexion d'UNE AUTRE
-        // app VPN : on demande alors son proxy local (host:port).
+
         int port = activeSocksPort();
         if (port > 0) {
             launch("127.0.0.1", port);
@@ -238,11 +226,9 @@ public class HotspotFragment extends Fragment {
     }
 
     private void launch(String host, int port) {
-        // Nouvelle IP proxy 172.16.x.x à chaque lancement.
+
         proxyIp = pickProxyIp();
-        // LAN uniquement si le point d'accès Wi-Fi est réellement actif :
-        // le relais n'a pas d'authentification, il ne doit jamais être
-        // joignable depuis un réseau voisin (bind 127.0.0.1 sinon).
+
         if (RELAY.start(host, port, proxyIp, isWifiApEnabled())) {
             TasVpnService.logEvent("connection", "app",
                     "hotspot relay " + proxyIp + ":" + RELAY.getListenPort()
@@ -301,13 +287,6 @@ public class HotspotFragment extends Fragment {
         }
     }
 
-    /**
-     * Proxy IP advertised for this launch. Prefers a real hotspot address
-     * already in the 172.16.0.0/12 range (some ROMs/carriers use it);
-     * otherwise a fresh random 172.16.x.x alias — a new one at every
-     * launch. The relay itself listens on 0.0.0.0 so clients can also use
-     * any of the phone's real LAN addresses with the same fixed port.
-     */
     private static String pickProxyIp() {
         try {
             for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
@@ -321,7 +300,7 @@ public class HotspotFragment extends Fragment {
                     byte[] b = addr.getAddress();
                     int b0 = b[0] & 0xFF;
                     int b1 = b[1] & 0xFF;
-                    // 172.16.0.0 – 172.31.255.255 (plage demandée 172.16.x.x)
+
                     if (b0 == 172 && b1 >= 16 && b1 <= 31) {
                         return addr.getHostAddress();
                     }
@@ -332,7 +311,6 @@ public class HotspotFragment extends Fragment {
         return "172.16." + (1 + RNG.nextInt(255)) + "." + (1 + RNG.nextInt(255));
     }
 
-    /** Live SOCKS port of the active tunnel (from controller status). */
     private int activeSocksPort() {
         try {
             JSONObject st = new JSONObject(TasVpnService.controllerStatus());
@@ -356,7 +334,6 @@ public class HotspotFragment extends Fragment {
         return 0;
     }
 
-    /** Non-loopback IPv4 addresses (no permission needed). */
     private static String localIps() {
         try {
             List<String> out = new ArrayList<>();

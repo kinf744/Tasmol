@@ -11,22 +11,9 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/**
- * Surveillance continue de l'expiration du compte Borum VPN.
- *
- * Vérifie périodiquement (toutes 5 minutes) si la date d'expiration stockée
- * localement est depassee. Si oui :
- *  1. Deconnecte le VPN si actif (nuclear disconnect du service)
- *  2. Reset complet (credentials, configs, tunnels, prefs, config.yaml)
- *  3. Redirige vers AuthActivity pour saisir un nouveau compte
- *
- * Fonctionne independamment de l'activite au premier plan : meme si l'utilisateur
- * est connecte a un tunnel API ou manuel, le compte expiré declenche la
- * reinitialisation immediate et le retour a l'ecran d'activation.
- */
 public final class ExpiryGuard {
     private static final String TAG = "ExpiryGuard";
-    private static final long CHECK_INTERVAL_MS = 300_000L; // 5 minutes
+    private static final long CHECK_INTERVAL_MS = 300_000L; 
 
     private static volatile ExpiryGuard instance;
     private final HandlerThread workerThread;
@@ -68,7 +55,6 @@ public final class ExpiryGuard {
         return instance;
     }
 
-    /** Demarre la surveillance periodique. Appele depuis VPNApplication.onCreate(). */
     public void start() {
         if (running) {
             return;
@@ -77,7 +63,6 @@ public final class ExpiryGuard {
         workerHandler.postDelayed(checkTask, CHECK_INTERVAL_MS);
     }
 
-    /** Arrete la surveillance. */
     public void stop() {
         running = false;
         workerHandler.removeCallbacks(checkTask);
@@ -89,9 +74,7 @@ public final class ExpiryGuard {
             return false;
         }
         try {
-            // Heure serveur estimée (extrapolée depuis le dernier check API)
-            // pour éviter le faux positif quand l'horloge locale est décalée
-            // vs le serveur (ex. +1h => compte 1h rejeté à tort).
+
             long nowServerMs = ApiSession.estimatedServerTimeMs(ctx);
             Date now = nowServerMs >= 0 ? new Date(nowServerMs) : new Date();
 
@@ -106,14 +89,14 @@ public final class ExpiryGuard {
                     if (d != null && d.before(now)) {
                         return true;
                     }
-                    break; // parsed successfully, no need to try other patterns
+                    break; 
                 } catch (Exception ignored) {
-                    // try next pattern
+
                 }
             }
             return false;
         } catch (Exception ignored) {
-            // Format non reconnu : on ne bloque pas l'app.
+
             return false;
         }
     }
@@ -122,7 +105,6 @@ public final class ExpiryGuard {
         running = false;
         workerHandler.removeCallbacks(checkTask);
 
-        // 1. Deconnexion VPN forcee si actif
         try {
             Intent disconnect = new Intent(ctx, TasVpnService.class);
             disconnect.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
@@ -131,7 +113,6 @@ public final class ExpiryGuard {
             Log.w(TAG, "Impossible de deconnecter le VPN", ignored);
         }
 
-        // 2. Reset complet API + app prefs + config.yaml
         ApiSession.resetAll(ctx);
         VPNApplication app = VPNApplication.getInstance();
         if (app != null) {
@@ -139,7 +120,6 @@ public final class ExpiryGuard {
             app.resetConfigFile(ctx);
         }
 
-        // 3. Redirection vers l'ecran d'activation (nouvelle tache, pile videe)
         Intent i = new Intent(ctx, AuthActivity.class);
         i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK |
                    Intent.FLAG_ACTIVITY_CLEAR_TOP);

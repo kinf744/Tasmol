@@ -14,19 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/**
- * LAN proxy relay for Hotspot sharing (no root): listens on all interfaces
- * and pipes each TCP connection to the active tunnel's local SOCKS. TCP
- * only: UDP ASSOCIATE replies carry 127.0.0.1 and cannot cross hosts.
- *
- * The listen port is FIXED (8080) so client devices never have to be
- * reconfigured; the advertised proxy IP (172.16.x.x, fresh per launch) is
- * chosen by the caller. Byte counters track the real traffic relayed.
- */
 public final class TcpRelay {
-    /** Fixed proxy port, never changes between launches. */
-    // Port du relais résolu par le natif (plus de littéral exploitable
-    // dans le DEX) ; repli identique si libpho est indisponible.
+
     public static final int FIXED_PORT = nativeRelayPort();
 
     private static int nativeRelayPort() {
@@ -37,15 +26,6 @@ public final class TcpRelay {
         }
     }
 
-    // HARD crash fix (itel P662L, OOM pthread_create, 2187 threads):
-    // newCachedThreadPool() acceptait une connexion = 3 threads (relais +
-    // t1 up + t2 down) SANS LIMITE. Quelques dizaines de clients hotspot
-    // navigant en parallèle faisaient dépasser 2000 threads natifs
-    // (1 Mo de stack chacun) — OutOfMemoryError dans acceptLoop.
-    // Pool BORNÉ à 32 relais simultanés (≈ 97 threads max) avec une
-    // SynchronousQueue + CallerRunsPolicy : au-delà, la tâche tourne sur
-    // le thread d'accept, donc accept() bloque et le backlog TCP gère la
-    // file d'attente nativement — aucun thread n'est jamais créé en trop.
     private static final int MAX_CONCURRENT_RELAYS = 32;
 
     private static ThreadFactory daemonThreads(final String prefix) {
@@ -65,8 +45,6 @@ public final class TcpRelay {
     private int listenPort;
     private String proxyIp = "";
 
-    // Cumulated bytes: up = client -> upstream (envoyés),
-    // down = upstream -> client (reçus).
     private final AtomicLong upBytes = new AtomicLong(0);
     private final AtomicLong downBytes = new AtomicLong(0);
 
@@ -75,8 +53,7 @@ public final class TcpRelay {
     }
 
     public synchronized boolean start(String targetHost, int targetPort, String proxyIp) {
-        // Défaut sûr : écoute locale uniquement (jamais de relais ouvert
-        // sur le réseau sans demande explicite).
+
         return start(targetHost, targetPort, proxyIp, false);
     }
 
@@ -91,11 +68,7 @@ public final class TcpRelay {
             this.proxyIp = proxyIp == null ? "" : proxyIp;
             server = new ServerSocket();
             server.setReuseAddress(true);
-            // Bind 0.0.0.0 SEULEMENT quand le partage hotspot est réellement
-            // actif (les clients du point d'accès doivent joindre l'IP LAN du
-            // téléphone). Sinon : 127.0.0.1 — un relais sans authentification
-            // ne doit jamais être joignable depuis un réseau voisin
-            // (hotspot éteint mais téléphone sur un Wi-Fi partagé).
+
             String bindAddr = allowLan ? "0.0.0.0" : "127.0.0.1";
             try {
                 server.bind(new InetSocketAddress(bindAddr, FIXED_PORT));
@@ -218,22 +191,18 @@ public final class TcpRelay {
         return listenPort;
     }
 
-    /** Advertised proxy IP (172.16.x.x), fresh at each launch. */
     public String getProxyIp() {
         return proxyIp;
     }
 
-    /** Bytes sent by hotspot clients toward the tunnel (envoyés). */
     public long getUpBytes() {
         return upBytes.get();
     }
 
-    /** Bytes received from the tunnel toward hotspot clients (reçus). */
     public long getDownBytes() {
         return downBytes.get();
     }
 
-    /** Total relayed bytes (envoyés + reçus). */
     public long getTotalBytes() {
         return upBytes.get() + downBytes.get();
     }

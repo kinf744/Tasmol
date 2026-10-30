@@ -22,11 +22,6 @@ import androidx.fragment.app.Fragment;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * LOGS tab: unified connection journal (Download/kighmu.txt, written by the
- * Go data plane and mirrored Java events). Lines carry [level] [component]:
- * error red, warning amber, connection cyan tag, info grey tag.
- */
 public class LogsFragment extends Fragment {
     private static final int TAIL_CHARS = 120_000;
     private static final int REQ_SAVE_JOURNAL = 3101;
@@ -35,14 +30,12 @@ public class LogsFragment extends Fragment {
     private static final Pattern TAGGED_RE =
             Pattern.compile("^\\[(info|journal|connection|warning|error)\\] \\[([^\\]]*)\\] ?(.*)$",
                     Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
-    /** Lignes "barres" du journal de session UDP: [level] message, sans
-     *  composant. La couleur porte sur le texte entier. */
+
     private static final Pattern BARE_RE =
             Pattern.compile("^\\[(udp-ok|udp|ready)\\] ?(.*)$", Pattern.DOTALL);
 
-    /** First line of a session block — marks a block boundary. */
     private static final String BLOCK_START = "Connecting udp server";
-    /** Dim rule drawn between two session blocks. */
+
     private static final String SEPARATOR = "───────────────────────────────────────";
 
     private TextView logText;
@@ -64,8 +57,7 @@ public class LogsFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         View v = inflater.inflate(R.layout.fragment_logs, container, false);
         logText = v.findViewById(R.id.logs_text);
-        // Interlignage : 1.45x sur une police 13sp donne ~5px de respiration
-        // entre deux lignes, sans casser la lecture en police fixe.
+
         logText.setLineSpacing(0f, 1.45f);
         logText.setIncludeFontPadding(true);
         scroller = v.findViewById(R.id.logs_scroll);
@@ -106,9 +98,7 @@ public class LogsFragment extends Fragment {
         if (logText == null || getContext() == null) {
             return;
         }
-        // Skip total: ni lecture ni re-render si le journal n'a pas bougé
-        // (2s tick). Le cache est invalidé dès que le fichier est tronqué
-        // (clear) pour ne pas garder un écran figé.
+
         long stamp = BinaryManager.kighmuStamp();
         if (stamp == 0) {
             lastSeenStamp = -1;
@@ -128,9 +118,6 @@ public class LogsFragment extends Fragment {
         }
     }
 
-    /** Share the journal. The app can no longer write to Download/ on
-     *  Android 10+, so saving the file goes through the system document
-     *  picker (ACTION_CREATE_DOCUMENT) instead of a direct write. */
     private void shareJournal() {
         try {
             String raw = BinaryManager.readKighmuTail(300_000);
@@ -187,19 +174,8 @@ public class LogsFragment extends Fragment {
         }
     }
 
-    /** Parse "[time] [level] [component] message" rows into colored spans.
-     *  Journal mode (default) shows journal+connection+warning+error only
-     *  (capped to the last 300); Verbose shows the full firehose.
-     *  Palette exacte demandée :
-     *   - connecté   : blanc (texte/horodatage) + vert vif (connexion/journal)
-     *                  + orange vif (warnings) + rouge (erreurs)
-     *   - déconnecté/échec : blanc + rouge + gris clair (le reste). */
-    /** Levels kept in the filtered "Journal" view: the session block plus
-     *  anything the user must not miss (failures, warnings). */
     private static boolean isJournalLine(String level) {
-        // Journal HYPER court : uniquement les jalons de connexion
-        // (connecté / déconnecté / échec) et les erreurs — rien d'autre.
-        // Tout le reste reste visible en mode Verbose.
+
         return level.equals("connection") || level.equals("error");
     }
 
@@ -222,7 +198,7 @@ public class LogsFragment extends Fragment {
             Matcher lm = LINE_RE.matcher(line);
             if (lm.matches()) {
                 time = lm.group(1);
-                // Display as [HH:MM:SS] — drop the millisecond part.
+
                 if (time.length() > 8) {
                     time = time.substring(0, 8);
                 }
@@ -241,15 +217,7 @@ public class LogsFragment extends Fragment {
                 comp = tm.group(2);
                 msg = tm.group(3).trim();
             }
-            // Mode Journal : on ne montre que le bloc de session et les
-            // incidents. Tout le reste — "[session] starting session",
-            // "[session] mode=single", "[zivvn] udp <ip> (8 range(s))",
-            // "[session] starting helper ...", "[app] connected (id)" — est
-            // du bruit technique demande par personne : il reste accessible
-            // en mode Verbose, qui affiche le flux complet.
-            // Journal HYPER court : les jalons de connexion sont encore
-            // resserrés sur les lignes « connect… » (connecté, déconnecté,
-            // échec) — les sous-étapes techniques ne passent pas.
+
             if (!verbose) {
                 if (!isJournalLine(level)) {
                     continue;
@@ -263,8 +231,7 @@ public class LogsFragment extends Fragment {
             }
             rows.add(new String[]{time, level, comp, msg});
         }
-        // Cap journal volume : les 15 DERNIERS événements seulement
-        // (connecté / déconnecté / échec) — un écran, pas un fleuve.
+
         if (!verbose && rows.size() > 15) {
             rows = new java.util.ArrayList<>(rows.subList(rows.size() - 15, rows.size()));
         }
@@ -277,15 +244,10 @@ public class LogsFragment extends Fragment {
             String msg = r[3];
             int tagColor;
             int msgColor = white;
-            // Journal de session (zivvn / Hysteria / Xray / SSH) : la couleur
-            // porte sur le texte, pas sur un tag — [HH:mm:ss] seul, message
-            // entierement vert ou orange.
+
             boolean bare = level.equals("udp") || level.equals("udp-ok")
                     || level.equals("ready");
-            // Professional rhythm: each connect block is separated from the
-            // previous one by a blank line and a dim rule, so several
-            // consecutive sessions read as distinct units instead of a wall
-            // of undifferentiated lines.
+
             if (bare && level.equals("udp") && msg.startsWith(BLOCK_START)
                     && !firstBlockLine) {
                 sb.append('\n');
@@ -305,10 +267,7 @@ public class LogsFragment extends Fragment {
                     msgColor = tagColor;
                     break;
                 case "ready":
-                    // The block keeps its own palette whatever the current
-                    // session state: these lines described one specific
-                    // moment, greying them out on a later disconnect made the
-                    // requested colours look like they had not been applied.
+
                     tagColor = orangeVif;
                     msgColor = orangeVif;
                     break;
@@ -341,10 +300,7 @@ public class LogsFragment extends Fragment {
             appendSpan(sb, msg + "\n", msgColor);
         }
         if (sb.length() == 0) {
-            // Mode Journal filtre tout sauf le bloc de session et les
-            // incidents. Afficher le brut ici rejouerait exactement le bruit
-            // que le filtre vient de retirer, donc on explique l'etat vide et
-            // on renvoie vers le mode Verbose qui, lui, montre le flux brut.
+
             SpannableStringBuilder empty = new SpannableStringBuilder();
             if (verbose) {
                 String[] rawLines = raw.split("\n");

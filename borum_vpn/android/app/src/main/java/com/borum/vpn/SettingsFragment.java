@@ -20,8 +20,6 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatDelegate;
 import androidx.fragment.app.Fragment;
 
-
-/** Settings menu (Picko-style, adapted): network, reconnect, UI, device. */
 public class SettingsFragment extends Fragment {
 
     private TextView delayText;
@@ -34,8 +32,7 @@ public class SettingsFragment extends Fragment {
         try {
             v = inflater.inflate(R.layout.fragment_settings, container, false);
         } catch (Exception e) {
-            // Inflating the layout failed (resource issue): dark fallback
-            // with the error instead of crashing the activity.
+
             TextView fallback = new TextView(container.getContext());
             fallback.setText("Settings error: " + e.getMessage());
             fallback.setTextColor(0xFFFFFFFF);
@@ -44,8 +41,7 @@ public class SettingsFragment extends Fragment {
         try {
             initSettingsView(v);
         } catch (Exception | Error e) {
-            // Best-effort UI: never crash the host activity for a broken
-            // settings fragment (log the real cause to kighmu).
+
             TasVpnService.logEvent("error", "settings", "init failed: " + e);
             TextView fallback = new TextView(container.getContext());
             fallback.setText("Settings unavailable: " + e.getMessage());
@@ -59,11 +55,9 @@ public class SettingsFragment extends Fragment {
         VPNApplication app = VPNApplication.getInstance();
         View portInput = v.findViewById(R.id.settings_port);
         if (portInput != null) {
-            // placeholder (gardé pour la cohérence du layout)
+
         }
 
-        // Intégrité seule (le bloc Android ID est retiré : l'identité est
-        // désormais dérivée nativement et ne doit plus être affichée).
         String integrity = getString(R.string.settings_integrity,
                 ProfileTransfer.isRooted()
                         ? getString(R.string.settings_root_detected)
@@ -73,7 +67,6 @@ public class SettingsFragment extends Fragment {
             rootView.setText(integrity);
         }
 
-        // ── Thème : Système / Clair / Sombre ────────────────────────────
         String theme = UiPrefs.getTheme(requireContext());
         bindPill(v, R.id.settings_theme_system, "system".equals(theme));
         bindPill(v, R.id.settings_theme_light, "light".equals(theme));
@@ -93,7 +86,6 @@ public class SettingsFragment extends Fragment {
         if (tl != null) tl.setOnClickListener(themePick);
         if (td != null) td.setOnClickListener(themePick);
 
-        // ── Langue : Système / Français / English ───────────────────────
         String lang = UiPrefs.getLang(requireContext());
         bindPill(v, R.id.settings_lang_system, "system".equals(lang));
         bindPill(v, R.id.settings_lang_fr, "fr".equals(lang));
@@ -221,11 +213,9 @@ public class SettingsFragment extends Fragment {
         try {
             gov = VpnlibHelper.version();
         } catch (Throwable ignored) {
-            // Native Go call can throw Error (not Exception) when the Go
-            // runtime isn't loaded yet: never crash the fragment for it.
+
         }
-        // VpnlibHelper.version() can crash at native level (gomobile call
-        // failure → JNI throw caught here) or at parse level. Shield both.
+
         if (gov == null) {
             gov = "";
         }
@@ -233,7 +223,6 @@ public class SettingsFragment extends Fragment {
             version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
         }
 
-        // ── Orange Fast host ──────────────────────────────────────────
         final EditText orangeHost = v.findViewById(R.id.settings_orange_host);
         final View orangeSave = v.findViewById(R.id.settings_orange_save);
         if (orangeHost != null) {
@@ -247,14 +236,12 @@ public class SettingsFragment extends Fragment {
                     return;
                 }
                 app.setOrangeFastHost(h);
-                // Recréer le config.yaml pour que le nouvel host soit pris en
-                // compte par le tunnel Orange Fast (VLESS WS TLS).
+
                 app.resetConfigFile(requireContext());
                 toast("Orange Fast host enregistré - recréation config");
             });
         }
 
-        // ── MTN Illimité host ──────────────────────────────────────────
         final EditText mtnHost = v.findViewById(R.id.settings_mtn_host);
         final View mtnSave = v.findViewById(R.id.settings_mtn_save);
         if (mtnHost != null) {
@@ -268,8 +255,7 @@ public class SettingsFragment extends Fragment {
                     return;
                 }
                 app.setMtnUnlimitedHost(h);
-                // Recréer le config.yaml pour que le nouvel host soit pris en
-                // compte par le tunnel MTN Illimité (VLESS WS TLS).
+
                 app.resetConfigFile(requireContext());
                 toast("MTN Illimité host enregistré - recréation config");
             });
@@ -372,7 +358,6 @@ public class SettingsFragment extends Fragment {
         Toast.makeText(getContext(), msg, Toast.LENGTH_SHORT).show();
     }
 
-    /** État visuel d'une option pilule (Thème/Langue). */
     private void bindPill(View v, int id, boolean selected) {
         TextView t = v.findViewById(id);
         if (t == null) {

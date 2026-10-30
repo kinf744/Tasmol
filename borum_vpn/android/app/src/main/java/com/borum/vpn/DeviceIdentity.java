@@ -14,41 +14,16 @@ import javax.crypto.spec.SecretKeySpec;
 
 import vpnlib.Vpnlib;
 
-/**
- * Identité d'appareil durcie.
- *
- * 1) UUID propre à CHAQUE INSTALLATION et LIÉ au matériel :
- *    uuid = format-v4( SHA-256( secret-par-installation | ANDROID_ID ) ).
- *    Le secret est régénéré à chaque installation → un uuid neuf à chaque
- *    installation ; ANDROID_ID (stable par appareil pour une signature
- *    d'app donnée) lie l'identité à CE téléphone. Le patch des
- *    préférences pour y coller l'uuid d'un autre appareil ne suffit plus :
- *    voir (2).
- *
- * 2) Preuve d'appareil anti-clonage, vérifiée PAR LE SERVEUR :
- *    proof = HMAC-SHA256( clé = SHA-256(ANDROID_ID), msg = uuid ).
- *    Enregistrée côté serveur au premier register ; un uuid copié depuis
- *    un autre appareil présente une preuve différente (autre matériel) →
- *    rejet 403 côté API. Patch l'apk ? Bloqué par l'éditer TOFU de la
- *    signature (IntegrityGuard). Éditer les préférences ? L'uuid est
- *    régénéré depuis (secret, ANDROID_ID) — coller un uuid étranger est
- *    ignoré au démarrage suivant tant que secret+ANDROID_ID ne
- *    correspondent pas, et le serveur refuse la preuve fausse.
- *
- * Tous les calculs sont locaux (aucun réseau) et le résultat est caché en
- * mémoire pour la durée du processus.
- */
 public final class DeviceIdentity {
     private static final String PREFS = "borum_api_prefs";
-    private static final String K_UUID = "api_device_uuid";   // compat existante
-    private static final String K_SECRET = "identity_secret"; // par installation
+    private static final String K_UUID = "api_device_uuid";   
+    private static final String K_SECRET = "identity_secret"; 
 
     private static volatile String cachedUuid = null;
 
     private DeviceIdentity() {
     }
 
-    /** UUID de l'appareil : stable pendant la vie de l'installation. */
     public static String getUuid(Context ctx) {
         String c = cachedUuid;
         if (c != null && !c.isEmpty()) {
@@ -63,11 +38,6 @@ public final class DeviceIdentity {
         }
     }
 
-    /**
-     * Preuve d'appareil : calculée dans le .so garblé (libpho) — le schéma
-     * HMAC n'apparaît plus dans le DEX. Repli : implémentation locale
-     * identique (preuves épinglées serveur toujours valides).
-     */
     public static String proof(Context ctx, String uuid) {
         try {
             String p = Vpnlib.phoDeviceProof(uuid, androidId(ctx));
@@ -79,7 +49,6 @@ public final class DeviceIdentity {
         return localProof(ctx, uuid);
     }
 
-    /** Ancienne implémentation Java (repli si le natif est indisponible). */
     private static String localProof(Context ctx, String uuid) {
         try {
             String aid = androidId(ctx);
@@ -107,21 +76,14 @@ public final class DeviceIdentity {
         String aid = androidId(ctx);
         if (existing != null && existing.matches(
                 "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")) {
-            // Migration : l'installation existante garde son uuid (le
-            // verrou d'appareil serveur pointe dessus). Le secret natif
-            // est créé/scellé dès maintenant (pho.id) pour les besoins
-            // futurs. La preuve serveur protège cet uuid depuis sa mise
-            // en place.
+
             try {
                 Vpnlib.phoIdentityEnsure();
             } catch (Throwable ignored) {
             }
             return existing.toLowerCase(Locale.US);
         }
-        // Nouvelle installation : identité ENTIÈREMENT native — secret
-        // scellé AES-GCM dans pho.id (0600, jamais dans les préférences
-        // XML) et dérivation dans le .so garblé. Un patch des préférences
-        // est sans effet.
+
         try {
             String uuid = Vpnlib.phoIdentityUuid(aid);
             if (uuid != null && uuid.matches(
@@ -131,10 +93,10 @@ public final class DeviceIdentity {
             }
         } catch (Throwable ignored) {
         }
-        // Repli : ancien chemin (secret en prefs + dérivation locale).
+
         String secret = sp.getString(K_SECRET, null);
         if (secret == null || secret.isEmpty()) {
-            // Secret frais par installation (128 bits, hex).
+
             byte[] raw = new byte[16];
             java.security.SecureRandom r = new java.security.SecureRandom();
             r.nextBytes(raw);
@@ -156,13 +118,10 @@ public final class DeviceIdentity {
         } else {
             uuid = derived;
         }
-        // L'uuid affiché/stocké reste la référence : s'il a été patché en
-        // dur dans les préférences, la preuve serveur le détectera (le
-        // secret+ANDROID_ID locaux ne produisent pas cet uuid).
+
         return uuid;
     }
 
-    /** UUID v4-format depuis SHA-256(secret | ANDROID_ID). */
     private static String uuidFrom(String secret, String androidId) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
@@ -170,8 +129,8 @@ public final class DeviceIdentity {
             md.update((byte) '|');
             md.update(androidId.getBytes(StandardCharsets.UTF_8));
             byte[] d = md.digest();
-            d[6] = (byte) ((d[6] & 0x0F) | 0x40); // version 4
-            d[8] = (byte) ((d[8] & 0x3F) | 0x80); // variante RFC 4122
+            d[6] = (byte) ((d[6] & 0x0F) | 0x40); 
+            d[8] = (byte) ((d[8] & 0x3F) | 0x80); 
             long msb = 0, lsb = 0;
             for (int i = 0; i < 8; i++) {
                 msb = (msb << 8) | (d[i] & 0xFF);
@@ -181,7 +140,7 @@ public final class DeviceIdentity {
             }
             return new UUID(msb, lsb).toString();
         } catch (Throwable t) {
-            // Improbable ; repli : uuid aléatoire (toujours unique par install).
+
             return UUID.randomUUID().toString();
         }
     }

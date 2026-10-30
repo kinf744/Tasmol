@@ -8,37 +8,23 @@ import org.json.JSONObject;
 
 import java.util.UUID;
 
-/**
- * Persistent API-auth state + helpers bridging remote configs into the
- * local tunnel store.
- *
- * Mode model:
- *  - "API mode"    = an API-materialized tunnel is the (single) selected
- *                    profile. Manual profiles must not be selectable.
- *  - "Manual mode" = user picked profiles in CONFIGS: the API config is
- *                    withdrawn automatically (standby).
- */
 public final class ApiSession {
     private static final String K_UUID = "api_device_uuid";
     private static final String K_ACTIVE_TUNNEL = "api_active_tunnel_id";
     private static final String K_SELECTED_CONFIG = "api_selected_config_id";
-    // Round-robin (2 profils API) : ids des tunnels matérialisés, csv.
+
     private static final String K_ACTIVE_IDS = "api_active_tunnel_ids";
-    // Les valeurs sensibles (téléphone, code, configs) ne vivent que dans
-    // le vault chiffré de libpho (jamais de SharedPreferences en clair).
+
     private static final String V_PHONE = "phone";
     private static final String V_CODE = "code";
     private static final String V_EXPIRES = "expires";
     private static final String V_CONFIGS = "configs";
-    // Temps serveur (ms) et temps appareil au moment du dernier check API,
-    // pour estimer l'heure serveur courant sans dépendre de l'horloge
-    // locale de l'appareil (qui peut être décalée vs le serveur).
+
     private static final String K_SERVER_TIME_MS = "api_server_time_ms";
     private static final String K_DEVICE_TIME_AT_CHECK = "api_device_time_at_check_ms";
 
     public static final String ADV_API_MANAGED = "api_managed";
 
-    // MTN Illimité : valeurs par défaut pour le full Xray config (outbound_json)
     public static final String MTN_UNLIMITED_UUID_DEFAULT =
             "aaaa0000-1111-4222-8333-444455556666";
     public static final String MTN_UNLIMITED_PATH_DEFAULT = "/@kighmu";
@@ -53,13 +39,6 @@ public final class ApiSession {
         return ctx.getSharedPreferences("borum_api_prefs", Context.MODE_PRIVATE);
     }
 
-    // --- Identity / auth state ---
-
-    /**
-     * UUID de l'appareil : délégué à DeviceIdentity (dérivation matériel
-     * + secret par installation + preuve serveur anti-clonage). Le cache
-     * prefs n'est qu'un miroir non autoritaire.
-     */
     public static String deviceUuid(Context ctx) {
         return DeviceIdentity.getUuid(ctx);
     }
@@ -74,11 +53,11 @@ public final class ApiSession {
 
     public static boolean isAuthenticated(Context ctx) {
         if (p(ctx).getBoolean(K_AUTHED, false)) {
-            return true; // chemin rapide : pas de decrypt par tick UI
+            return true; 
         }
         boolean ok = !code(ctx).isEmpty() && !phone(ctx).isEmpty();
         if (ok) {
-            p(ctx).edit().putBoolean(K_AUTHED, true).apply(); // migration
+            p(ctx).edit().putBoolean(K_AUTHED, true).apply(); 
         }
         return ok;
     }
@@ -95,7 +74,6 @@ public final class ApiSession {
         return PhoHelper.vaultGet(deviceUuid(ctx), V_EXPIRES);
     }
 
-    /** Stocke l'heure serveur (ms) et l'heure appareil au moment du check. */
     public static void saveServerTime(Context ctx, long serverTimeMs, long deviceTimeMs) {
         p(ctx).edit()
                 .putLong(K_SERVER_TIME_MS, serverTimeMs)
@@ -103,10 +81,6 @@ public final class ApiSession {
                 .apply();
     }
 
-    /**
-     * Estime l'heure serveur actuelle (ms) en extrapolant depuis le dernier
-     * check API. Retourne -1 si aucune référence n'est encore stockée.
-     */
     public static long estimatedServerTimeMs(Context ctx) {
         long serverTime = p(ctx).getLong(K_SERVER_TIME_MS, -1);
         long deviceAtCheck = p(ctx).getLong(K_DEVICE_TIME_AT_CHECK, -1);
@@ -116,12 +90,10 @@ public final class ApiSession {
         return serverTime + (System.currentTimeMillis() - deviceAtCheck);
     }
 
-    /** Efface la référence temps serveur (appelé au logout/reset). */
     public static void clearServerTime(Context ctx) {
         p(ctx).edit().remove(K_SERVER_TIME_MS).remove(K_DEVICE_TIME_AT_CHECK).apply();
     }
 
-    /** Full logout: forget credentials and detach any active API tunnel. */
     public static void logout(Context ctx) {
         clearActive(ctx);
         clearAccountCard(ctx);
@@ -131,24 +103,17 @@ public final class ApiSession {
         clearServerTime(ctx);
     }
 
-    /** Reset complet : efface credentials, configs, compte, et toute l'auth.
-     *  Appelé quand le compte expire ou est révoqué. L'app revient à l'état
-     *  pré-activation. */
     public static void resetAll(Context ctx) {
-        String uuid = deviceUuid(ctx); // capturer avant le clear
+        String uuid = deviceUuid(ctx); 
         logout(ctx);
         p(ctx).edit().clear().apply();
-        // Supprimer aussi le cache des configs pour cet appareil
+
         lastConfigsRaw.remove(uuid);
         lastConfigsParsed.remove(uuid);
     }
 
-    // --- Bloc compte (carte "Client" de l'écran d'activation) ---
-    // Non sensible : nom, plan, quota et expiration. Uniquement quand le
-    // compte est actif et validé ; rafraîchi via /api/v1/devices/check.
     private static final String K_ACCOUNT_CARD = "api_account_card";
-    // Drapeau non secret : évite d'appeler le coffre chiffré (lecture =
-    // fichier + AES-GCM) à chaque tick UI de la Home.
+
     private static final String K_AUTHED = "api_authed";
 
     public static void saveAccountCard(Context ctx, JSONObject card) {
@@ -172,8 +137,6 @@ public final class ApiSession {
         p(ctx).edit().remove(K_ACCOUNT_CARD).apply();
     }
 
-    // --- Remote configs cache ---
-
     public static void saveConfigs(Context ctx, JSONArray configs) {
         PhoHelper.vaultPut(ctx, deviceUuid(ctx), V_CONFIGS,
                 configs == null ? "[]" : configs.toString());
@@ -181,10 +144,6 @@ public final class ApiSession {
         lastConfigsParsed.remove(deviceUuid(ctx));
     }
 
-    // Cache anti-reparse : le tick UI d'accueil (2 s) relisait et re-parsait
-    // TOUT le JSON des configs depuis le coffre chiffré à chaque tick.
-    // Clé par UUID d'appareil pour éviter qu'un compte ne voie les configs
-    // d'un autre après un changement de compte sans redémarrage.
     private static final java.util.Map<String, String> lastConfigsRaw = new java.util.HashMap<>();
     private static final java.util.Map<String, JSONArray> lastConfigsParsed = new java.util.HashMap<>();
 
@@ -209,13 +168,10 @@ public final class ApiSession {
         return parsed;
     }
 
-    // --- Active API tunnel ---
-
     public static String activeTunnelId(Context ctx) {
         return p(ctx).getString(K_ACTIVE_TUNNEL, "");
     }
 
-    /** True when an API config currently owns the profile selection. */
     public static boolean isApiActive(Context ctx) {
         java.util.LinkedHashSet<String> sel = VPNApplication.getInstance().getSelectedIds();
         for (String id : activeTunnelIds(ctx)) {
@@ -226,7 +182,6 @@ public final class ApiSession {
         return false;
     }
 
-    /** All materialized API tunnel ids (1 in single mode, 2 in round-robin). */
     public static java.util.List<String> activeTunnelIds(Context ctx) {
         java.util.List<String> out = new java.util.ArrayList<>();
         String csv = p(ctx).getString(K_ACTIVE_IDS, "");
@@ -242,10 +197,6 @@ public final class ApiSession {
         return out;
     }
 
-    /**
-     * Materialize a remote config (from /user/configs) as a local tunnel
-     * and make it the single selected profile. Returns the tunnel id.
-     */
     public static String activate(Context ctx, JSONObject apiCfg) throws Exception {
         String tunnelId = materialize(ctx, apiCfg, activeTunnelId(ctx));
 
@@ -264,13 +215,6 @@ public final class ApiSession {
         return tunnelId;
     }
 
-    /**
-     * Round-robin over the two SlowDNS API profiles (SSH + SlowDNS and
-     * V2Ray + SlowDNS): both are materialized locally and selected
-     * together, so the connection runs in round-robin mode. Selecting
-     * either of the two API configs activates the pair. Returns the
-     * comma-separated tunnel ids.
-     */
     public static String activateRoundRobin(Context ctx, JSONObject cfgA, JSONObject cfgB)
             throws Exception {
         java.util.List<JSONObject> cfgs = new java.util.ArrayList<>();
@@ -279,14 +223,6 @@ public final class ApiSession {
         return activateRoundRobinN(ctx, cfgs);
     }
 
-    /**
-     * Round-robin generalise a N profils SlowDNS (SSHL+DNS x4 ou
-     * WireGuard+SlowDNS x4) : tous les profils DE MEME MODE servis par
-     * l'API sont materialises en local et selectionnes ensemble, donc la
-     * connexion agrege N flux dnstt paralleles sur le meme canal.
-     * Limite dure a 4 profils (des tests a montre une saturation dnstt
-     * au-dela, sans gain de debit mesurable). Retourne les ids CSV.
-     */
     public static String activateRoundRobinN(Context ctx, java.util.List<JSONObject> cfgs)
             throws Exception {
         if (cfgs == null || cfgs.isEmpty()) {
@@ -295,10 +231,8 @@ public final class ApiSession {
         java.util.List<JSONObject> use = cfgs.size() > 4
                 ? cfgs.subList(0, 4) : cfgs;
 
-        // Reuse previously stored ids (update in place) when possible.
         String[] stored = p(ctx).getString(K_ACTIVE_IDS, "").split(",", -1);
-        // K_SELECTED_CONFIG recoit les config_id N-exaires (Information for
-        // "update" dedup), K_ACTIVE_IDS les tunnel ids.
+
         java.util.List<String> ids = new java.util.ArrayList<>();
         java.util.List<String> cfgIds = new java.util.ArrayList<>();
         for (int i = 0; i < use.size(); i++) {
@@ -323,7 +257,6 @@ public final class ApiSession {
         return csv;
     }
 
-    /** Insert or update the local tunnel backing an API config. */
     private static String materialize(Context ctx, JSONObject apiCfg, String reuseId)
             throws Exception {
         String cfgPath = BinaryManager.configPath(ctx).getAbsolutePath();
@@ -359,10 +292,6 @@ public final class ApiSession {
         return tunnelId;
     }
 
-    /**
-     * Withdraw the API config: selection cleared, API mode to standby.
-     * The materialized tunnels stay on disk (cheap, re-usable on re-select).
-     */
     public static void clearActive(Context ctx) {
         java.util.List<String> ids = activeTunnelIds(ctx);
         if (!ids.isEmpty()) {
@@ -378,14 +307,11 @@ public final class ApiSession {
                 .remove(K_SELECTED_CONFIG).apply();
     }
 
-    /** Called when the user manually selects a profile in CONFIGS. */
     public static void onManualSelection(Context ctx) {
         if (isApiActive(ctx)) {
             clearActive(ctx);
         }
     }
-
-    // --- Mapping API config -> TunnelConfig JSON (mirrors TunnelEditorActivity) ---
 
     static JSONObject toTunnelJson(JSONObject c) throws Exception {
         String label = c.optString("label", "API config");
@@ -416,15 +342,14 @@ public final class ApiSession {
         if ("zivpn".equalsIgnoreCase(mode) || "zivpn".equalsIgnoreCase(c.optString("protocol", ""))) {
             type = "zivpn";
             auth.put("password", c.optString("zivpn_password", ""));
-            // Multi-range round-robin: 8 sub-ranges covering 6000-19999
-            // (server DNATs them all to :5667). API may override.
+
             String ranges = c.optString("port_range", "");
             if (ranges.isEmpty()) {
                 ranges = "6000-9499,9500-12999,13000-16499,16500-19999";
             }
             server.put("port_range", ranges);
         } else if ("sshslowdns".equalsIgnoreCase(mode)) {
-            // SSH over SlowDNS (dnstt): server = nameserver/pubkey + ssh creds.
+
             type = "ssh_slowdns";
             String ns = c.optString("nameserver", "");
             if (!ns.isEmpty()) {
@@ -434,7 +359,7 @@ public final class ApiSession {
             auth.put("username", c.optString("ssh_user", ""));
             auth.put("password", c.optString("ssh_pass", ""));
         } else if ("v2raydns".equalsIgnoreCase(mode)) {
-            // V2Ray/Xray over SlowDNS (dnstt): VLESS uuid + nameserver/pubkey.
+
             type = "xray_slowdns";
             String ns = c.optString("nameserver", "");
             if (!ns.isEmpty()) {
@@ -474,16 +399,12 @@ public final class ApiSession {
         advanced.put("api_label", label);
         advanced.put("api_isp", c.optString("isp", ""));
         advanced.put("api_tier", c.optString("tier", ""));
-        // SlowDNS modes carry the dnstt server public key.
+
         String dnsttPub = c.optString("slowdns_pubkey", "");
         if (!dnsttPub.isEmpty()) {
             advanced.put("slowdns_pubkey", dnsttPub);
         }
 
-        // ── MTN Illimité : full Xray config with HTTP upstream proxy ──
-        // MTN bloque le VLESS direct vers findschoolnews.blogspot.com:443.
-        // Comme HTTP Injector, on chaine un proxy HTTP (157.240.9.39:8080)
-        // devant le VLESS WS TLS via outbound_json + proxySettings.tag.
         if ("mtn_unlimited".equalsIgnoreCase(mode)) {
             BinaryManager.appendKighmu("[MTN] Début construction config tunnel MTN Illimité");
             try {
@@ -553,8 +474,7 @@ public final class ApiSession {
                 streamSettings.put("security", "tls");
                 streamSettings.put("tlsSettings", tlsSettings);
                 streamSettings.put("wsSettings", wsSettings);
-                // Nouvelle syntaxe Xray : sockopt.dialerProxy (proxySettings
-                // a été supprimé dans Xray moderne).
+
                 JSONObject sockopt = new JSONObject();
                 sockopt.put("dialerProxy", "alrufaaey");
                 streamSettings.put("sockopt", sockopt);
@@ -608,8 +528,7 @@ public final class ApiSession {
                 BinaryManager.appendKighmu("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
                 BinaryManager.appendKighmu("[MTN] ERREUR construction config: " + e.getMessage());
-                // Si la construction du full config échoue, on utilise le
-                // VLESS simple (fallback, peut ne pas fonctionner sur MTN).
+
             }
         }
         JSONObject routing = new JSONObject(

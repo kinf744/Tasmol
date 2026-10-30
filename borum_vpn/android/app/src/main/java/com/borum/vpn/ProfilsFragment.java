@@ -26,13 +26,8 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 
-/**
- * PROFILS : aperçu "CONNEXIONS VPN" (design de l'ancien écran d'activation).
- * Une carte par profil API : pastille Actif, quota utilisé (% + barre),
- * Restant / Utilisé / Total, date d'expiration.
- */
 public class ProfilsFragment extends Fragment {
-    // Palette du thème (clair/sombre) — résolue depuis les ressources.
+
     private int BG, CARD_BG, CARD_STROKE, TXT, TXT_DIM, GREEN, CYAN, RED;
 
     private void loadPalette() {
@@ -64,7 +59,6 @@ public class ProfilsFragment extends Fragment {
         page.setPadding(pad, pad, pad, dp(24));
         root.addView(page);
 
-        // --- En-tête : "CONNEXIONS VPN" + bouton rafraîchir ---
         LinearLayout head = new LinearLayout(getContext());
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -139,7 +133,6 @@ public class ProfilsFragment extends Fragment {
         });
     }
 
-    /** Repli : endpoint check "plat" (activated/phone/expires_at sans objet account). */
     private static JSONObject accountFromFlat(JSONObject resp) {
         if (resp == null || !resp.optBoolean("activated", false)) return null;
         try {
@@ -157,7 +150,7 @@ public class ProfilsFragment extends Fragment {
         if (list == null || getActivity() == null) return;
         list.removeAllViews();
         if (acc != null) {
-            // Un seul compte (celui active) : une seule carte.
+
             list.addView(profileCard(acc.optString("name", "Mon compte"), acc));
         } else {
             TextView empty = new TextView(getContext());
@@ -190,7 +183,6 @@ public class ProfilsFragment extends Fragment {
         in.setPadding(dp(18), dp(16), dp(18), dp(16));
         card.addView(in);
 
-        // --- Ligne 1 : titre + pastille Actif ---
         LinearLayout row1 = new LinearLayout(getContext());
         row1.setOrientation(LinearLayout.HORIZONTAL);
         row1.setGravity(Gravity.CENTER_VERTICAL);
@@ -217,7 +209,6 @@ public class ProfilsFragment extends Fragment {
         int pct = (limit > 0 && !unlimited) ? (int) Math.min(100, used * 100 / limit) : 0;
         int barColor = (pct >= 100) ? RED : CYAN;
 
-        // --- Ligne 2 : "Quota utilisé" + % ---
         LinearLayout row2 = new LinearLayout(getContext());
         row2.setOrientation(LinearLayout.HORIZONTAL);
         row2.setPadding(0, dp(16), 0, dp(8));
@@ -234,7 +225,6 @@ public class ProfilsFragment extends Fragment {
         row2.addView(qVal);
         in.addView(row2);
 
-        // --- Barre de progression ---
         if (!unlimited) {
             ProgressBar bar = new ProgressBar(getContext(), null,
                     android.R.attr.progressBarStyleHorizontal);
@@ -248,12 +238,10 @@ public class ProfilsFragment extends Fragment {
             in.addView(bar, bp);
         }
 
-        // --- Lignes données : Restant / Utilisé / Total ---
         in.addView(dataRow("Restant", unlimited ? "Illimité" : fmtData(remaining), GREEN));
         in.addView(dataRow("Utilisé", unlimited ? "—" : fmtData(used), TXT));
         in.addView(dataRow("Total", unlimited ? "Illimité" : fmtData(limit), TXT));
 
-        // --- Pied : expiration ---
         String exp = acc.optString("expires_at", "");
         TextView foot = new TextView(getContext());
         foot.setText(exp.isEmpty() ? "Sans expiration" : "Expire le " + fmtDate(exp));
