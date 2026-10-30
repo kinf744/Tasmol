@@ -575,10 +575,27 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         try {
-            SimpleDateFormat fmt = new SimpleDateFormat(
-                    "yyyy-MM-dd HH:mm:ss", Locale.US);
-            Date d = fmt.parse(exp);
-            if (d != null && d.before(new Date())) {
+            // Heure serveur estimée pour éviter le faux positif quand
+            // l'horloge locale a un décalage vs le serveur (ex. +1h).
+            long nowServerMs = ApiSession.estimatedServerTimeMs(this);
+            Date now = nowServerMs >= 0 ? new Date(nowServerMs) : new Date();
+
+            SimpleDateFormat[] patterns = new SimpleDateFormat[]{
+                    new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),
+                    new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),
+                    new SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            };
+            Date d = null;
+            for (SimpleDateFormat fmt : patterns) {
+                try {
+                    d = fmt.parse(exp);
+                    if (d != null) {
+                        break;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            if (d != null && d.before(now)) {
                 // Compte expiré : reset complet
                 ApiSession.resetAll(this);
                 VPNApplication a = VPNApplication.getInstance();

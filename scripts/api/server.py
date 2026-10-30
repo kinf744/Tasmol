@@ -1,13 +1,26 @@
 #!/usr/bin/env python3
 """Stivaros activation API (compat EPHANG VPN)."""
-import json, os, sqlite3, sys, threading, time, collections, hashlib
+import json, os, re, sqlite3, sys, threading, time, collections, hashlib
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 
 def _sha256(s):
     return hashlib.sha256(s.encode()).hexdigest()
+
+
+def _read_tz_offset():
+    try:
+        p = Path("/opt/stivaros/tz_offset")
+        if p.exists():
+            s = p.read_text().strip()
+            if re.match(r'^-?[0-9]+$', s):
+                return int(s)
+    except Exception:
+        pass
+    return 0
 
 DB_PATH = os.environ.get("STIVAROS_DB", "/opt/stivaros/stivaros.db")
 
@@ -301,9 +314,15 @@ class APIHandler(BaseHTTPRequestHandler):
                 }
                 return self._send({"activated": True, "phone": user["phone"],
                                    "name": user["name"], "expires_at": user["expires_at"],
+                                   "server_time": datetime.utcnow().isoformat(),
+                                   "tz_offset": _read_tz_offset(),
                                    "account": account,
                                    "message": "Device is active"})
             return self._send({"activated": False, "message": "Device not found or inactive"}, 404)
+
+        if path == "/api/v1/server/time":
+            return self._send({"server_time": datetime.utcnow().isoformat(),
+                               "tz_offset": _read_tz_offset()})
 
         if path == "/api/v1/user/configs":
             user, err = self._authorized_user(params.get("uuid", [""])[0],

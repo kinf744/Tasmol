@@ -251,6 +251,25 @@ public class AuthActivity extends AppCompatActivity {
             JSONObject account = resp.optJSONObject("account");
             if (resp.optBoolean("activated", false)
                     && account != null && account.optInt("active", 0) == 1) {
+                // Stocker l'heure serveur pour estimer l'expiration sans
+                // dépendre de l'horloge locale (décalage serveur ↔ appareil).
+                try {
+                    long serverMs = 0;
+                    String st = resp.optString("server_time", "");
+                    if (st != null && !st.isEmpty()) {
+                        java.text.SimpleDateFormat fmt =
+                                new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss",
+                                        java.util.Locale.US);
+                        java.util.Date sd = fmt.parse(st);
+                        if (sd != null) {
+                            serverMs = sd.getTime();
+                        }
+                    }
+                    if (serverMs > 0) {
+                        ApiSession.saveServerTime(this, serverMs, System.currentTimeMillis());
+                    }
+                } catch (Exception ignored) {
+                }
                 showCard(account);
             } else {
                 // Compte inactif : vérifier si c'est une expiration.

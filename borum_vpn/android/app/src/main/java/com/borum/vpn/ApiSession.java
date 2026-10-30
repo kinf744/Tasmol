@@ -30,6 +30,11 @@ public final class ApiSession {
     private static final String V_CODE = "code";
     private static final String V_EXPIRES = "expires";
     private static final String V_CONFIGS = "configs";
+    // Temps serveur (ms) et temps appareil au moment du dernier check API,
+    // pour estimer l'heure serveur courant sans dépendre de l'horloge
+    // locale de l'appareil (qui peut être décalée vs le serveur).
+    private static final String K_SERVER_TIME_MS = "api_server_time_ms";
+    private static final String K_DEVICE_TIME_AT_CHECK = "api_device_time_at_check_ms";
 
     public static final String ADV_API_MANAGED = "api_managed";
 
@@ -82,6 +87,32 @@ public final class ApiSession {
         return PhoHelper.vaultGet(deviceUuid(ctx), V_EXPIRES);
     }
 
+    /** Stocke l'heure serveur (ms) et l'heure appareil au moment du check. */
+    public static void saveServerTime(Context ctx, long serverTimeMs, long deviceTimeMs) {
+        p(ctx).edit()
+                .putLong(K_SERVER_TIME_MS, serverTimeMs)
+                .putLong(K_DEVICE_TIME_AT_CHECK, deviceTimeMs)
+                .apply();
+    }
+
+    /**
+     * Estime l'heure serveur actuelle (ms) en extrapolant depuis le dernier
+     * check API. Retourne -1 si aucune référence n'est encore stockée.
+     */
+    public static long estimatedServerTimeMs(Context ctx) {
+        long serverTime = p(ctx).getLong(K_SERVER_TIME_MS, -1);
+        long deviceAtCheck = p(ctx).getLong(K_DEVICE_TIME_AT_CHECK, -1);
+        if (serverTime < 0 || deviceAtCheck < 0) {
+            return -1;
+        }
+        return serverTime + (System.currentTimeMillis() - deviceAtCheck);
+    }
+
+    /** Efface la référence temps serveur (appelé au logout/reset). */
+    public static void clearServerTime(Context ctx) {
+        p(ctx).edit().remove(K_SERVER_TIME_MS).remove(K_DEVICE_TIME_AT_CHECK).apply();
+    }
+
     /** Full logout: forget credentials and detach any active API tunnel. */
     public static void logout(Context ctx) {
         clearActive(ctx);
@@ -89,6 +120,7 @@ public final class ApiSession {
         p(ctx).edit().putBoolean(K_AUTHED, false).apply();
         PhoHelper.vaultClear(deviceUuid(ctx));
         SecurityGuard.resetSecurity(ctx);
+        clearServerTime(ctx);
     }
 
     /** Reset complet : efface credentials, configs, compte, et toute l'auth.

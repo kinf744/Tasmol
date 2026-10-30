@@ -15,13 +15,18 @@ import org.json.JSONObject;
  *   - data_remaining_bytes <= 0 et pas illimité => quota épuisé
  *   - expires_at dans le passé => abonnement expiré
  *
+ * Décalage horaire serveur ↔ appareil :
+ *   expires_at est stocké côté serveur (heure serveur). L'horloge locale
+ *   de l'appareil peut avoir un décalage (ex. +1h) vs le serveur, ce qui
+ *   ferait expirer prématurément un compte de courte durée (1h). On stocke
+ *   donc l'heure serveur lors du dernier /api/v1/devices/check (via
+ *   ApiSession.saveServerTime) et on l'extrapole pour estimer l'heure
+ *   serveur courante, utilisée pour toutes les comparaisons d'expiration.
+ *
  * Anti-contournement d'horloge :
- *   L'horloge murale (System.currentTimeMillis) peut être modifiée par
- *   l'utilisateur pour repousser une date d'expiration. On s'appuie donc
- *   sur SystemClock.elapsedRealtime() (monotonique, immune aux réglages
- *   utilisateur) comme référence de "dernière fois vue". Si l'horloge
- *   murale recule d'au moins 30 secondes par rapport à la dernière
- *   observation, on considère qu'il y a eu contournement et on bloque.
+ *   SystemClock.elapsedRealtime() est monotonique SAUF après un redémarrage
+ *   de l'appareil, auquel cas il repart de 0. On croise avec l'heure murale
+ *   pour distinguer redémarrage normal et vrai recul d'horloge.
  */
 public final class SecurityGuard {
     private static final String PREFS = "borum_security";
@@ -62,9 +67,10 @@ public final class SecurityGuard {
             return null;
         }
 
-        // Expiration
+        // Expiration : comparer avec l'heure SERVEUR estimée (pas l'heure
+        // locale de l'appareil, qui peut être décalée vs le serveur).
         String exp = acc.optString("expires_at", "");
-        if (!exp.isEmpty() && isExpired(exp)) {
+        if (!exp.isEmpty() && isExpired(exp, ctx)) {
             return "Abonnement expiré le " + fmtDate(exp)
                     + ". Contactez l'administrateur pour le renouveler.";
         }
@@ -112,6 +118,40 @@ public final class SecurityGuard {
         return null;
     }
 
+    /**
+     * Vérifie si une date d'expiration (au format serveur, ISO) est dépassée.
+     * Utilise l'heure serveur estimée (extrapolée depuis le dernier check API)
+     * quand elle est disponible, sinon replie sur l'heure locale.
+     */
+    private static boolean isExpired(String iso, Context ctx) {
+        long nowServerMs = ApiSession.estimatedServerTimeMs(ctx);
+        java.util.Date now;
+        if (nowServerMs >= 0) {
+            now = new java.util.Date(nowServerMs);
+        } else {
+            now = new java.util.Date();
+        }
+        try {
+            java.text.SimpleDateFormat[] patterns = new java.text.SimpleDateFormat[]{
+                    new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US),
+                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US),
+                    new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            };
+            for (java.text.SimpleDateFormat p : patterns) {
+                try {
+                    java.util.Date d = p.parse(iso);
+                    if (d != null) {
+                        return d.before(now);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Marque une vérification réussie (à appeler après une connexion
      *  établie ou un check API réussi). */
     public static void noteSuccessfulCheck(Context ctx) {
@@ -129,28 +169,6 @@ public final class SecurityGuard {
     }
 
     // ---------- helpers ----------
-
-    private static boolean isExpired(String iso) {
-        try {
-            java.text.SimpleDateFormat[] patterns = new java.text.SimpleDateFormat[]{
-                    new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US),
-                    new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US),
-                    new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            };
-            for (java.text.SimpleDateFormat p : patterns) {
-                try {
-                    java.util.Date d = p.parse(iso);
-                    if (d != null) {
-                        return d.before(new java.util.Date());
-                    }
-                } catch (Exception ignored) {
-                }
-            }
-            return false;
-        } catch (Exception e) {
-            return false;
-        }
-    }
 
     private static String fmtDate(String iso) {
         try {

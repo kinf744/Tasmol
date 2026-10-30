@@ -89,9 +89,29 @@ public final class ExpiryGuard {
             return false;
         }
         try {
-            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd", Locale.US);
-            Date d = fmt.parse(exp);
-            return d != null && d.before(new Date());
+            // Heure serveur estimée (extrapolée depuis le dernier check API)
+            // pour éviter le faux positif quand l'horloge locale est décalée
+            // vs le serveur (ex. +1h => compte 1h rejeté à tort).
+            long nowServerMs = ApiSession.estimatedServerTimeMs(ctx);
+            Date now = nowServerMs >= 0 ? new Date(nowServerMs) : new Date();
+
+            SimpleDateFormat[] patterns = new SimpleDateFormat[]{
+                    new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US),
+                    new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US),
+                    new SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            };
+            for (SimpleDateFormat fmt : patterns) {
+                try {
+                    Date d = fmt.parse(exp);
+                    if (d != null && d.before(now)) {
+                        return true;
+                    }
+                    break; // parsed successfully, no need to try other patterns
+                } catch (Exception ignored) {
+                    // try next pattern
+                }
+            }
+            return false;
         } catch (Exception ignored) {
             // Format non reconnu : on ne bloque pas l'app.
             return false;
