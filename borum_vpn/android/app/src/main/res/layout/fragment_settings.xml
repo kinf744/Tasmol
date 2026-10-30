@@ -774,6 +774,70 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- MTN Illimité host -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="MTN Illimité — Host / domaine (VLESS WS TLS)"
+            android:textColor="@color/npv_grey"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/card_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:padding="12dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Host / domaine (VLESS WS TLS)"
+                android:textColor="@color/npv_text"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:typeface="monospace" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Modifiez ce champ si le domaine par défaut n'est plus valide."
+                android:textColor="@color/npv_grey"
+                android:textSize="11sp"
+                android:typeface="monospace" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <EditText
+                    android:id="@+id/settings_mtn_host"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="kighmu-vpn-919282834024.asia-south1.run.app"
+                    android:inputType="text"
+                    android:textColor="@color/npv_text"
+                    android:textColorHint="@color/npv_dim"
+                    android:typeface="monospace" />
+
+                <Button
+                    android:id="@+id/settings_mtn_save"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:text="OK" />
+            </LinearLayout>
+        </LinearLayout>
+
         <!-- Réinitialiser -->
         <Button
             android:id="@+id/settings_reset"

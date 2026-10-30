@@ -78,6 +78,13 @@ readonly ORANGE_FAST_HOST_FILE="$INSTALL_DIR/orange_fast_host.txt"
 readonly ORANGE_FAST_PATH="/@kighmu"
 readonly ORANGE_FAST_UUID="aaaa0000-1111-4222-8333-444455556666"
 
+# ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
+readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
+readonly MTN_UNLIMITED_SNI="findschoolnews.blogspot.com"
+readonly MTN_UNLIMITED_HOST_FILE="$INSTALL_DIR/mtn_unlimited_host.txt"
+readonly MTN_UNLIMITED_PATH="/@kighmu"
+readonly MTN_UNLIMITED_UUID="aaaa0000-1111-4222-8333-444455556666"
+
 # ── Décalage horaire VPS <-> heure locale utilisateur ─────────────────────
 # Le VPS peut avoir un fuseau horaire different de celui de l'utilisateur.
 # TZ_OFFSET_HOURS = nombre d'heures a ajouter aux dates calculees localement
@@ -2051,6 +2058,27 @@ orange_fast_host_delete() {
     warn "Host Orange Fast supprimé"
 }
 
+# ── Host MTN Illimité (VLESS WS TLS) — administrable via le panel ───────────
+mtn_unlimited_host_get() { [[ -f "$MTN_UNLIMITED_HOST_FILE" ]] && head -1 "$MTN_UNLIMITED_HOST_FILE" | tr -d '[:space:]' || true; }
+
+mtn_unlimited_host_set() {
+    local h="$1"
+    valid_domain "$h" || { error "Host invalide: $h"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$h" > "$MTN_UNLIMITED_HOST_FILE"; chmod 600 "$MTN_UNLIMITED_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='$(sqlq "$h")' WHERE isp='mtn' AND mode='mtn_unlimited';"
+    msg "Host MTN Illimité défini: $h (remplacé partout)"
+    log "mtn_unlimited host -> $h"
+}
+
+mtn_unlimited_host_delete() {
+    rm -f "$MTN_UNLIMITED_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='' WHERE isp='mtn' AND mode='mtn_unlimited';"
+    warn "Host MTN Illimité supprimé"
+}
+
 orange_menu() {
     banner; echo -e "${BOLD}Config Orange — host XHTTP${NC}\n"
     echo -e "  ${GOLD}Orange Illimité${NC}"
@@ -2066,11 +2094,20 @@ orange_menu() {
     local curf
     curf=$(orange_fast_host_get)
     echo -e "    Host actuel         : ${CYAN}${curf:-<aucun>}${NC}"
+    echo -e "  ${GOLD}MTN Illimité${NC}"
+    echo -e "    SNI/adresse (fixes) : ${CYAN}$MTN_UNLIMITED_SNI${NC}"
+    echo -e "    Adresse             : ${CYAN}$MTN_UNLIMITED_ADDR${NC}"
+    echo -e "    Path                : ${CYAN}$MTN_UNLIMITED_PATH${NC}"
+    local curm
+    curm=$(mtn_unlimited_host_get)
+    echo -e "    Host actuel         : ${CYAN}${curm:-<aucun>}${NC}"
     echo
     echo "  1) Orange : ajouter / remplacer le host"
     echo "  2) Orange : supprimer le host"
     echo "  3) Orange Fast : ajouter / remplacer le host"
     echo "  4) Orange Fast : supprimer le host"
+    echo "  5) MTN Illimité : ajouter / remplacer le host"
+    echo "  6) MTN Illimité : supprimer le host"
     echo "  0) Retour"
     echo
     local c
@@ -2091,6 +2128,14 @@ orange_menu() {
             ;;
         4)
             confirm "Supprimer le host Orange Fast ?" && orange_fast_host_delete
+            ;;
+        5)
+            local h
+            read -r -p "Host MTN Illimité (ex: kighmu-vpn-919282834024.asia-south1.run.app): " h
+            [[ -n "$h" ]] && mtn_unlimited_host_set "$h"
+            ;;
+        6)
+            confirm "Supprimer le host MTN Illimité ?" && mtn_unlimited_host_delete
             ;;
     esac
     pause
@@ -2201,23 +2246,25 @@ create_user() {
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
+    echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_orange_fast=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
+    if want 6; then want_mtn_unlimited=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -2231,6 +2278,8 @@ create_user() {
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     # Orange Fast utilise le tunnel Xray (VLESS WS TLS)
     if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
+    # MTN Illimité utilise le tunnel Xray (VLESS WS TLS)
+    if (( want_mtn_unlimited )); then ensure_tunnel xray || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -2287,6 +2336,13 @@ SQL
 -- Orange Fast: VLESS WS TLS, host configurable via le panel (orange_fast_host_set)
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_mtn_unlimited )); then
+    cat << SQL
+-- MTN Illimité: VLESS WS TLS, host configurable via le panel (mtn_unlimited_host_set)
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '$(sqlq "$(mtn_unlimited_host_get)")', 'mtn', 'mtn_unlimited', '0', '$MTN_UNLIMITED_UUID', '$MTN_UNLIMITED_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_zivpn )); then
@@ -2470,21 +2526,23 @@ create_test_user() {
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
+    echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Selection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Selection invalide"; pause; return 1; }
     want() { [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]; }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_orange_fast=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
+    if want 6; then want_mtn_unlimited=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     echo
@@ -2494,6 +2552,7 @@ create_test_user() {
     if (( want_zivpn )); then ensure_tunnel zivpn || ok=0; fi
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
+    if (( want_mtn_unlimited )); then ensure_tunnel xray || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -2540,6 +2599,12 @@ SQL
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
+    if (( want_mtn_unlimited )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '$(sqlq "$(mtn_unlimited_host_get)")', 'mtn', 'mtn_unlimited', '0', '$MTN_UNLIMITED_UUID', '$MTN_UNLIMITED_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_zivpn )); then
@@ -2750,20 +2815,22 @@ add_configs_to_user() { # $1 user_id
     echo -e "   ${CYAN}3${NC}) SSH + SlowDNS"
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
+    echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-5,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() { [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]; }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_orange_fast=1; fi
+    if want 6; then want_mtn_unlimited=1; fi
     [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
@@ -2784,6 +2851,12 @@ SQL
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT $uid, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH';
+SQL
+    fi
+    if (( want_mtn_unlimited )); then
+    cat << SQL
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT $uid, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '$(sqlq "$(mtn_unlimited_host_get)")', 'mtn', 'mtn_unlimited', '0', '$MTN_UNLIMITED_UUID', '$MTN_UNLIMITED_PATH';
 SQL
     fi
     if (( want_zivpn )); then

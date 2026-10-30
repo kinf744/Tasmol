@@ -29,6 +29,13 @@ ORANGE_ADDR = "reprise.orange-business.com"
 ORANGE_HOST_FILE = BASE / "orange_host.txt"
 TZ_OFFSET_FILE = BASE / "tz_offset"
 
+# ── MTN Illimité (VLESS WS TLS) ─────────────────────────────────────────────
+MTN_UNLIMITED_ADDR = "findschoolnews.blogspot.com"
+MTN_UNLIMITED_SNI = "findschoolnews.blogspot.com"
+MTN_UNLIMITED_HOST_FILE = BASE / "mtn_unlimited_host.txt"
+MTN_UNLIMITED_PATH = "/@kighmu"
+MTN_UNLIMITED_UUID = "aaaa0000-1111-4222-8333-444455556666"
+
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     try:
@@ -108,6 +115,14 @@ def orange_fast_host_get():
     try:
         if ORANGE_FAST_HOST_FILE.exists():
             return ORANGE_FAST_HOST_FILE.read_text().strip()
+    except:
+        pass
+    return ""
+
+def mtn_unlimited_host_get():
+    try:
+        if MTN_UNLIMITED_HOST_FILE.exists():
+            return MTN_UNLIMITED_HOST_FILE.read_text().strip()
     except:
         pass
     return ""
@@ -320,6 +335,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("3. SSH + SlowDNS", callback_data="cfg_3")],
             [InlineKeyboardButton("4. V2Ray + SlowDNS", callback_data="cfg_4")],
             [InlineKeyboardButton("5. Orange Fast (VLESS WS TLS)", callback_data="cfg_5")],
+            [InlineKeyboardButton("6. MTN Illimité (VLESS WS TLS)", callback_data="cfg_6")],
             [InlineKeyboardButton("0. Toutes", callback_data="cfg_0")],
         ])
         await update.message.reply_text("✅ Quota enregistré.\n\nÉtape 6/8 — <b>Configs à inclure</b> (ex: 1,3,4 ou 0 pour tout) :", reply_markup=kb, parse_mode="HTML")
@@ -394,8 +410,9 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         want_sshdns = 1 if want(3) else 0
         want_v2dns = 1 if want(4) else 0
         want_orange_fast = 1 if want(5) else 0
-        if not any([want_xray,want_zivpn,want_sshdns,want_v2dns,want_orange_fast]):
-            want_xray=want_zivpn=want_sshdns=want_v2dns=want_orange_fast=1
+        want_mtn_unlimited = 1 if want(6) else 0
+        if not any([want_xray,want_zivpn,want_sshdns,want_v2dns,want_orange_fast,want_mtn_unlimited]):
+            want_xray=want_zivpn=want_sshdns=want_v2dns=want_orange_fast=want_mtn_unlimited=1
         domain = get_domain()
         try:
             out = subprocess.check_output(["hostname", "-I"], text=True)
@@ -426,6 +443,8 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_ADDR)}', 443, 'vless', 'xhttp', 1, '{sqlq(ORANGE_ADDR)}', '{sqlq(orange_host_get())}', 'orange', 'xray', '0', '{sqlq(xray_uuid)}', '{sqlq(XRAY_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
         if want_orange_fast:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_FAST_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(ORANGE_FAST_SNI)}', '{sqlq(orange_fast_host_get())}', 'orange_fast', 'orange_fast', '0', '{sqlq(ORANGE_FAST_UUID)}', '{sqlq(ORANGE_FAST_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+        if want_mtn_unlimited:
+            sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(MTN_UNLIMITED_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(MTN_UNLIMITED_SNI)}', '{sqlq(mtn_unlimited_host_get())}', 'mtn', 'mtn_unlimited', '0', '{sqlq(MTN_UNLIMITED_UUID)}', '{sqlq(MTN_UNLIMITED_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
         if want_zivpn:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range) SELECT id, '{sqlq(server_addr)}', {ZIVPN_PORT}, 'zivpn', 'udp', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', 'camtel', 'zivpn', '150', '{sqlq(xray_uuid)}', '{sqlq(zivpn_pass)}', '{sqlq(ZIVPN_RANGES)}' FROM users WHERE uuid='{sqlq(uid)}';")
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range) SELECT id, '{sqlq(server_addr)}', {ZIVPN_PORT}, 'zivpn', 'udp', 0, '{sqlq(server_addr)}', '{sqlq(server_addr)}', '', 'zivpn', '100', '{sqlq(xray_uuid)}', '{sqlq(zivpn_pass)}', '{sqlq(ZIVPN_RANGES)}' FROM users WHERE uuid='{sqlq(uid)}';")
@@ -459,6 +478,7 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         msg = f"✅ <b>Compte créé</b>\n\n• Nom : {html.escape(nom)}\n• Téléphone : {tel}\n• Code : <b>{code}</b>\n• Type : {'Compte normal (jours)' if ctype=='jours' else 'Compte TEST (heures)'}\n• Durée : {duree}\n• Expire : {expires}\n• ID : {user_id}\n• Appareils : {'Multi' if multi_device else 'Mono'}"
         if want_xray: msg += f"\n• XRAY: {server_addr}:443 uuid={xray_uuid}"
         if want_orange_fast: msg += f"\n• Orange Fast: {ORANGE_FAST_ADDR}:443 uuid={ORANGE_FAST_UUID}"
+        if want_mtn_unlimited: msg += f"\n• MTN Illimité: {MTN_UNLIMITED_ADDR}:443 uuid={MTN_UNLIMITED_UUID} host={mtn_unlimited_host_get() or '(par défaut)'}"
         if want_zivpn: msg += f"\n• ZIVPN: {server_addr}:{ZIVPN_PORT} pass={zivpn_pass}"
         if want_sshdns: msg += f"\n• SSH+SlowDNS: NS={ns4} user={ssh_user} pass={ssh_pass}"
         if want_v2dns: msg += f"\n• V2Ray+SlowDNS: NS={nv4} uuid={xray_uuid} port={V2RAY_PORT}"

@@ -253,6 +253,27 @@ public class SettingsFragment extends Fragment {
                 toast("Orange Fast host enregistré - recréation config");
             });
         }
+
+        // ── MTN Illimité host ──────────────────────────────────────────
+        final EditText mtnHost = v.findViewById(R.id.settings_mtn_host);
+        final View mtnSave = v.findViewById(R.id.settings_mtn_save);
+        if (mtnHost != null) {
+            mtnHost.setText(app.getMtnUnlimitedHost());
+        }
+        if (mtnSave != null && mtnHost != null) {
+            mtnSave.setOnClickListener(view -> {
+                String h = mtnHost.getText().toString().trim();
+                if (h.isEmpty()) {
+                    toast("Host invalide");
+                    return;
+                }
+                app.setMtnUnlimitedHost(h);
+                // Recréer le config.yaml pour que le nouvel host soit pris en
+                // compte par le tunnel MTN Illimité (VLESS WS TLS).
+                app.resetConfigFile(requireContext());
+                toast("MTN Illimité host enregistré - recréation config");
+            });
+        }
     }
 
     private void saveDnsFields(EditText dns1, EditText dns2) {
