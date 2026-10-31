@@ -182,7 +182,7 @@ public class BinaryManager {
                 "  max_retries: 10\n" +
                 "udpgw:\n" +
                 "  enabled: true\n" +
-                "  listen_addr: \"127.0.0.1:\" + nativeUdpgwPort() + "\"\n" +
+                "  listen_addr: 127.0.0.1:" + nativeUdpgwPort() + "\n" +
                 "  max_clients: 100\n" +
                 "  timeout: 30\n" +
                 "  mtu: 1500\n";
