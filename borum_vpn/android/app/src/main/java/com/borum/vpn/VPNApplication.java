@@ -73,7 +73,7 @@ public class VPNApplication extends Application {
             }
 
             @Override
-            public void onActivitySaveInstanceState(android.app.Activity a) {
+            public void onActivitySaveInstanceState(android.app.Activity a, android.os.Bundle outState) {
             }
 
             @Override
