@@ -117,7 +117,7 @@ public class TasVpnService extends VpnService {
         while (eventLog.size() > MAX_LOG_LINES) {
             eventLog.removeFirst();
         }
-        BinaryManager.appendKighmu("[" + level + "] [" + component + "] " + msg);
+        BinaryManager.appendLog("[" + level + "] [" + component + "] " + msg);
     }
 
     public static synchronized String getLog() {

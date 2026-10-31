@@ -117,8 +117,8 @@ func Errorf(component, format string, args ...interface{}) {
 	logLine("error", component, format, args...)
 }
 
-// cleanArgs supprime le préfixe "composant: " des messages d'erreur/chaînes
-// pour éviter les doublons (ex: "ssh: ssh: unable to authenticate" -> "ssh: unable to authenticate").
+
+
 func cleanArgs(component string, args []interface{}) []interface{} {
 	prefix := component + ": "
 	for i, a := range args {

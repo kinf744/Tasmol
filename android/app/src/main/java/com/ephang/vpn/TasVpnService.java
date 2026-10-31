@@ -16,15 +16,7 @@ import org.json.JSONObject;
 
 import vpnlib.Vpnlib;
 
-/**
- * Real Android VPN service (Voie B, no root required).
- *
- * Captures device traffic into a TUN interface and hands its file
- * descriptor to the Go data plane (golib/vpnlib, tun2socks over the local
- * SOCKS5 of the active tunnel). The app's own UID is excluded from the VPN
- * via addDisallowedApplication so upstream sockets (tunnel processes,
- * SOCKS dials) never loop back into the TUN.
- */
+
 public class TasVpnService extends VpnService {
     private static final String TAG = "TasVpnService";
     private static final String CHANNEL_ID = "tasvpn_channel";
@@ -32,66 +24,66 @@ public class TasVpnService extends VpnService {
 
     public static final String ACTION_CONNECT = "com.ephang.vpn.action.CONNECT";
     public static final String ACTION_DISCONNECT = "com.ephang.vpn.action.DISCONNECT";
-    /** Fast, forceful disconnect: short teardown bound, no waiting around. */
+    
     public static final String ACTION_NUCLEAR_DISCONNECT = "com.ephang.vpn.action.NUCLEAR_DISCONNECT";
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
     private static volatile Object controller = null;
     private static volatile String activeTunnelId = null;
     private static volatile String lastError = null;
-    // True while a session is being established (connecting / reconnecting).
-    // The Home tab shows a red CONNECTING status while this is set.
+    
+    
     private static volatile boolean starting = false;
     private static volatile int startGen = -1;
-    // Controller of a start that is still in flight, published the moment
-    // Vpnlib.newController() returns and BEFORE the (blocking) start() call.
-    // Without it, a disconnect arriving during CONNECTING saw
-    // controller == null, took the "nothing to stop" fast path, and the start
-    // went on to build the whole data plane and re-post its notification
-    // after stopForeground(true) — the ghost VPN key the user reported.
+    
+    
+    
+    
+    
+    
     private static final java.util.concurrent.atomic.AtomicReference<Object> pendingController =
             new java.util.concurrent.atomic.AtomicReference<>(null);
-    // Bound on the Go controller.stop() call, in seconds. Nuclear uses a
-    // short one: the user asked for an immediate kill, so we should not sit
-    // there waiting on a wedged teardown before falling back to killing the
-    // process.
+    
+    
+    
+    
     private static final long STOP_TIMEOUT_S = 15;
     private static final long STOP_TIMEOUT_NUCLEAR_S = 4;
-    // Cleanup between two retry attempts runs on the connect thread, so it gets
-    // a much shorter bound than a user-initiated disconnect.
+    
+    
     private static final long RETRY_STOP_TIMEOUT_S = 5;
-    // Hard deadline of the teardown, after which the process is ended outright
-    // so the key cannot survive. Nuclear uses the short one (the user asked for
-    // an immediate kill); the normal disconnect gets a longer grace so a
-    // perfectly healthy teardown is never interrupted.
-    //
-    // Even with a bounded Go teardown, Controller.stop() can block on the
-    // controller mutex while a start() is in flight, and a Java interrupt
-    // cannot unwind a gomobile call. If the Go stop has still not returned by
-    // then, the only reliable way to make the VPN key disappear is to end the
-    // process: Android always revokes the key of a dead VpnService.
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
     private static final long WATCHDOG_KILL_NORMAL_MS = 20000;
     private static final long WATCHDOG_KILL_NUCLEAR_MS = 5000;
-    // True from the moment a controller is handed to the Go stop until that
-    // call actually returns. This distinguishes "teardown finished" from "we
-    // stopped waiting for it", which is exactly what decides whether killing
-    // the process is warranted.
+    
+    
+    
+    
     private static final java.util.concurrent.atomic.AtomicBoolean goStopHanging =
             new java.util.concurrent.atomic.AtomicBoolean(false);
-    // Service-scoped main-thread handler: the nuclear watchdog must not depend
-    // on any Activity, otherwise leaving the app while a teardown is stuck
-    // leaves the key with nobody left able to remove it.
+    
+    
+    
     private final android.os.Handler serviceHandler =
             new android.os.Handler(android.os.Looper.getMainLooper());
-    // True pendant qu'un thread de connexion existe (y compris pendant le
-    // retry-sleep entre deux essais et AVANT la publication du contrôleur Go).
-    // Sans ce marqueur, un nucléaire arrivé dans cette fenêtre ne voyait rien
-    // à tuer : la tentative reprenait et bâtissait la session malgré tout.
+    
+    
+    
+    
     private static final java.util.concurrent.atomic.AtomicBoolean connectInFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
-    // Connection attempts: CONNECTING stays on across retries until the
-    // session is up or the user disconnects (disconnect supersedes via
-    // sessionGen, nuclear kill ends the process outright).
+    
+    
+    
     private static final int MAX_START_ATTEMPTS = 10;
     private static final long RETRY_DELAY_MS = 3000;
     private static volatile int startAttempt = 0;
@@ -99,15 +91,12 @@ public class TasVpnService extends VpnService {
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
     private static final int MAX_LOG_LINES = 200;
 
-    /** Append a timestamped event to the in-memory connection log. */
+    
     public static synchronized void logEvent(String msg) {
         logEvent("info", "app", msg);
     }
 
-    /**
-     * Leveled journal event, mirrored to Download/kighmu.txt so the Logs
-     * tab shows one unified journal (levels: info/connection/warning/error).
-     */
+    
     public static synchronized void logEvent(String level, String component, String msg) {
         java.text.SimpleDateFormat fmt =
                 new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US);
@@ -115,7 +104,7 @@ public class TasVpnService extends VpnService {
         while (eventLog.size() > MAX_LOG_LINES) {
             eventLog.removeFirst();
         }
-        BinaryManager.appendKighmu("[" + level + "] [" + component + "] " + msg);
+        BinaryManager.appendLog("[" + level + "] [" + component + "] " + msg);
     }
 
     public static synchronized String getLog() {
@@ -155,15 +144,7 @@ public class TasVpnService extends VpnService {
         return starting;
     }
 
-    /**
-     * True while a controller has been handed to the Go teardown and that call
-     * has not returned yet.
-     *
-     * <p>Callers must not use isRunning()/isStarting() alone to decide whether
-     * a disconnect finished: stopSession() clears both immediately, so a
-     * wedged teardown would look "all good" to a watchdog and the VPN key would
-     * survive with nobody left to remove it.
-     */
+    
     public static boolean isTeardownHanging() {
         return goStopHanging.get();
     }
@@ -204,8 +185,8 @@ public class TasVpnService extends VpnService {
             return START_NOT_STICKY;
         }
         if (ACTION_DISCONNECT.equals(action)) {
-            // Invalidate any in-flight connect so a late background thread
-            // can never publish a zombie session (stuck VPN key).
+            
+            
             sessionGen.incrementAndGet();
             stopSession();
             stopSelf();
@@ -214,10 +195,10 @@ public class TasVpnService extends VpnService {
         if (ACTION_CONNECT.equals(action)) {
             String tunnelId = intent.getStringExtra(EXTRA_TUNNEL_ID);
             startSession(tunnelId);
-            // START_NOT_STICKY : si le processus est tué (déconnexion
-            // nucléaire), Android ne doit PAS relivrer cet intent — sinon
-            // le service ressuscite et la clé VPN revient aussitôt
-            // (c'était la cause du "nuclear inefficace en CONNECTING").
+            
+            
+            
+            
             return START_NOT_STICKY;
         }
         return START_NOT_STICKY;
@@ -229,10 +210,10 @@ public class TasVpnService extends VpnService {
             return;
         }
         lastError = null;
-        // Foreground immediately: the data plane can take 5-20s (process
-        // startups, readiness probes). Blocking the main thread here is an
-        // ANR ("wait / force close"), and the system kills services that
-        // don't call startForeground() in time.
+        
+        
+        
+        
         startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
         final String requestedId = tunnelId;
         final int gen = sessionGen.incrementAndGet();
@@ -255,7 +236,7 @@ public class TasVpnService extends VpnService {
                 notifyText("Connecting...");
                 Object ctrl = null;
                 try {
-                    // Ensure bundled official binaries + config are staged.
+                    
                     BinaryManager.ensureReady(this);
 
                     String tid = tunnelId;
@@ -279,8 +260,8 @@ public class TasVpnService extends VpnService {
                             .addRoute("0.0.0.0", 0)
                             .addDnsServer(validDnsOrDefault(
                                     VPNApplication.getInstance().getCustomDnsPrimary()))
-                            // Exclude our own UID so upstream sockets (xray, zivpn,
-                            // dnstt, ssh, SOCKS dials) never loop into the TUN.
+                            
+                            
                             .addDisallowedApplication(getPackageName());
 
                     tunFd = builder.establish();
@@ -292,24 +273,24 @@ public class TasVpnService extends VpnService {
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
 
-                    // Journal de session par tunnel (zivvn, Hysteria, Xray,
-                    // Xray slowdns, SSH, SSH slowdns) : same layout as the rest
-                    // of the file so the Logs tab shows one chronology. An
-                    // unrecognised type yields "" and the block is skipped.
+                    
+                    
+                    
+                    
                     final String tunnelType = UdpSessionLog.typeOfTunnel(this, tid);
                     if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
                         UdpSessionLog.connecting();
                     }
 
                     ctrl = Vpnlib.newController();
-                    // Publish BEFORE the blocking start() so a disconnect
-                    // arriving during CONNECTING can reach this controller.
-                    // stopSession() used to see a null controller here, do
-                    // nothing, and let the data plane build itself to the end.
+                    
+                    
+                    
+                    
                     pendingController.set(ctrl);
                     if (isSuperseded(gen)) {
-                        // Déconnexion arrivée pile avant le start() Go : ne
-                        // jamais lancer le plan de données, tout démonter.
+                        
+                        
                         abortSupersededStart(gen, ctrl);
                         return;
                     }
@@ -324,8 +305,8 @@ public class TasVpnService extends VpnService {
                     }
 
                     if (isSuperseded(gen)) {
-                        // A disconnect (or newer connect) arrived while starting:
-                        // tear down instead of publishing a zombie session.
+                        
+                        
                         abortSupersededStart(gen, ctrl);
                         return;
                     }
@@ -338,14 +319,14 @@ public class TasVpnService extends VpnService {
                     acquireWakeLock();
                     showCustomBanner(tid);
 
-                    // Re-check as late as possible, immediately before posting
-                    // the notification. setActiveTunnelId (SharedPreferences),
-                    // acquireWakeLock and showCustomBanner (file read plus a
-                    // gomobile call) sit between the test above and this post,
-                    // which made the window wide enough for a disconnect to
-                    // land in it — and the notification was then re-posted
-                    // AFTER stopForeground(true), leaving a ghost VPN key that
-                    // nothing was left to remove.
+                    
+                    
+                    
+                    
+                    
+                    
+                    
+                    
                     if (isSuperseded(gen)) {
                         abortSupersededStart(gen, null);
                         return;
@@ -362,19 +343,19 @@ public class TasVpnService extends VpnService {
                     lastFailure = e;
                     Log.e(TAG, "startSession attempt " + attempt + " failed", e);
                     if (ctrl != null) {
-                        // Never leak an unpublished controller across attempts.
+                        
                         pendingController.compareAndSet(ctrl, null);
-                        // Bounded: the next attempt needs the SOCKS ports back,
-                        // so we do have to wait here — but not forever, or a
-                        // wedged Go teardown would keep this connect thread
-                        // (and its "Connecting..." post) alive indefinitely.
+                        
+                        
+                        
+                        
                         stopControllerBoundedSync(ctrl, RETRY_STOP_TIMEOUT_S,
                                 "retry cleanup");
                     }
                     closeTunQuietly();
                     if (isSuperseded(gen)) {
-                        // Sweep the shade: the "Connecting..." post from this
-                        // attempt may still be the visible one.
+                        
+                        
                         cancelNotification();
                         releaseWakeLock();
                         return;
@@ -402,10 +383,10 @@ public class TasVpnService extends VpnService {
         } finally {
             connectInFlight.set(false);
             pendingController.set(null);
-            // Last line of defence: if this attempt was superseded at any
-            // point, make sure no "Connecting..." / "Connected" post of ours
-            // outlived the disconnect. Generation-guarded, so a newer connect
-            // that legitimately re-posted its own notification is untouched.
+            
+            
+            
+            
             if (isSuperseded(gen)) {
                 cancelNotification();
             }
@@ -424,14 +405,14 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /** Clear the connecting flag, but only if no newer session took over. */
+    
     private static void clearStarting(int gen) {
         if (sessionGen.get() == gen) {
             starting = false;
         }
     }
 
-    /** Custom banner of the profile (Backup "Custom Banner" + Note). */
+    
     private void showCustomBanner(String tunnelId) {
         try {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
@@ -460,7 +441,7 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /** True when a newer start/stop request superseded this generation. */
+    
     private boolean isSuperseded(int gen) {
         return gen != sessionGen.get();
     }
@@ -506,15 +487,7 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /**
-     * Sweep the notification for good.
-     *
-     * stopForeground(true) is not a reliable guarantee on its own: the
-     * connect thread can re-post the very same notification afterwards (see
-     * abortSupersededStart), and the notification is built with
-     * setOngoing(true), so a survivor cannot even be swiped away. cancel() is
-     * the only authoritative removal, and it is idempotent and cheap.
-     */
+    
     private void cancelNotification() {
         try {
             android.app.NotificationManager nm =
@@ -530,21 +503,15 @@ public class TasVpnService extends VpnService {
         stopSession(false);
     }
 
-    /**
-     * Tear the session down.
-     *
-     * @param nuclear short teardown bound — the user asked for an immediate
-     *               kill, so we drop the notification straight away and stop
-     *               waiting on the Go teardown sooner.
-     */
+    
     private void stopSession(boolean nuclear) {
-        // Invalidate any in-flight connect first.
+        
         sessionGen.incrementAndGet();
         starting = false;
-        // Journal de session UDP : la séquence d'arrêt complète la ligne de
-        // connexion. Résolu avant que activeTunnelId ne soit effacé. Bloc
-        // entièrement défensif : un crash ICI (main thread, dans le chemin
-        // nucléaire) fermerait l'app sans libérer proprement la session.
+        
+        
+        
+        
         try {
             if (controller != null && activeTunnelId != null) {
                 String t = UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, activeTunnelId));
@@ -554,9 +521,9 @@ public class TasVpnService extends VpnService {
             }
         } catch (Exception ignored) {
         }
-        // 1) RELEASE THE KEY IMMEDIATELY: fermer le TUN et quitter le
-        // foreground fait disparaître l'icône clé sur le champ, même si
-        // l'arrêt lourd du plan Go traîne ensuite (ou plante).
+        
+        
+        
         try {
             if (tunFd != null) {
                 tunFd.close();
@@ -569,31 +536,31 @@ public class TasVpnService extends VpnService {
             stopForeground(true);
         } catch (Exception ignored) {
         }
-        // ...then sweep the shade for good: a notification re-posted by the
-        // connect thread (or an OEM where stopForeground races the notify)
-        // would otherwise stay forever, ongoing and un-swipeable.
+        
+        
+        
         cancelNotification();
 
-        // 2) Heavy teardown (Go process kills, stack drain) off main thread
-        // — jamais d'ANR, jamais de crash de l'UI quand la session a duré.
-        // Take BOTH the live session and a start that is still in flight:
-        // during CONNECTING the live one is null and the in-flight one is the
-        // only thing that can be stopped. Controller.stop() blocks until the
-        // concurrent start() releases its mutex, so this waits rather than
-        // tears resources out from under it; the bound below caps the wait.
+        
+        
+        
+        
+        
+        
+        
         final Object ctrl = controller;
         controller = null;
         final Object inflight = pendingController.getAndSet(null);
         activeTunnelId = null;
         final Object target = ctrl != null ? ctrl : inflight;
         if (target == null) {
-            // Nothing visible to stop — mais une tentative peut être en vol
-            // (retry-sleep ou avant pendingController.set). En nucléaire, le
-            // watchdog est TOUJOURS armé : au moment où il tire (5s), toute
-            // activité restante (teardown coincé, thread de connexion encore
-            // vivant, contrôleur publié entre-temps) provoque la mort du
-            // processus ; si tout est propre, l'app survit (nucléaire
-            // « propre »).
+            
+            
+            
+            
+            
+            
+            
             if (nuclear) {
                 logEvent("warning", "app", "nuclear disconnect (watchdog armed)");
                 armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
@@ -609,9 +576,9 @@ public class TasVpnService extends VpnService {
             logEvent("warning", "app", "nuclear disconnect (bound " + timeoutS + "s)");
             armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
         } else {
-            // Armed on the normal path too, with a long grace: a healthy
-            // teardown disarms it by finishing, and a wedged one still cannot
-            // leave the key in the shade with nobody left to remove it.
+            
+            
+            
             armNuclearWatchdog(WATCHDOG_KILL_NORMAL_MS);
         }
         stopControllerAsync(target, timeoutS, nuclear ? "nuclear" : "disconnect");
@@ -620,17 +587,7 @@ public class TasVpnService extends VpnService {
         stopSelf();
     }
 
-    /**
-     * Hand a controller to the Go teardown on a background thread, with a hard
-     * bound.
-     *
-     * <p>{@code Future.cancel(true)} only sets a Java interrupt flag, which
-     * cannot unwind a gomobile call: if the Go side is wedged the underlying
-     * thread stays blocked forever. That is exactly why {@link #goStopHanging}
-     * is cleared inside the task and not by the waiting thread — the nuclear
-     * watchdog must learn the truth about whether the teardown really
-     * finished, not whether we stopped waiting for it.
-     */
+    
     private void stopControllerAsync(final Object target, long timeoutS, String what) {
         goStopHanging.set(true);
         new Thread(() -> {
@@ -658,35 +615,29 @@ public class TasVpnService extends VpnService {
             } catch (Exception e) {
                 Log.e(TAG, "controller stop failed (" + what + ")", e);
             }
-            // The connect thread may have re-posted its notification while we
-            // were tearing down. Sweep once more, now that nothing else can.
+            
+            
             try {
                 stopForeground(true);
             } catch (Exception ignored) {
             }
             cancelNotification();
             releaseWakeLock();
-            // Ne désarmer le watchdog kill QUE si le teardown Go a réellement
-            // retourné. En CONNECTING, Controller.stop() attend le mutex d'un
-            // start() encore en vol (attentes SOCKS/dnstt jusqu'à ~20 s) : le
-            // Future a expiré mais l'appel gomobile reste coincé et
-            // goStopHanging est toujours vrai. Désarmer ici supprimait le
-            // seul recours (kill du processus) et laissait le start()
-            // construire la session jusqu'au bout — c'était la cause du
-            // "nucléaire qui ne marche pas à tous les coups en CONNECTING".
+            
+            
+            
+            
+            
+            
+            
+            
             if (!goStopHanging.get()) {
                 disarmNuclearWatchdog();
             }
         }, "ephang-disconnect").start();
     }
 
-    /**
-     * Bounded synchronous variant, used by the connect thread's own cleanup
-     * between two retry attempts. The next attempt needs the SOCKS ports back,
-     * so waiting is genuinely required — but the wait is capped, otherwise a
-     * wedged Go teardown pins the connect thread and its "Connecting..."
-     * notification for good.
-     */
+    
     private void stopControllerBoundedSync(final Object target, long timeoutS, String what) {
         goStopHanging.set(true);
         java.util.concurrent.ExecutorService exec = null;
@@ -712,29 +663,13 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /**
-     * Last resort of the nuclear path: if the Go teardown has still not
-     * returned once the deadline passed, end the process. The notification is
-     * swept first — it is built with setOngoing(true), so it cannot be swiped
-     * away — and the kill follows immediately.
-     *
-     * <p>Posted on the service's own handler rather than an Activity's: the
-     * user may well have left the app by then, and a watchdog bound to a dead
-     * Activity is precisely why the key used to survive.
-     */
-    /**
-     * Kill-process de dernier recours (voie nucléaire ET voie normale).
-     * Il ne tire que si une session reste VIVANTE au moment du délai :
-     * teardown Go coincé, tentative de connexion encore en vol (retry-sleep
-     * ou start() bloqué), contrôleur publié non arrêté. S'il n'y a plus rien,
-     * l'app survit — le nucléaire ne doit pas fermer l'application quand la
-     * déconnexion a réussi proprement.
-     */
+    
+    
     private final Runnable nuclearKill = new Runnable() {
         @Override
         public void run() {
             if (!hasSessionActivity()) {
-                return; // Tout est arrêté : rien à tuer.
+                return; 
             }
             try {
                 stopForeground(true);
@@ -747,12 +682,7 @@ public class TasVpnService extends VpnService {
         }
     };
 
-    /**
-     * Vrai tant que quelque chose doit encore mourir avant que la clé VPN
-     * puisse survivre : session active, tentative en cours (même entre deux
-     * essais), contrôleur publié mais pas encore promu, ou teardown Go coincé.
-     * Utilisé par le watchdog service ET par le kill de la voie Activity.
-     */
+    
     public static boolean hasSessionActivity() {
         return controller != null
                 || starting
@@ -770,22 +700,14 @@ public class TasVpnService extends VpnService {
         serviceHandler.removeCallbacks(nuclearKill);
     }
 
-    /**
-     * A disconnect arrived while this connect attempt was still running:
-     * tear the half-built session down and leave neither a notification nor a
-     * VPN key behind. Connect thread only.
-     *
-     * <p>The generation may have changed again since {@link #startSession}, so
-     * every step re-checks it: posting "Connected" after a disconnect is
-     * exactly how the ghost key came back.
-     */
+    
     private void abortSupersededStart(int gen, Object localCtrl) {
-        // 1) Drop the key and the notification FIRST, and unconditionally.
-        // The previous order stopped the Go controller inline, before any
-        // sweep: that call can block forever on the controller mutex, and when
-        // it did the sweep below was never reached — leaving an ongoing
-        // notification (i.e. the VPN key) in the shade with nothing left able
-        // to remove it. Order is the whole fix here.
+        
+        
+        
+        
+        
+        
         try {
             stopForeground(true);
         } catch (Exception ignored) {
@@ -793,16 +715,16 @@ public class TasVpnService extends VpnService {
         cancelNotification();
         releaseWakeLock();
 
-        // 2) Then collect whatever controller this attempt left behind.
+        
         Object live = controller;
         controller = null;
         Object victim = live != null ? live : localCtrl;
         pendingController.compareAndSet(localCtrl, null);
         closeTunQuietly();
 
-        // 3) Never block the connect thread on the Go teardown — hand it to a
-        // bounded background stop and return immediately, so the connect
-        // thread reaches its own finally{} (which sweeps the shade again).
+        
+        
+        
         if (victim != null) {
             stopControllerAsync(victim, STOP_TIMEOUT_S, "superseded start " + gen);
         }
@@ -823,7 +745,7 @@ public class TasVpnService extends VpnService {
         super.onRevoke();
     }
 
-    // --- gomobile Controller calls (kept reflective-free: direct calls) ---
+    
 
     private static String invokeStart(Object ctrl, String params) {
         return ((vpnlib.Controller) ctrl).start(params);
@@ -845,7 +767,7 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /** Switch the data plane to another tunnel without restarting the VPN. */
+    
     public static String setActiveTunnel(String tunnelId) {
         Object ctrl = controller;
         if (ctrl == null) {
@@ -864,7 +786,7 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    // --- notification ---
+    
 
     private void createChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -897,7 +819,7 @@ public class TasVpnService extends VpnService {
                 .build();
     }
 
-    /** Refresh the foreground notification text (call from any thread). */
+    
     private void notifyText(String text) {
         try {
             NotificationManager nm = getSystemService(NotificationManager.class);
@@ -909,7 +831,7 @@ public class TasVpnService extends VpnService {
         }
     }
 
-    /** Best-effort pretty status for the native UI. */
+    
     public static String statusSummary() {
         if (controller == null) {
             if (lastError != null) {

@@ -2,10 +2,7 @@ package com.ephang.vpn;
 
 import vpnlib.Vpnlib;
 
-/**
- * Single place calling the gomobile bindings (easy to adapt if the
- * generated signatures ever change).
- */
+
 public final class VpnlibHelper {
     private VpnlibHelper() {
     }

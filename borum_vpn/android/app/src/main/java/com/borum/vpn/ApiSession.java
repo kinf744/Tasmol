@@ -32,7 +32,7 @@ public final class ApiSession {
     public static final String MTN_UNLIMITED_HOST_DEFAULT =
             "kighmu-vpn-919282834024.asia-south1.run.app";
 
-    // Orange Fast : valeurs par défaut pour le tunnel VLESS WS TLS
+    
     public static final String ORANGE_FAST_UUID_DEFAULT =
             "aaaa0000-1111-4222-8333-444455556666";
     public static final String ORANGE_FAST_PATH_DEFAULT = "/@kighmu";
@@ -414,24 +414,24 @@ public final class ApiSession {
             advanced.put("slowdns_pubkey", dnsttPub);
         }
 
-        // ── Orange Fast : VLESS WS TLS avec paramètres spécifiques ──
+        
         if ("orange_fast".equalsIgnoreCase(mode)) {
-            BinaryManager.appendKighmu("[Orange Fast] Début construction config tunnel Orange Fast");
+            BinaryManager.appendLog("[Orange Fast] Début construction config tunnel Orange Fast");
             try {
                 String ofHost = c.optString("host", "");
                 if (ofHost.isEmpty()) {
                     ofHost = ORANGE_FAST_HOST_DEFAULT;
                 }
-                BinaryManager.appendKighmu("[Orange Fast] Host WS: " + ofHost);
+                BinaryManager.appendLog("[Orange Fast] Host WS: " + ofHost);
                 String ofUuid = c.optString("xray_uuid", ORANGE_FAST_UUID_DEFAULT);
                 String ofPath = c.optString("path", ORANGE_FAST_PATH_DEFAULT);
                 String ofSni = c.optString("sni", ORANGE_FAST_SNI_DEFAULT);
-                BinaryManager.appendKighmu("[Orange Fast] UUID: " + ofUuid);
-                BinaryManager.appendKighmu("[Orange Fast] Path: " + ofPath);
-                BinaryManager.appendKighmu("[Orange Fast] SNI: " + ofSni);
+                BinaryManager.appendLog("[Orange Fast] UUID: " + ofUuid);
+                BinaryManager.appendLog("[Orange Fast] Path: " + ofPath);
+                BinaryManager.appendLog("[Orange Fast] SNI: " + ofSni);
 
-                // S'assurer que les paramètres spécifiques Orange Fast sont bien appliqués
-                // (ils viennent de l'API mais on les force par sécurité).
+                
+                
                 server.put("host", c.optString("address", "192.179.18.100"));
                 server.put("port", c.optInt("port", 443));
                 server.put("sni", ofSni);
@@ -458,29 +458,29 @@ public final class ApiSession {
                 streamSettings.put("tlsSettings", tlsSettings);
                 streamSettings.put("wsSettings", wsSettings);
 
-                // Pas de proxy HTTP pour Orange Fast (contrairement à MTN),
-                // pas de sockopt.dialerProxy non plus.
-                BinaryManager.appendKighmu("[Orange Fast] Config VLESS WS TLS construit");
-                BinaryManager.appendKighmu("[Orange Fast] Config prêt pour le tunnel Go");
+                
+                
+                BinaryManager.appendLog("[Orange Fast] Config VLESS WS TLS construit");
+                BinaryManager.appendLog("[Orange Fast] Config prêt pour le tunnel Go");
             } catch (Exception e) {
-                BinaryManager.appendKighmu("[Orange Fast] ERREUR construction config: " + e.getMessage());
+                BinaryManager.appendLog("[Orange Fast] ERREUR construction config: " + e.getMessage());
             }
         }
 
         if ("mtn_unlimited".equalsIgnoreCase(mode)) {
-            BinaryManager.appendKighmu("[MTN] Début construction config tunnel MTN Illimité");
+            BinaryManager.appendLog("[MTN] Début construction config tunnel MTN Illimité");
             try {
                 String mtnHost = c.optString("host", "");
                 if (mtnHost.isEmpty()) {
                     mtnHost = "kighmu-vpn-919282834024.asia-south1.run.app";
                 }
-                BinaryManager.appendKighmu("[MTN] Host WS: " + mtnHost);
+                BinaryManager.appendLog("[MTN] Host WS: " + mtnHost);
                 String xrayUuid = c.optString("xray_uuid", MTN_UNLIMITED_UUID_DEFAULT);
                 String wsPath = c.optString("path", MTN_UNLIMITED_PATH_DEFAULT);
                 String mtnSni = c.optString("sni", MTN_UNLIMITED_SNI_DEFAULT);
-                BinaryManager.appendKighmu("[MTN] UUID: " + xrayUuid);
-                BinaryManager.appendKighmu("[MTN] Path: " + wsPath);
-                BinaryManager.appendKighmu("[MTN] SNI: " + mtnSni);
+                BinaryManager.appendLog("[MTN] UUID: " + xrayUuid);
+                BinaryManager.appendLog("[MTN] Path: " + wsPath);
+                BinaryManager.appendLog("[MTN] SNI: " + mtnSni);
 
                 JSONObject httpHeaders = new JSONObject();
                 httpHeaders.put("Host", "findschoolnews.blogspot.com:443");
@@ -585,11 +585,11 @@ public final class ApiSession {
                 fullCfg.put("policy", policy);
 
                 advanced.put("outbound_json", fullCfg.toString());
-                BinaryManager.appendKighmu("[MTN] Config Xray complet construit (outbound_json)");
-                BinaryManager.appendKighmu("[MTN] Outbounds: VLESS WS TLS (sockopt.dialerProxy=alrufaaey) + HTTP proxy 157.240.9.39:8080");
-                BinaryManager.appendKighmu("[MTN] Config prêt pour le tunnel Go");
+                BinaryManager.appendLog("[MTN] Config Xray complet construit (outbound_json)");
+                BinaryManager.appendLog("[MTN] Outbounds: VLESS WS TLS (sockopt.dialerProxy=alrufaaey) + HTTP proxy 157.240.9.39:8080");
+                BinaryManager.appendLog("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
-                BinaryManager.appendKighmu("[MTN] ERREUR construction config: " + e.getMessage());
+                BinaryManager.appendLog("[MTN] ERREUR construction config: " + e.getMessage());
 
             }
         }

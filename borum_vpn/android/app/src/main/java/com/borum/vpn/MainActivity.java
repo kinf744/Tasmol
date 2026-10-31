@@ -58,8 +58,7 @@ public class MainActivity extends AppCompatActivity {
 
         super.onCreate(savedInstanceState);
 
-        BinaryManager.startDownloadMirror();
-        BinaryManager.appendKighmu("[APP] Démarrage Borum VPN");
+        BinaryManager.appendLog("[APP] Démarrage Borum VPN");
 
         if (!ApiSession.isAuthenticated(this)) {
             Intent i = new Intent(this, AuthActivity.class);

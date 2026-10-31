@@ -15,10 +15,10 @@ public class VPNApplication extends Application {
 
     @Override
     public void onCreate() {
-        // Captureur de crash AVANT tout : toute exception non interceptée
-        // finit dans Download/kighmu.txt avec sa stacktrace complète —
-        // indispensable pour diagnostiquer les fermetures brutales
-        // (ex. « l'app se ferme à la déconnexion »).
+        
+        
+        
+        
         Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, err) -> {
@@ -32,16 +32,16 @@ public class VPNApplication extends Application {
             }
             android.os.Process.killProcess(android.os.Process.myPid());
         });
-        // Initialise le coffre chiffré + client API durci (libpho).
+        
         PhoHelper.init(this);
-        // Self-check runtime (non bloquant): trace/émulateur -> log.
+        
         PhoHelper.selfCheck((r, e) -> {
             if (r != null && r.optBoolean("traced", false)) {
                 TasVpnService.logEvent("warning", "app", "Debugger détecté (mode dégradé silencieux)");
             }
         });
-        // Suivi de l'activite courante : un crash arrive presque toujours
-        // dans un ecran precis, son nom rend la stack trace parlante.
+        
+        
         registerActivityLifecycleCallbacks(new android.app.Application.ActivityLifecycleCallbacks() {
             @Override
             public void onActivityResumed(android.app.Activity a) {
@@ -76,9 +76,9 @@ public class VPNApplication extends Application {
         instance = this;
         prefs = getSharedPreferences("ephang_vpn_prefs", Context.MODE_PRIVATE);
 
-        // Reprendre un crash du lancement precedent : le rapport est deja
-        // dans les preferences, on peut donc l'afficher meme si l'ecriture
-        // sur disque a ete interrompue par la mort du processus.
+        
+        
+        
         try {
             String prev = getSharedPreferences("crash_report", Context.MODE_PRIVATE)
                     .getString("last", "");
@@ -89,9 +89,9 @@ public class VPNApplication extends Application {
         } catch (Throwable ignored) {
         }
 
-        // Stage binaries + config.yaml on app launch so the Servers/Home/Editor
-        // screens work before any VPN connection (fixes "no such file" when
-        // reading /data/user/0/.../config.yaml on first run).
+        
+        
+        
         try {
             BinaryManager.ensureReady(this);
         } catch (Exception e) {
@@ -103,17 +103,7 @@ public class VPNApplication extends Application {
         return instance;
     }
 
-    /**
-     * Rapport de crash détaillé : horodatage, appareil, version app, etat
-     * VPN au moment du crash, stacktrace complète (cause racine incluse),
-     * etat memoire/thread, activite courante et dernier journal.
-     *
-     * Le rapport est ecrit dans le stockage prive de l'app (seul emplacement
-     * fiable) puis DIFFUSE dans Download/ via MediaStore, car depuis
-     * Android 10 l'ecriture directe y est interdite et le fichier restait
-     * invisible pour l'utilisateur. Il est aussi rejoue au demarrage suivant
-     * (banniere + bouton de partage) pour ne dependre d'aucun timing.
-     */
+    
     private void writeCrashReport(Thread thread, Throwable err) {
         try {
             StringBuilder sb = new StringBuilder();
@@ -138,8 +128,8 @@ public class VPNApplication extends Application {
                     .append(" starting=").append(TasVpnService.isStarting())
                     .append(" active=").append(String.valueOf(TasVpnService.getActiveTunnelId()))
                     .append('\n');
-            // Contexte memoire/process : un OutOfMemory ou un deadlock se
-            // diagnose beaucoup plus vite avec ces chiffres.
+            
+            
             Runtime rt = Runtime.getRuntime();
             long total = rt.totalMemory() / (1024 * 1024);
             long free = rt.freeMemory() / (1024 * 1024);
@@ -161,11 +151,11 @@ public class VPNApplication extends Application {
                                  new java.io.File(BinaryManager.logDir(), "crash.txt"), false)) {
                 out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
-            // Relire au demarrage suivant : l'ecriture pendant le crash peut
-            // etre interrompue par la mort du processus.
+            
+            
             getSharedPreferences("crash_report", Context.MODE_PRIVATE)
                     .edit().putString("last", report).apply();
-            // Rendre le rapport visible par l'utilisateur (Download).
+            
             boolean published = CrashShare.publishToDownload(this,
                     CrashShare.timestampedName("ephang-crash", ".txt"), report);
             lastCrashReport = report;
@@ -177,7 +167,7 @@ public class VPNApplication extends Application {
         }
     }
 
-    /** Trace complet : exception + toutes les causes enchainees. */
+    
     private static String fullStack(Throwable err) {
         StringWriter sw = new StringWriter();
         err.printStackTrace(new PrintWriter(sw));
@@ -220,11 +210,11 @@ public class VPNApplication extends Application {
         return currentActivity.isEmpty() ? "n/d" : currentActivity;
     }
 
-    // Nom de l'activite resume : un crash arrive presque toujours dans un
-    // ecran precis, son nom rend la stack trace immédiatement parlante.
+    
+    
     private static volatile String currentActivity = "";
 
-    /** Dernier rapport de crash, rejoue au demarrage suivant. */
+    
     private static volatile String lastCrashReport = "";
     private static volatile boolean hasPendingCrash = false;
 
@@ -238,10 +228,7 @@ public class VPNApplication extends Application {
         return r == null ? "" : r;
     }
 
-    /**
-     * Publie le dernier rapport de crash dans Download et le marque comme
-     * traite. Appele depuis la bannière de demarrage.
-     */
+    
     public boolean shareLastCrashReport() {
         String report = lastCrashReport;
         if (report == null || report.isEmpty()) {
@@ -279,12 +266,11 @@ public class VPNApplication extends Application {
         prefs.edit().putString("active_tunnel_id", id == null ? "" : id).apply();
     }
 
-    /** Selected profiles (multi-select). 1 selected = single mode,
-     *  2+ = round-robin mode: Home connects ALL of them at once. */
+    
     public java.util.LinkedHashSet<String> getSelectedIds() {
         String csv = prefs.getString("selected_ids", null);
         if (csv == null) {
-            // One-time migration from the old round-robin key.
+            
             csv = prefs.getString("round_robin_ids", "");
             prefs.edit().putString("selected_ids", csv).remove("round_robin_ids").apply();
         }
@@ -314,7 +300,7 @@ public class VPNApplication extends Application {
         prefs.edit().putString("selected_ids", sb.toString()).apply();
     }
 
-    /** Toggle one id in the selection. Returns the new set. */
+    
     public java.util.LinkedHashSet<String> toggleSelected(String id) {
         java.util.LinkedHashSet<String> set = getSelectedIds();
         if (!set.remove(id)) {
@@ -328,7 +314,7 @@ public class VPNApplication extends Application {
         return id != null && getSelectedIds().contains(id);
     }
 
-    /** Selection as comma-separated ids (for the Go round_robin param). */
+    
     public String getSelectedCsv() {
         java.util.LinkedHashSet<String> set = getSelectedIds();
         StringBuilder sb = new StringBuilder();
@@ -371,7 +357,7 @@ public class VPNApplication extends Application {
         prefs.edit().putBoolean("auto_start", enabled).apply();
     }
 
-    // --- App settings (Settings menu, Picko-style, adapted) ---
+    
 
     public boolean isDnsProtectionEnabled() {
         return prefs.getBoolean("set_dns_protection", true);

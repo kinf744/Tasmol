@@ -29,18 +29,18 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
-/** Native server editor: same fields as the Web UI, fully offline. */
+
 public class TunnelEditorActivity extends AppCompatActivity {
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
-    // "Xray + SlowDNS" n'est plus un type séparé : c'est le type Xray avec
-    // la case SlowDNS cochée (sw_xray_slowdns) -> type effectif xray_slowdns.
-    // "SSH + SlowDNS" est devenu le mode SSH-DNSTT du tunnel SSH.
+    
+    
+    
     private static final String[] TYPES = {"ssh", "xray", "zivpn", "hysteria", "utunnel"};
     private static final String[] TYPE_LABELS = {"SSH", "Xray", "Zivpn UDP", "Hysteria UDP", "Utunnel UDP"};
 
-    // 9 modes SSH (alignes sur l'editeur de reference). Le mode DNSTT
-    // remplace l'ancien type ssh_slowdns (type effectif ssh_slowdns).
+    
+    
     private static final String[] SSH_MODES = {
             "SSH-Direct", "SSH-Proxy", "SSH-Payload", "SSH-Proxy-Payload",
             "SSH-TLS", "SSH-TLS-Proxy", "SSH-TLS-Payload", "SSH-TLS-Proxy-Payload",
@@ -68,8 +68,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edHost;
     private EditText edPort;
     private TextView lblPort;
-    // Les plages de ports ZIVPN sont FIXES (usage commercial — champ non
-    // exposé) : 8 sous-plages couvrant 6000-19999, round-robin interne.
+    
+    
     private static final String ZIVPN_FIXED_RANGES =
             "6000-7750,7751-9500,9501-11250,11251-13000,"
             + "13001-14750,14751-16500,16501-18250,18251-19999";
@@ -88,37 +88,37 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private RadioButton rbModeLink;
     private RadioButton rbModeJson;
     private EditText edXrayInput;
-    // Per-mode stash so Link/JSON contents survive a radio switch.
+    
     private String stashLink = "";
     private String stashJson = "";
 
     private static final String HINT_LINK = "vless://... / vmess://... / trojan://... / ss://...";
     private static final String HINT_JSON = "{\"outbounds\":[{\"protocol\":\"vless\",...}]}";
 
-    // Xray manual form ("Configure manually"): structured builder that
-    // generates the same outbound_json the Go core consumes verbatim.
-    // Protocoles du formulaire Xray. Http et Socks produisent de vrais
-    // outbounds Xray ; Hysteria n'existe pas dans Xray (c'est un client
-    // separe) : l'option reste visible comme dans l'editeur de reference
-    // mais la sauvegarde redirige vers le type "Hysteria UDP".
-    // Wireguard est un outbound Xray natif (userspace) : pas de transport
-    // ni de couche TLS/Reality, les cles WG remplacent uuid/password.
+    
+    
+    
+    
+    
+    
+    
+    
     private static final String[] XM_PROTOCOLS = {"vmess", "vless", "trojan", "shadowsocks",
             "http", "socks", "hysteria", "wireguard"};
     private static final String[] XM_PROTOCOL_LABELS = {"VMess", "VLESS", "Trojan", "Shadowsocks",
             "Http", "Socks", "Hysteria", "Wireguard"};
     private static final String[] XM_INSECURE = {"false", "true"};
-    // Transports Xray du formulaire manuel. mKCP (mkcp) est pris en charge
-    // par le coeur Go (kcpSettings) mais SANS header/seed : Xray 26.x les a
-    // supprimes (migration finalmask/udp). "http" (HTTP/2) et "quic" ont ete
-    // RETIRES de Xray 26.x (migrés vers XHTTP stream-one) et faisaient
-    // echouer le demarrage du process, ils ne sont donc plus proposé.
+    
+    
+    
+    
+    
     private static final String[] XM_NETWORKS = {"tcp", "ws", "grpc", "xhttp", "httpupgrade",
             "kcp"};
     private static final String[] XM_NETWORK_LABELS = {"TCP", "WebSocket (ws)", "gRPC", "XHTTP",
             "HTTPUpgrade", "mKCP"};
-    // Transports supprimes par Xray : on les signale a l'edition au lieu de
-    // les laisser disparaitre silencieusement du formulaire.
+    
+    
     private static final String[] XM_NETWORKS_REMOVED = {"http", "quic"};
     private static final String[] XM_KCP_HEADERS = {"none", "srtp", "utp", "wechat-video",
             "dtls", "wireguard"};
@@ -174,7 +174,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private LinearLayout secXmReality;
     private EditText edXmPubkey;
     private EditText edXmSid;
-    // WireGuard (outbound Xray natif) : cles + parametres du tunnel.
+    
     private LinearLayout cardXmTransport;
     private LinearLayout cardXmSecurity;
     private LinearLayout secXmWireguard;
@@ -187,12 +187,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private EditText edXmWgKeepAlive;
     private EditText edXmWgReserved;
     private EditText edXmWgDns;
-    // Header rows of the manual form (each row = 2 EditTexts + remove view).
+    
     private final List<View> xmHeaderRows = new ArrayList<>();
-    // Link used by "IMPORT LINK INTO FORM" (stored back as advanced.link).
+    
     private String lastImportedLink = "";
 
-    // SSH multi-mode (9 protocols, cf. section SSH de l'editeur de reference).
+    
     private LinearLayout secSshProtocol;
     private Spinner spSshProtocol;
     private Spinner spSshAuth;
@@ -257,8 +257,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         findViewById(R.id.btn_cancel).setOnClickListener(v -> finish());
         findViewById(R.id.btn_save).setOnClickListener(v -> save());
 
-        // One field, two exclusive modes: switching Link/JSON stashes the
-        // current content and restores the other mode's own content.
+        
+        
         rgXrayMode.setOnCheckedChangeListener((group, checkedId) -> onXrayModeChanged());
 
         if (editId != null) {
@@ -286,7 +286,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edPassword = findViewById(R.id.ed_password);
         edSshProxy = findViewById(R.id.ed_ssh_proxy);
         edSshPayload = findViewById(R.id.ed_ssh_payload);
-        // SSH multi-mode (9 protocols).
+        
         secSshProtocol = findViewById(R.id.sec_ssh_protocol);
         spSshProtocol = findViewById(R.id.sp_ssh_protocol);
         spSshAuth = findViewById(R.id.sp_ssh_auth);
@@ -344,7 +344,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edSni = findViewById(R.id.ed_sni);
         edRealityPubkey = findViewById(R.id.ed_reality_pubkey);
         edShortid = findViewById(R.id.ed_shortid);
-        // Xray manual form ("Configure manually").
+        
         cardXrayManualToggle = findViewById(R.id.card_xray_manual_toggle);
         swXrayManual = findViewById(R.id.sw_xray_manual);
         cardXraySlowdns = findViewById(R.id.card_xray_slowdns);
@@ -411,19 +411,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edNetwork.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, NETWORKS));
         edSecurity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SECURITY_LABELS));
         edObfs.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, OBFSS));
-        // SSH multi-mode spinners.
+        
         spSshProtocol.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_MODES));
         spSshAuth.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_AUTH_MODES));
         spSshTlsVersion.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SSH_TLS_VERSIONS));
         spSshDnsttMode.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, DNSTT_MODES));
-        // Xray manual form spinners.
+        
         spXmProtocol.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_PROTOCOL_LABELS));
         spXmNetwork.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_NETWORK_LABELS));
         spXmKcpHeader.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_KCP_HEADERS));
         spXmSecurity.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, SECURITY_LABELS));
         spXmInsecure.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_INSECURE));
-        // "Allow Insecure = true" par defaut : les certificats VPS sont
-        // auto-signes, la verification stricte ferait echouer le tunnel.
+        
+        
         spXmInsecure.setSelection(1);
         spXmEnc.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_ENC_VMESS));
 
@@ -441,7 +441,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         edNetwork.setOnItemSelectedListener(refresh);
         edSecurity.setOnItemSelectedListener(refresh);
 
-        // SSH : protocol / auth / proxy-auth change la visibilite des blocs.
+        
         AdapterView.OnItemSelectedListener refreshSsh = new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
@@ -492,16 +492,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
         findViewById(R.id.btn_xm_add_header).setOnClickListener(v -> addHeaderRow("", ""));
     }
 
-    // ------------------------------------------------------------------
-    // Generateur de payload (modes SSH-Payload*)
-    // ------------------------------------------------------------------
+    
+    
+    
 
-    /**
-     * Payload generator: assemble an injector-style HTTP request for the
-     * proxy hop. The token set is the one the Go engine understands:
-     * [host] [port] [host_port] [crlf] [lf] [split] [delay] [proxy_host]
-     * [proxy_port] [protocol] [split] [delay].
-     */
+    
     private void showPayloadGenerator() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
@@ -635,12 +630,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return TYPES[pos];
     }
 
-    // ------------------------------------------------------------------
-    // SSH : 9 protocoles (Direct, Proxy, Payload, TLS, DNSTT et leurs
-    // combinaisons). Le mode est persiste dans advanced["ssh_mode"].
-    // ------------------------------------------------------------------
+    
+    
+    
+    
 
-    /** Cle du mode SSH courant (direct, proxy, payload, tls, dnstt, ...). */
+    
     private String sshModeKey() {
         int pos = spSshProtocol != null ? spSshProtocol.getSelectedItemPosition() : -1;
         if (pos < 0 || pos >= SSH_MODES_KEYS.length) {
@@ -649,7 +644,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return SSH_MODES_KEYS[pos];
     }
 
-    /** Le mode contient-il la capacite demandee ("proxy" / "tls" / "payload") ? */
+    
     private boolean sshModeUses(String modeKey, String capability) {
         return modeKey.contains(capability);
     }
@@ -677,10 +672,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
         int secPos = edSecurity.getSelectedItemPosition();
         String security = secPos >= 0 ? SECURITIES[secPos] : "";
 
-        // SlowDNS n'est plus un type du spinner : case a cocher sur Xray.
+        
         boolean xrayUi = type.equals("xray");
         boolean slowXray = xrayUi && swXraySlowdns != null && swXraySlowdns.isChecked();
-        // SSH : le type "ssh_slowdns" est devenu le mode SSH-DNSTT.
+        
         String sshModeKey = sshModeKey();
         boolean sshDnstt = type.equals("ssh") && sshModeKey.equals("dnstt");
         boolean isSSH = type.equals("ssh");
@@ -691,10 +686,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
         boolean isUtunnel = type.equals("utunnel");
         boolean showServer = !type.equals("xray");
 
-        // xray uses link/JSON exclusively; the manual form builds the
-        // outbound. No visible transport section for xray.
+        
+        
         boolean showXrayAuth = false;
-        // No visible transport section: Xray works from link/JSON only.
+        
         boolean showTransport = false;
         boolean isXraySlowDns = slowXray;
 
@@ -706,8 +701,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSshProxyAuth.setVisibility(swSshProxyAuth.isChecked() ? View.VISIBLE : View.GONE);
         secSshTls.setVisibility(isSSH && sshModeUses(sshModeKey, "tls") ? View.VISIBLE : View.GONE);
         secSshPayload.setVisibility(isSSH && sshModeUses(sshModeKey, "payload") ? View.VISIBLE : View.GONE);
-        // Le mode DNSTT du SSH remplace l'ancien "NS / resolver / cle publique"
-        // de la section SlowDNS, avec en plus le choix UDP/TCP.
+        
+        
         lblSshDnsttMode.setVisibility(sshDnstt ? View.VISIBLE : View.GONE);
         spSshDnsttMode.setVisibility(sshDnstt ? View.VISIBLE : View.GONE);
         secXray.setVisibility(showXrayAuth ? View.VISIBLE : View.GONE);
@@ -718,7 +713,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secSlowdns.setVisibility(isSlowDNS ? View.VISIBLE : View.GONE);
         secServer.setVisibility(showServer && !isXraySlowDns ? View.VISIBLE : View.GONE);
         secTransport.setVisibility(showTransport ? View.VISIBLE : View.GONE);
-        // xray_slowdns is link-only: no JSON mode, radio forced to Link.
+        
         if (isXraySlowDns) {
             rbModeJson.setVisibility(View.GONE);
             if (!rbModeLink.isChecked()) {
@@ -732,7 +727,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secPath.setVisibility(!isXraySlowDns && showPath ? View.VISIBLE : View.GONE);
         secReality.setVisibility(!isXraySlowDns && isXray && security.equals("reality") ? View.VISIBLE : View.GONE);
 
-        // Xray "Configure manually" mode (xray UI incl. SlowDNS checkbox).
+        
         boolean manualXray = xrayUi && swXrayManual != null && swXrayManual.isChecked();
         cardXrayManualToggle.setVisibility(xrayUi ? View.VISIBLE : View.GONE);
         cardXraySlowdns.setVisibility(xrayUi ? View.VISIBLE : View.GONE);
@@ -745,8 +740,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
         syncXrayInputVisuals();
 
-        // Port masqué pour zivpn, hysteria ET utunnel : le hopping est
-        // la norme — un port fixe n'a pas lieu d'être saisi.
+        
+        
         int portVis = (isZivpn || isHysteria || isUtunnel) ? View.GONE : View.VISIBLE;
         edPort.setVisibility(portVis);
         lblPort.setVisibility(portVis);
@@ -758,8 +753,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
             String raw = VpnlibHelper.listTunnels(cfgPath).trim();
             if (raw.startsWith("{")) {
-                // Error object, not a list: never present an empty form that
-                // could overwrite the real profile on save.
+                
+                
                 String msg = raw;
                 try {
                     msg = new JSONObject(raw).optString("error", raw);
@@ -778,8 +773,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edName.setText(t.optString("name", ""));
                 String storedType = t.optString("type", "ssh");
                 JSONObject advEarly = t.optJSONObject("advanced");
-                // Retro-compatibilite : xray_slowdns => spinner Xray + case
-                // SlowDNS ; ssh_slowdns => spinner SSH + mode SSH-DNSTT.
+                
+                
                 if (storedType.equals("xray_slowdns")) {
                     selectSpinner(edType, TYPES, "xray");
                     swXraySlowdns.setChecked(true);
@@ -789,8 +784,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 } else {
                     swXraySlowdns.setChecked(false);
                     selectSpinner(edType, TYPES, storedType);
-                    // Un profil "ssh" enregistre avec un mode avance (TLS,
-                    // proxy, payload) doit le retrouver a l'ouverture.
+                    
+                    
                     if (storedType.equals("ssh") && advEarly != null) {
                         String mode = advEarly.optString("ssh_mode", "");
                         if (!mode.isEmpty()) {
@@ -828,7 +823,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edZpass.setText(auth.optString("password", ""));
                     edHyAuth.setText(auth.optString("password", ""));
                     edUtKey.setText(auth.optString("password", ""));
-                    // Cle privee : bascule l'onglet Authentication.
+                    
                     String pk = auth.optString("private_key", "");
                     if (!pk.isEmpty()) {
                         spSshAuth.setSelection(1);
@@ -850,11 +845,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     if (down > 0) {
                         edHyDown.setText(String.valueOf(down));
                     }
-                    // Utunnel : rotation du port source (0 = jamais).
+                    
                     if (adv0.has("utunnel_hop")) {
                         edUtHop.setText(String.valueOf(adv0.optInt("utunnel_hop", 10)));
                     }
-                    // Options SSH avancees (TLS, proxy, DNSTT, UDPGW).
+                    
                     if (adv0.has("ssh_tls_version")) {
                         selectSpinner(spSshTlsVersion, SSH_TLS_VERSIONS_KEYS,
                                 adv0.optString("ssh_tls_version", "default"));
@@ -888,8 +883,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (adv != null) {
                     String link = adv.optString("link", "");
                     String json = adv.optString("outbound_json", "");
-                    // JSON mode wins when a stored config exists (and the
-                    // type allows it); the link stays stashed for a switch.
+                    
+                    
                     boolean jsonMode = !json.isEmpty() && !storedType.equals("xray_slowdns");
                     if (jsonMode) {
                         rbModeJson.setChecked(true);
@@ -900,8 +895,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     stashJson = json;
                     edXrayInput.setText(jsonMode ? json : link);
                     lastXrayLinkMode = xrayLinkMode();
-                    // Profile built with the manual form: restore it as-is
-                    // (the outbound JSON carries every field back).
+                    
+                    
                     if ((storedType.equals("xray") || storedType.equals("xray_slowdns"))
                             && adv.optString("manual_form", "").equals("1")
                             && !json.isEmpty()) {
@@ -911,8 +906,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                             swXrayManual.setChecked(true);
                         } catch (Exception ignored) {
                         }
-                        // Réglages qui ne vivent pas dans l'outbound mais
-                        // dans advanced : Allow Insecure et paramètres mKCP.
+                        
+                        
                         spXmInsecure.setSelection(adv.optBoolean("allow_insecure", true) ? 1 : 0);
                         selectSpinner(spXmKcpHeader, XM_KCP_HEADERS,
                                 adv.optString("kcp_header", "none"));
@@ -922,8 +917,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         edXmKcpUp.setText(String.valueOf(adv.optInt("kcp_up", 5)));
                         edXmKcpDown.setText(String.valueOf(adv.optInt("kcp_down", 20)));
                     }
-                    // xray_slowdns keeps its SlowDNS key in advanced (the
-                    // server key belongs to Reality): prefer it on load.
+                    
+                    
                     if (storedType.equals("xray_slowdns")
                             && !adv.optString("slowdns_pubkey", "").isEmpty()) {
                         edPubkey.setText(adv.optString("slowdns_pubkey"));
@@ -959,17 +954,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
         selectSpinner(spinner, values, value == null ? "" : value);
     }
 
-    /** True when the Xray input is in Link mode (JSON otherwise). */
+    
     private boolean xrayLinkMode() {
         return rbModeLink.isChecked();
     }
 
-    // Tracks the mode before a radio switch so its content can be stashed.
+    
     private boolean lastXrayLinkMode = true;
 
-    /** RadioGroup is single-selection by construction: the two modes can
-     *  never be active together. Switching stashes the old mode's content
-     *  and restores the new mode's own content. */
+    
     private void onXrayModeChanged() {
         boolean linkMode = xrayLinkMode();
         if (linkMode == lastXrayLinkMode) {
@@ -993,9 +986,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    // ------------------------------------------------------------------
-    // Xray manual form ("Configure manually")
-    // ------------------------------------------------------------------
+    
+    
+    
 
     private String xmProtocol() {
         int pos = spXmProtocol.getSelectedItemPosition();
@@ -1018,21 +1011,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return pos >= 0 && pos < SECURITIES.length ? SECURITIES[pos] : "";
     }
 
-    /** Protocol switch: credentials fields + encryption choices follow it. */
+    
     private void onXmProtocolChanged() {
         String proto = xmProtocol();
         boolean idProto = proto.equals("vmess") || proto.equals("vless");
-        // Http / Socks : le champ "User ID" devient un nom d'utilisateur
-        // d'authentification du proxy (users[].user de Xray).
+        
+        
         boolean userProto = proto.equals("http") || proto.equals("socks");
-        // Hysteria 2 est un outbound Xray natif depuis la v26.1.23. Son mot
-        // de passe partage est porte par streamSettings.hysteriaSettings.auth,
-        // donc il est saisi dans le meme champ que trojan/shadowsocks.
+        
+        
+        
         boolean hyProto = proto.equals("hysteria");
-        // Wireguard : outbound Xray natif (userspace, cles Curve25519). Pas
-        // de uuid/password, aucun transport ni couche TLS/Reality ne
-        // s'applique : les cartes 2 et 3 sont masquees et le bloc de cles
-        // WireGuard prend le relais. L'endpoint = Host/Port du formulaire.
+        
+        
+        
+        
         boolean wgProto = proto.equals("wireguard");
         boolean passProto = proto.equals("trojan") || proto.equals("shadowsocks")
                 || userProto || hyProto;
@@ -1052,15 +1045,15 @@ public class TunnelEditorActivity extends AppCompatActivity {
             spXmEnc.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, XM_ENC_SS));
             secXmEnc.setVisibility(View.VISIBLE);
         } else {
-            // VLESS encryption is always "none", Trojan uses none.
+            
             secXmEnc.setVisibility(View.GONE);
         }
         if (hyProto) {
-            // Xray refuse security "none" ET "reality" pour hysteria (tls
-            // est la seule valeur acceptee), et le transport "hysteria" est
-            // obligatoire : le protocole proxy n'a aucune authentification
-            // propre et ne peut pas relayer l'UDP sans lui. On epingle donc
-            // tls et on neutralise le choix du transport.
+            
+            
+            
+            
+            
             if (!"tls".equals(xmSecurity())) {
                 selectSpinnerByValue(spXmSecurity, SECURITIES, "tls");
             }
@@ -1071,19 +1064,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
         refreshXrayManualFields();
     }
 
-    /** Network/security dependent sub-blocks of the manual form. */
+    
     private void refreshXrayManualFields() {
         String net = xmNetwork();
         boolean hasPath = net.equals("ws") || net.equals("grpc") || net.equals("xhttp")
                 || net.equals("httpupgrade");
         secXmPath.setVisibility(hasPath ? View.VISIBLE : View.GONE);
-        // Custom headers are a WebSocket feature (wsSettings.headers).
+        
         secXmHeaders.setVisibility(net.equals("ws") ? View.VISIBLE : View.GONE);
-        // mKCP a son propre bloc (MTU, Tti, capacites).
+        
         secXmKcp.setVisibility(net.equals("kcp") || net.equals("mkcp") ? View.VISIBLE : View.GONE);
-        // Header type et seed ne sont plus emis : Xray 26.x a supprime
-        // kcpSettings.header et kcpSettings.seed. On masque les champs plutot
-        // que de laisser un formulaire qui accepte une saisie sans effet.
+        
+        
+        
         int kcpGone = View.GONE;
         lblXmKcpHeader.setVisibility(kcpGone);
         spXmKcpHeader.setVisibility(kcpGone);
@@ -1094,7 +1087,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         secXmReality.setVisibility(sec.equals("reality") ? View.VISIBLE : View.GONE);
     }
 
-    /** One custom WS header row: key + value + remove. */
+    
     private void addHeaderRow(String key, String value) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -1142,7 +1135,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         xmHeaderRows.clear();
     }
 
-    /** Custom WS headers collected as a JSON object (key -> value). */
+    
     private JSONObject collectCustomHeaders() {
         JSONObject headers = new JSONObject();
         for (View row : xmHeaderRows) {
@@ -1171,24 +1164,21 @@ public class TunnelEditorActivity extends AppCompatActivity {
             toast("Clipboard is empty");
             return;
         }
-        // Auto-select the right tab: JSON object or subscription link.
+        
         boolean isJson = text.startsWith("{");
         RadioButton target = isJson ? rbModeJson : rbModeLink;
         if (isJson && currentType().equals("xray_slowdns")) {
-            target = rbModeLink; // slowdns is link-only
+            target = rbModeLink; 
         }
         if (!target.isChecked()) {
-            target.setChecked(true); // listener stashes + swaps, may overwrite
+            target.setChecked(true); 
             edXrayInput.setText(text);
         } else {
             edXrayInput.setText(text);
         }
     }
 
-    /**
-     * "IMPORT LINK INTO FORM": parse a subscription link (clipboard first,
-     * manual input fallback) through the Go core and fill the manual form.
-     */
+    
     private void importLinkIntoForm() {
         String link = "";
         ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
@@ -1224,12 +1214,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 return;
             }
         }
-        // Fallback: structured fields only (no outbound JSON produced).
+        
         fillManualFromConfig(parsed);
         toast("Link imported");
     }
 
-    /** Fill the manual form from a parsed link's structured fields. */
+    
     private void fillManualFromConfig(JSONObject parsed) {
         JSONObject server = parsed.optJSONObject("server");
         if (server != null) {
@@ -1262,7 +1252,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         refreshXrayManualFields();
     }
 
-    /** Current encryption spinner values (protocol-dependent). */
+    
     private String[] currentEncValues() {
         String proto = xmProtocol();
         if (proto.equals("shadowsocks")) {
@@ -1271,7 +1261,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return XM_ENC_VMESS;
     }
 
-    /** Integer field helper with a fallback when empty/invalid. */
+    
     private int xmInt(EditText field, int def) {
         try {
             int v = Integer.parseInt(field.getText().toString().trim());
@@ -1281,22 +1271,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** "Allow Insecure" : true = epingle de certificat (defaut), false = strict. */
+    
     private boolean xmAllowInsecure() {
         return spXmInsecure != null && spXmInsecure.getSelectedItemPosition() == 1;
     }
 
-    /**
-     * Persiste les parametres specifiques au transport manuel (mKCP), lus
-     * par le coeur Go pour produire kcpSettings.
-     */
+    
     private void putXmTransport(JSONObject adv) throws Exception {
         String net = xmNetwork();
         adv.put("xm_network", net);
         if (net.equals("kcp") || net.equals("mkcp")) {
-            // kcp_header / kcp_seed ne sont plus persistes : Xray 26.x a
-            // supprime kcpSettings.header et kcpSettings.seed, les conserver
-            // ne ferait qu'entretenir une config morte.
+            
+            
+            
             adv.put("kcp_mtu", xmInt(edXmKcpMtu, 1350));
             adv.put("kcp_tti", xmInt(edXmKcpTti, 50));
             adv.put("kcp_up", xmInt(edXmKcpUp, 5));
@@ -1304,12 +1291,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Avertit qu'un transport enregistre n'existe plus dans Xray 26.x.
-     * selectSpinner retombe silencieusement sur la premiere entree de la
-     * liste : sans cet avertissement, un enregistrement "http" ou "quic"
-     * semblerait avoir ete migre vers TCP alors que personne ne l'a demande.
-     */
+    
     private void warnRemovedTransport(String net) {
         for (String gone : XM_NETWORKS_REMOVED) {
             if (gone.equalsIgnoreCase(net)) {
@@ -1320,7 +1302,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** Fill every manual field from a stored/imported outbound JSON object. */
+    
     private void fillManualFromOutbound(JSONObject ob) {
         String proto = ob.optString("protocol", "vless");
         selectSpinner(spXmProtocol, XM_PROTOCOLS, proto);
@@ -1328,8 +1310,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
 
         JSONObject settings = ob.optJSONObject("settings");
         if (proto.equals("wireguard")) {
-            // Settings plats : endpoint dans peers[0], cles et parametres
-            // au niveau settings. Aucun streamSettings a lire.
+            
+            
             if (settings != null) {
                 edXmWgSecret.setText(settings.optString("secretKey", ""));
                 JSONArray addr = settings.optJSONArray("address");
@@ -1357,7 +1339,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     if (allowed != null) {
                         edXmWgAllowed.setText(csvJoin(allowed));
                     }
-                    // endpoint "host:port" separe en champs Host/Port.
+                    
                     String ep = peer.optString("endpoint", "");
                     int ci = ep.lastIndexOf(':');
                     if (ci > 0) {
@@ -1379,9 +1361,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
             if (endpoint == null && servers != null && servers.length() > 0) {
                 endpoint = servers.optJSONObject(0);
             }
-            // Hysteria : settings PLATS (version/address/port), sans
-            // vnext[] ni servers[] — le bloc endpoint ci-dessous s'applique
-            // tel quel (address/port y sont lus directement).
+            
+            
+            
             if (endpoint == null && settings.has("address")) {
                 endpoint = settings;
             }
@@ -1394,8 +1376,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             if (users != null && users.length() > 0) {
                 JSONObject u = users.optJSONObject(0);
                 if (u != null) {
-                    // Http/Socks : "user" alimente le champ Username ;
-                    // vmess/vless : "id" alimente le UUID.
+                    
+                    
                     if (u.has("user")) {
                         edXmUuid.setText(u.optString("user", ""));
                         edXmPass.setText(u.optString("pass", ""));
@@ -1420,7 +1402,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
             selectSpinner(spXmNetwork, XM_NETWORKS, ss.optString("network", "tcp"));
             String sec = ss.optString("security", "");
             selectSpinnerByValue(spXmSecurity, SECURITIES, sec.equals("none") ? "" : sec);
-            // Hysteria : le mot de passe partage vit dans hysteriaSettings.auth.
+            
             JSONObject hy = ss.optJSONObject("hysteriaSettings");
             if (hy != null) {
                 edXmPass.setText(hy.optString("auth", ""));
@@ -1457,7 +1439,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmPath.setText(hu.optString("path", ""));
                 edXmHostHeader.setText(hu.optString("host", ""));
             }
-            // mKCP : en-tete et parametres de paquets.
+            
             JSONObject kcp = ss.optJSONObject("kcpSettings");
             if (kcp != null) {
                 selectSpinner(spXmKcpHeader, XM_KCP_HEADERS,
@@ -1469,7 +1451,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmKcpUp.setText(String.valueOf(kcp.optInt("uplinkCapacity", 5)));
                 edXmKcpDown.setText(String.valueOf(kcp.optInt("downlinkCapacity", 20)));
             }
-            // HTTP/2 : path + liste de hotes.
+            
             JSONObject h2 = ss.optJSONObject("httpSettings");
             if (h2 != null) {
                 edXmPath.setText(h2.optString("path", ""));
@@ -1485,7 +1467,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     edXmHostHeader.setText(sb.toString());
                 }
             }
-            // QUIC : "security" joue le role du host dans notre formulaire.
+            
             JSONObject quic = ss.optJSONObject("quicSettings");
             if (quic != null) {
                 edXmHostHeader.setText(quic.optString("security", ""));
@@ -1513,21 +1495,17 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 edXmSid.setText(tls.optString("shortId", ""));
             }
         }
-        // Un profil hysteria importe ou colle avec security "none"/"reality"
-        // serait rejete par Xray. buildManualOutbound() ecrirait de toute
-        // facon tls ; on repropose tls ici pour que le formulaire affiche ce
-        // qui sera reellement enregistre (sinon le bloc SNI resterait masque).
+        
+        
+        
+        
         if (proto.equals("hysteria") && !"tls".equals(xmSecurity())) {
             selectSpinnerByValue(spXmSecurity, SECURITIES, "tls");
         }
         refreshXrayManualFields();
     }
 
-    /**
-     * Build the manual form as an outbound object, exactly what the Go core
-     * consumes verbatim via advanced.outbound_json (same shapes as
-     * BuildVlessOutbound/BuildVmessOutbound/... in Go). Null after a toast.
-     */
+    
     private JSONObject buildManualOutbound() {
         String proto = xmProtocol();
         String host = edXmHost.getText().toString().trim();
@@ -1555,8 +1533,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             toast("Password is required");
             return null;
         }
-        // Xray n'accepte que security="tls" pour hysteria : "none" et
-        // "reality" sont tous deux refuses par le build du stream settings.
+        
+        
         String security = proto.equals("hysteria") ? "tls" : xmSecurity();
         if (security.equals("reality") && edXmPubkey.getText().toString().trim().isEmpty()) {
             toast("Reality public key is required");
@@ -1599,22 +1577,22 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("method", spXmEnc.getSelectedItem().toString())
                         .put("password", pass)));
             } else if (proto.equals("hysteria")) {
-                // Outbound Hysteria 2 natif de Xray : les settings sont PLATS
-                // (version/address/port), sans tableau vnext[] ni servers[].
-                // "version" doit valoir 2 (controle dans infra/conf, v26.5.9).
-                // Le mot de passe, lui, n'appartient PAS ici : le struct Go
-                // HysteriaClientConfig n'a aucun champ "auth", il serait donc
-                // silencieusement ignore. Il part dans hysteriaSettings.
+                
+                
+                
+                
+                
+                
                 settings.put("version", 2)
                         .put("address", host)
                         .put("port", port);
             } else {
-                // Http / Socks : meme forme (settings.servers) avec un
-                // tableau users optionnel pour l'authentification du proxy.
+                
+                
                 JSONObject server = new JSONObject()
                         .put("address", host)
                         .put("port", port);
-                String puser = uuid; // le champ "Username" de ces protocoles
+                String puser = uuid; 
                 if (!puser.isEmpty()) {
                     server.put("users", new JSONArray().put(new JSONObject()
                             .put("user", puser)
@@ -1623,11 +1601,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 settings.put("servers", new JSONArray().put(server));
             }
 
-            // Le transport "hysteria" est impose : le protocole proxy
-            // n'a pas d'authentification propre et ne peut pas relayer
-            // l'UDP sans ce transport. Le spinner reseau est desactive
-            // dans onXmProtocolChanged() pour ne pas laisser croire
-            // qu'un autre choix est possible.
+            
+            
+            
+            
+            
             String network = proto.equals("hysteria") ? "hysteria" : xmNetwork();
             String path = edXmPath.getText().toString().trim();
             String hostHeader = edXmHostHeader.getText().toString().trim();
@@ -1670,19 +1648,19 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("header", new JSONObject().put("type", "none")));
             }
             if (network.equals("hysteria")) {
-                // "version": 2 est obligatoire ici ET dans settings.
-                // "auth" est le mot de passe partage client/serveur.
+                
+                
                 stream.put("hysteriaSettings", new JSONObject()
                         .put("version", 2)
                         .put("auth", pass));
             } else if (network.equals("kcp") || network.equals("mkcp")) {
-                // mKCP : paquets obfusques. "header" et "seed" ne sont plus
-                // emis : Xray 26.x les a supprimes (l'obfuscation est passee
-                // a finalmask/udp header-*) et KCPConfig.Build() echoue
-                // durement des qu'un des deux est present, ce qui empechait
-                // tout tunnel mKCP de demarrer. Les champs header/seed du
-                // formulaire restent sans effet tant que la migration
-                // finalmask n'est pas implementee.
+                
+                
+                
+                
+                
+                
+                
                 JSONObject kcp = new JSONObject()
                         .put("mtu", xmInt(edXmKcpMtu, 1350))
                         .put("tti", xmInt(edXmKcpTti, 50))
@@ -1693,7 +1671,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                         .put("writeBufferSize", 2);
                 stream.put("kcpSettings", kcp);
             } else if (network.equals("http")) {
-                // HTTP/2 : host accepte une liste separee par des virgules.
+                
                 JSONObject h2 = new JSONObject().put("path", path);
                 if (!hostHeader.isEmpty()) {
                     JSONArray hosts = new JSONArray();
@@ -1757,7 +1735,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** Joint un JSONArray de chaines en CSV sans exception levee. */
+    
     private static String csvJoin(JSONArray arr) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < arr.length(); i++) {
@@ -1769,7 +1747,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return sb.toString();
     }
 
-    /** Split "a, b ,c" en JSONArray de chaines non vides. */
+    
     private static JSONArray csvJson(String raw) {
         JSONArray arr = new JSONArray();
         for (String p : raw.split(",")) {
@@ -1781,13 +1759,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return arr;
     }
 
-    /**
-     * WireGuard outbound (doc officielle Xray outbounds/wireguard) :
-     * settings plats avec secretKey/address/peers[endpoint,publicKey,...],
-     * SANS streamSettings. noKernelTun est toujours true : le processus de
-     * l'app n'a pas CAP_NET_ADMIN, seule la pile gVisor est possible.
-     * Ne logue JAMAIS secretKey/reserved.
-     */
+    
     private JSONObject buildWireguardOutbound(String host, int port) {
         String secret = edXmWgSecret.getText().toString().trim();
         String peerKey = edXmWgPeerKey.getText().toString().trim();
@@ -1828,7 +1800,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     .put("peers", new JSONArray().put(peer))
                     .put("noKernelTun", true);
             JSONArray addr = csvJson(edXmWgAddress.getText().toString());
-            // Defaut de la doc officielle (IPv4 + IPv6).
+            
             settings.put("address", addr.length() > 0 ? addr
                     : new JSONArray().put("10.0.0.1").put("fd59:7153:2388:b5fd:0000:0000:0000:0001"));
             String mtu = edXmWgMtu.getText().toString().trim();
@@ -1871,11 +1843,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Recopie les cles advanced.wg_* (fallback du coeur Go : IsWireGuard /
-     * BuildWireGuardOutbound reconstruisent l'outbound meme si
-     * outbound_json venait a manquer).
-     */
+    
     private void putXmWireguard(JSONObject adv) throws Exception {
         adv.put("wg_secret_key", edXmWgSecret.getText().toString().trim());
         adv.put("wg_peer_public_key", edXmWgPeerKey.getText().toString().trim());
@@ -1910,11 +1878,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         adv.put("wg_no_kernel_tun", "true");
     }
 
-    /**
-     * Base config for a manual-form save (plain xray or xray+slowdns):
-     * server/auth/transport/advanced sections built from the form and the
-     * generated outbound (already validated by buildManualOutbound).
-     */
+    
     private JSONObject buildManualBase(JSONObject manualOb) {
         try {
             JSONObject base = new JSONObject();
@@ -1982,7 +1946,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** Parse a subscription link through the Go core; null after a toast. */
+    
     private JSONObject parseLinkConfig(String link) {
         try {
             String res = VpnlibHelper.parseLink(link);
@@ -1998,11 +1962,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Base config for xray_slowdns saves: parse the link now (auto-parse on
-     * save), or reuse the stored profile when no link is given (legacy /
-     * manual setups). Returns null after showing the reason.
-     */
+    
     private JSONObject resolveXraySlowDnsBase() {
         String link = edXrayInput.getText().toString().trim();
         if (!link.isEmpty()) {
@@ -2024,11 +1984,11 @@ public class TunnelEditorActivity extends AppCompatActivity {
     private void save() {
         String uiType = currentType();
         boolean xrayUi = uiType.equals("xray");
-        // "Configure manually" builds the outbound from the structured form
-        // instead of the pasted link/JSON (works with or without SlowDNS).
+        
+        
         boolean manualXray = xrayUi && swXrayManual.isChecked();
-        // Case SlowDNS cochée sur Xray => type effectif xray_slowdns.
-        // Idem pour le SSH : le mode SSH-DNSTT => type effectif ssh_slowdns.
+        
+        
         String sshKey = sshModeKey();
         boolean sshDnstt = uiType.equals("ssh") && sshKey.equals("dnstt");
         String type = xrayUi && swXraySlowdns.isChecked() ? "xray_slowdns" : uiType;
@@ -2036,10 +1996,10 @@ public class TunnelEditorActivity extends AppCompatActivity {
             type = "ssh_slowdns";
         }
 
-        // Xray: validate/auto-parse the single input now (no Parse button).
-        // Link mode parses through the Go core and uses the parsed profile
-        // as the save base; JSON mode is stored verbatim and just needs
-        // to be a valid object.
+        
+        
+        
+        
         JSONObject xrayBase = null;
         String xrayJson = "";
         JSONObject manualOb = null;
@@ -2065,8 +2025,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
         }
         if (manualXray) {
-            // WireGuard transporte son propre UDP : le tunnel DNS (dnstt,
-            // TCP) ne peut pas le relayer de facon fiable.
+            
+            
             if (xmProtocol().equals("wireguard") && swXraySlowdns.isChecked()) {
                 toast("WireGuard n'est pas compatible avec Use SlowDNS");
                 return;
@@ -2099,14 +2059,14 @@ public class TunnelEditorActivity extends AppCompatActivity {
             return;
         }
         try {
-            // xray_slowdns is link-driven: the link is parsed now (or the
-            // stored profile reused for legacy/manual setups) and provides
-            // host/port/uuid/transport/outbound. The form only adds the
-            // SlowDNS key + NS + resolver.
+            
+            
+            
+            
             JSONObject slowBase = null;
             if (type.equals("xray_slowdns")) {
-                // Manual form: the generated outbound IS the base (the Go
-                // core rewrites its address to the dnstt forward at start).
+                
+                
                 slowBase = manualXray ? buildManualBase(manualOb)
                         : resolveXraySlowDnsBase();
                 if (slowBase == null) {
@@ -2120,9 +2080,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     server = new JSONObject(bs.toString());
                 }
             } else if (type.equals("xray")) {
-                // Link mode: host/port/sni come from the parsed link. JSON
-                // mode: none needed, the pasted config carries everything.
-                // Manual mode: the form fields ARE the endpoint.
+                
+                
+                
                 if (manualXray) {
                     server.put("host", edXmHost.getText().toString().trim());
                     int mport = 0;
@@ -2161,8 +2121,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 } catch (NumberFormatException ignored) {
                 }
                 server.put("port", port);
-                // SNI du mode SSH-TLS* (le SNI est aussi le nom de domaine
-                // present dans le certificat du tunnel).
+                
+                
                 if ((type.equals("ssh") || type.equals("ssh_slowdns")) && sshModeUses(sshKey, "tls")) {
                     String tlsSni = edSshTlsSni.getText().toString().trim();
                     if (!tlsSni.isEmpty()) {
@@ -2171,16 +2131,16 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             }
             if (type.equals("zivpn")) {
-                // Plages fixes hardcodées (8 sous-plages, round-robin
-                // interne) — pas de champ utilisateur.
+                
+                
                 server.put("port_range", ZIVPN_FIXED_RANGES);
             }
             if (type.equals("ssh_slowdns") || type.equals("xray_slowdns")) {
                 String pubkey = edPubkey.getText().toString().trim();
                 String nsdomain = edNsdomain.getText().toString().trim();
                 String resolver = edResolver.getText().toString().trim();
-                // Never store blanks over saved values: a hidden/untouched
-                // field must not wipe the stored SlowDNS settings.
+                
+                
                 if (pubkey.isEmpty()) {
                     pubkey = storedSlowdnsKey();
                     if (!pubkey.isEmpty()) {
@@ -2201,8 +2161,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     resolver = "8.8.8.8:53";
                     edResolver.setText(resolver);
                 }
-                // Strict host:port shape: a mistyped resolver (ex:
-                // "8.8.8.8:53tomp") kills dnstt with a cryptic error.
+                
+                
                 int rport = -1;
                 try {
                     String rp = resolver.substring(resolver.lastIndexOf(':') + 1);
@@ -2219,8 +2179,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 if (type.equals("ssh_slowdns")) {
                     server.put("public_key", pubkey);
                 }
-                // xray_slowdns: server.public_key belongs to Reality (from
-                // the parsed link); the SlowDNS key goes to advanced below.
+                
+                
                 server.put("nameserver", nsdomain);
                 server.put("dns_resolver", resolver);
             }
@@ -2236,9 +2196,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             }
 
-            // xray never needs manual host/port: link (parsed) or JSON
-            // config carries the endpoint (full configs accepted too).
-            // SSH (y compris SSH-DNSTT) exige l'hote du serveur.
+            
+            
+            
             if (!type.equals("xray_slowdns")
                     && !type.equals("xray")
                     && edHost.getText().toString().trim().isEmpty()) {
@@ -2272,7 +2232,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     toast("Auth (mot de passe) Hysteria requis");
                     return;
                 }
-                // Plage par défaut si vide : jamais de port fixe seul.
+                
                 if (edHyPortRange.getText().toString().trim().isEmpty()) {
                     edHyPortRange.setText("20000-50000");
                 }
@@ -2311,7 +2271,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
                 auth.put("username", edUsername.getText().toString().trim());
-                // Mode d'authentification : mot de passe ou cle privee.
+                
                 if (sshAuthIsPassword()) {
                     auth.put("password", edPassword.getText().toString());
                 } else {
@@ -2325,18 +2285,18 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             }
             if (type.equals("ssh")) {
-                // Proxy CONNECT et payload ne s'appliquent qu'aux modes qui
-                // les declarent (SSH-Proxy*, SSH-*Payload*).
+                
+                
                 ssh.put("proxy", sshModeUses(sshKey, "proxy")
                         ? edSshProxy.getText().toString().trim() : "");
                 ssh.put("payload", sshModeUses(sshKey, "payload")
                         ? edSshPayload.getText().toString() : "");
             }
             if (type.equals("xray") && manualXray) {
-                // Manual form: credentials typed directly by the user.
+                
                 String proto = xmProtocol();
-                // Http / Socks : le champ affiche "Username" alimente
-                // users[].user de l'outbound Xray.
+                
+                
                 if (proto.equals("http") || proto.equals("socks")) {
                     auth.put("username", edXmUuid.getText().toString().trim());
                 } else {
@@ -2374,8 +2334,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
             int secPos = edSecurity.getSelectedItemPosition();
             String security = secPos >= 0 ? SECURITIES[secPos] : "";
             JSONObject transport = new JSONObject();
-            // Transport only matters for Xray-family tunnels (zivpn obfs is
-            // hardcoded server-side, ssh uses none).
+            
+            
             if (type.equals("xray") && manualXray) {
                 String msec = xmSecurity();
                 transport.put("network", xmNetwork());
@@ -2410,12 +2370,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     advanced.put("slowdns_pubkey", slowKey);
                 }
             } else if (type.equals("xray") && manualXray) {
-                // Structured form: the generated outbound is authoritative.
+                
                 advanced.put("outbound_json", manualOb.toString());
                 advanced.put("manual_form", "1");
                 advanced.put("allow_insecure", xmAllowInsecure());
                 if (xmProtocol().equals("wireguard")) {
-                    // Fallback pour le coeur Go (IsWireGuard sur cles wg_*).
+                    
                     putXmWireguard(advanced);
                 } else {
                     putXmTransport(advanced);
@@ -2425,7 +2385,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 }
             } else if (type.equals("xray")) {
                 if (xrayBase != null) {
-                    // Parsed link: keep its outbound JSON, remember the link.
+                    
                     JSONObject ba = xrayBase.optJSONObject("advanced");
                     if (ba != null) {
                         advanced = new JSONObject(ba.toString());
@@ -2433,8 +2393,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                 advanced.put("link", manualXray ? lastImportedLink
                         : edXrayInput.getText().toString().trim());
                 } else {
-                    // Full client config or single outbound, stored verbatim;
-                    // the Go core detects full configs by the "outbounds" key.
+                    
+                    
                     advanced.put("outbound_json", xrayJson);
                 }
                 if (!advanced.has("outbound_json")) {
@@ -2444,9 +2404,9 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
 
             if (type.equals("ssh") || type.equals("ssh_slowdns")) {
-                // Les 9 protocoles SSH sont decrits par advanced["ssh_mode"].
+                
                 advanced.put("ssh_mode", sshKey);
-                // Couche TLS autour du handshake SSH (modes SSH-TLS*).
+                
                 boolean useTls = sshModeUses(sshKey, "tls");
                 advanced.put("ssh_tls", useTls);
                 if (useTls) {
@@ -2455,7 +2415,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
                             (tv >= 0 && tv < SSH_TLS_VERSIONS_KEYS.length)
                                     ? SSH_TLS_VERSIONS_KEYS[tv] : "default");
                 }
-                // Authentification du proxy HTTP CONNECT.
+                
                 if (sshModeUses(sshKey, "proxy") && swSshProxyAuth.isChecked()) {
                     String pu = edSshProxyUser.getText().toString().trim();
                     if (pu.isEmpty()) {
@@ -2465,12 +2425,12 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     advanced.put("proxy_user", pu);
                     advanced.put("proxy_pass", edSshProxyPass.getText().toString());
                 }
-                // Mode DNSTT (UDP par defaut, TCP boost) : remplace l'ancien
-                // type ssh_slowdns, desormais le mode SSH-DNSTT.
+                
+                
                 if (type.equals("ssh_slowdns")) {
                     advanced.put("dnstt_tcp", spSshDnsttMode.getSelectedItemPosition() == 1);
                 }
-                // UDPGW par profil (port + DNS transparent).
+                
                 String uport = edSshUdpgwPort.getText().toString().trim();
                 if (!uport.isEmpty()) {
                     try {
@@ -2485,8 +2445,8 @@ public class TunnelEditorActivity extends AppCompatActivity {
                     }
                 }
                 advanced.put("udpgw_dns", swSshUdpgwDns.isChecked());
-                // Ces modes exigent le moteur SSH natif (le binaire openssh
-                // ne sait ni faire le TLS, ni le payload, ni le proxy).
+                
+                
                 if (useTls || sshModeUses(sshKey, "proxy") || sshModeUses(sshKey, "payload")) {
                     advanced.put("native_ssh", true);
                 }
@@ -2518,7 +2478,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
             }
 
             if (type.equals("utunnel")) {
-                // Rotation du port source en secondes (0 = jamais, défaut 10).
+                
                 String hopS = edUtHop.getText().toString().trim();
                 if (!hopS.isEmpty()) {
                     try {
@@ -2570,7 +2530,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         }
     }
 
-    /** True when the stored profile is locked (defense in depth). */
+    
     private boolean isStoredLocked(String id) {
         try {
             String cfgPath = BinaryManager.configPath(this).getAbsolutePath();
@@ -2586,7 +2546,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return false;
     }
 
-    /** Read one stored server.* field of the profile being edited ("" if none). */
+    
     private String storedServerField(String field) {
         JSONObject t = storedTunnel();
         if (t == null) {
@@ -2599,7 +2559,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return "";
     }
 
-    /** Full stored JSON of the profile being edited (null if new/missing). */
+    
     private JSONObject storedTunnel() {
         if (editId == null || editId.isEmpty()) {
             return null;
@@ -2618,8 +2578,7 @@ public class TunnelEditorActivity extends AppCompatActivity {
         return null;
     }
 
-    /** Stored SlowDNS key: advanced.slowdns_pubkey first (xray_slowdns),
-     *  then the legacy server.public_key. */
+    
     private String storedSlowdnsKey() {
         JSONObject t = storedTunnel();
         if (t == null) {

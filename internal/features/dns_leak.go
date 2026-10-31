@@ -114,9 +114,9 @@ func (dlp *DNSLeakProtection) applyProtection() error {
 		}
 	}
 
-	// NOTE: vishvananda/netlink does not expose ip-rule actions, so DNS
-	// is forced through the VPN purely via the /32 routes above plus the
-	// background leak monitor.
+	
+	
+	
 	return nil
 }
 

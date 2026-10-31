@@ -14,7 +14,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.List;
 
-/** RecyclerView adapter for NPV-style config cards. */
+
 public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
     public interface Listener {
@@ -94,7 +94,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         }
         h.type.setText(prettyType(type));
 
-        // Valeur seule en vert ("290ms") : plus de libellé "Ping" orange.
+        
         Long ms = pingMs.get(id);
         boolean hasPing = ms != null && ms >= 0;
         h.ping.setText(hasPing ? ms + "ms" : "–");
@@ -103,10 +103,10 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
 
         boolean isSelected = selectedIds.contains(id);
         h.card.setBackgroundResource(isSelected ? R.drawable.card_bg_active : R.drawable.card_bg);
-        // Selection frame says it all: no separate round-robin badge.
+        
         h.rr.setVisibility(View.GONE);
 
-        // Locked (imported) profiles: no edit, no clone. Ever.
+        
         boolean locked = ProfileTransfer.isLocked(t);
         h.edit.setVisibility(locked ? View.GONE : View.VISIBLE);
         h.clone.setVisibility(locked ? View.GONE : View.VISIBLE);
@@ -158,12 +158,7 @@ public class TunnelAdapter extends RecyclerView.Adapter<TunnelAdapter.Holder> {
         }
     }
 
-    /**
-     * Display name of a profile type. The *_slowdns types are internal
-     * storage details (the Go core needs them to pick the DNS-tunnel engine),
-     * so the user only ever sees the base type: a SlowDNS SSH profile shows
-     * "ssh" and a SlowDNS Xray profile shows "xray".
-     */
+    
     public static String prettyType(String type) {
         switch (type) {
             case "ssh_slowdns":

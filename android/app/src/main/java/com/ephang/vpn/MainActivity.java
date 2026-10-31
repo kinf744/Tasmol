@@ -20,10 +20,7 @@ import org.json.JSONObject;
 
 import java.util.Map;
 
-/**
- * Ephang VPN - modern native home (no browser/WebView dependency, fully
- * offline-capable). Bottom tabs: Home / Servers / Tools / Settings.
- */
+
 public class MainActivity extends AppCompatActivity {
     private static final int REQ_VPN_PERMISSION = 1001;
 
@@ -81,7 +78,7 @@ public class MainActivity extends AppCompatActivity {
         registerNetworkWatch();
     }
 
-    /** Public fragment swap for sub-screens (Settings / Hotspot under More). */
+    
     public void showFragment(Fragment fragment, String tag) {
         getSupportFragmentManager()
                 .beginTransaction()
@@ -89,7 +86,7 @@ public class MainActivity extends AppCompatActivity {
                 .commit();
     }
 
-    /** "Démarrer au lancement": offer one-tap reconnect of the last tunnel. */
+    
     private void offerLaunchReconnect() {
         if (!app.isLaunchOnBootEnabled()) {
             return;
@@ -131,7 +128,7 @@ public class MainActivity extends AppCompatActivity {
 
     private android.net.ConnectivityManager.NetworkCallback networkWatch = null;
 
-    /** "Arrêter sur perte réseau": disconnect cleanly when uplink drops. */
+    
     private void registerNetworkWatch() {
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.N) {
             return;
@@ -214,12 +211,12 @@ public class MainActivity extends AppCompatActivity {
         bottomNav.setSelectedItemId(R.id.nav_more);
     }
 
-    // --- VPN connect flow (shared by Home tab and dialogs) ---
+    
 
     public void toggleVpn() {
-        // Disconnect is always available: while CONNECTING it supersedes
-        // the retry loop (plus nuclear long-press), while connected it
-        // stops the session.
+        
+        
+        
         if (TasVpnService.isRunning() || TasVpnService.isStarting()) {
             requestDisconnect();
         } else {
@@ -236,10 +233,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void disconnectVpn() {
-        // startService() can throw IllegalStateException when the app is not
-        // in the foreground on API 31+ (background start restriction). Left
-        // uncaught it crashed the main thread from the UncaughtExceptionHandler
-        // and the disconnect simply never happened.
+        
+        
+        
+        
         try {
             Intent intent = new Intent(this, TasVpnService.class);
             intent.setAction(TasVpnService.ACTION_DISCONNECT);
@@ -250,34 +247,20 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         showToast("Disconnecting...");
-        // Two-stage watchdog. Teardown is time-bounded on both sides, so a
-        // healthy disconnect finishes in ~1-3s and nothing shows. Only a
-        // genuinely wedged service pops the dialog — the check is armed past
-        // the 15s forced cleanup.
+        
+        
+        
+        
         handler.postDelayed(stuckToastTask, 8000);
         handler.postDelayed(stuckCheckTask, 18000);
     }
 
-    /**
-     * True while something is still up: a live session, a start in flight, or
-     * a Go teardown that has not come back.
-     *
-     * <p>Délègue au prédicat complet du service (inclut le thread de
-     * connexion en vol et le contrôleur publié non promu) : stopSession()
-     * remet controller/starting à faux dès la première ligne, donc un
-     * contrôle qui ne regarderait que ces deux drapeaux conclurait « propre »
-     * pendant qu'une tentative reconstruit la session.
-     */
+    
     private boolean vpnTeardownOutstanding() {
         return TasVpnService.hasSessionActivity();
     }
 
-    /**
-     * Best-effort stop that does not depend on the service being startable:
-     * flags the generation invalid, drops the notification and, past a short
-     * delay, kills the process. Android always revokes the VPN key of a dead
-     * service, so this is the guaranteed way to make the key disappear.
-     */
+    
     private void forceStopVpn() {
         try {
             Intent intent = new Intent(this, TasVpnService.class);
@@ -292,7 +275,7 @@ public class MainActivity extends AppCompatActivity {
         }, 3500);
     }
 
-    /** Power-button path: confirm first when the setting requires it. */
+    
     public void requestDisconnect() {
         if ((TasVpnService.isRunning() || TasVpnService.isStarting())
                 && app.isConfirmDisconnectEnabled()) {
@@ -307,9 +290,9 @@ public class MainActivity extends AppCompatActivity {
         disconnectVpn();
     }
 
-    // Watchdogs de déconnexion identifiés, annulés dès qu'une nouvelle
-    // connexion démarre (sinon "VPN stuck" apparaît à tort ~18 s après,
-    // pendant que le tunnel tourne).
+    
+    
+    
     private final Runnable stuckToastTask = () -> {
         if (isFinishing() || isDestroyed()) {
             return;
@@ -328,13 +311,13 @@ public class MainActivity extends AppCompatActivity {
 
     private boolean stuckDialogShowing = false;
 
-    /** If a disconnect left the service alive, propose a nuclear cleanup. */
+    
     private void checkDisconnectStuck() {
         if (!vpnTeardownOutstanding()) {
             return;
         }
-        // BadTokenException sinon : l'activité peut être détruite entre le
-        // postDelayed et l'affichage (long disconnect + sortie de l'app).
+        
+        
         if (stuckDialogShowing || isFinishing() || isDestroyed()) {
             return;
         }
@@ -356,22 +339,16 @@ public class MainActivity extends AppCompatActivity {
                 .show();
     }
 
-    /**
-     * Nuclear disconnect: ask the service to stop, then — whether it
-     * cooperates or not — kill our own process. Dying takes every child
-     * (xray, zivpn, dnstt, ssh), thread and socket with us, and Android
-     * always revokes the VPN (key icon) of a dead service. Guaranteed
-     * cleanup for the "error + refuses to disconnect" case.
-     */
+    
     public void nuclearDisconnect() {
         cancelDisconnectWatchdogs();
-        // The service tears down with a short bound (4s instead of 15s), drops
-        // the notification immediately and arms its own process-kill watchdog
-        // at 5s. The Go core now really does kill the helper processes (xray,
-        // uz_core, hysteria, openssh, dnstt) on this path. Our own kill is
-        // armed at 3.5s so that, when an Activity is alive, finishAffinity()
-        // closes the task cleanly before the process goes; when it is not,
-        // the service-side watchdog still guarantees the key is gone.
+        
+        
+        
+        
+        
+        
+        
         try {
             Intent intent = new Intent(this, TasVpnService.class);
             intent.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
@@ -379,12 +356,12 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ignored) {
         }
         showToast("Nuclear disconnect: killing all VPN processes...");
-        // Dernier recours à 3.5s : le processus ne meurt QUE si une session
-        // est encore vivante (teardown Go coincé ou tentative de connexion
-        // toujours en vol — y compris en retry-sleep / avant publication du
-        // contrôleur, via connectInFlight). Si la déconnexion a réussi
-        // proprement (cas CONNECTED typique), l'application reste ouverte :
-        // un nucléaire « propre » ne doit pas se fermer comme un crash.
+        
+        
+        
+        
+        
+        
         handler.postDelayed(() -> {
             if (TasVpnService.hasSessionActivity()) {
                 forceKillProcess();
@@ -392,7 +369,7 @@ public class MainActivity extends AppCompatActivity {
         }, 3500);
     }
 
-    /** Kill our own process: children die, system revokes the VPN key. */
+    
     public void forceKillProcess() {
         try {
             finishAffinity();
@@ -402,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
         System.exit(10);
     }
 
-    /** Restart the service so edited configs take effect. */
+    
     public void restartVpn() {
         String active = TasVpnService.getActiveTunnelId();
         if (active == null || active.isEmpty()) {
@@ -433,7 +410,7 @@ public class MainActivity extends AppCompatActivity {
                     .show();
             return;
         }
-        // Locked profiles: refuse expired, foreign-device or rooted bindings.
+        
         for (JSONObject t : ProfileTransfer.selectedTunnels(this, selected)) {
             String reason = ProfileTransfer.lockReason(this, t);
             if (reason != null && !reason.isEmpty()) {
@@ -441,8 +418,8 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
         }
-        // Home connects ALL selected profiles at once (single mode for 1,
-        // round-robin for 2+).
+        
+        
         String first = selected.iterator().next();
         app.setActiveTunnelId(first);
         if (selected.size() >= 2) {
@@ -497,12 +474,7 @@ public class MainActivity extends AppCompatActivity {
         runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show());
     }
 
-    /**
-     * Un crash du lancement precedent a ete enregistre : on propose de le
-     * copier dans Download. Sans ce rappel l'utilisateur ne voit jamais le
-     * rapport (l'app n'a pas le droit d'ecrire dans Download directement,
-     * et le fichier interne est invisible depuis le gestionnaire de fichiers).
-     */
+    
     private void offerCrashReport() {
         if (app == null || !app.hasPendingCrash()) {
             return;

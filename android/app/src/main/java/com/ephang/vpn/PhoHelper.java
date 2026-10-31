@@ -10,11 +10,7 @@ import java.util.concurrent.Executors;
 
 import vpnlib.Vpnlib;
 
-/**
- * Java ⇒ Pont Go durci (libpho): activation API pinnée TLS, coffre
- * chiffré au repos, self-check anti-debug. Tout blocage réseau passe ici;
- * aucun endpoint ni secret n'apparaît dans le bytecode Java.
- */
+
 public final class PhoHelper {
     private static final ExecutorService IO = Executors.newCachedThreadPool();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -37,12 +33,7 @@ public final class PhoHelper {
         Vpnlib.phoInit(ctx.getFilesDir().getAbsolutePath() + "/pho");
     }
 
-    /**
-     * Preuve d'appareil anti-clonage : HMAC-SHA256(SHA-256(ANDROID_ID),
-     * uuid), hex — identique au calcul natif de Borum VPN (libpho). Le
-     * serveur l'épingle au premier register et refuse tout uuid présenté
-     * depuis un autre matériel.
-     */
+    
     private static String deviceProof(String uuid) {
         try {
             String aid = android.provider.Settings.Secure.getString(
@@ -107,7 +98,7 @@ public final class PhoHelper {
         });
     }
 
-    /** GET /api/v1/devices/check — statut du compte lié à cet appareil. */
+    
     public static void check(String uuid, Callback cb) {
         IO.execute(() -> {
             try {
@@ -123,7 +114,7 @@ public final class PhoHelper {
         });
     }
 
-    // -- coffre chiffré (jamais de valeur lisible dans SharedPreferences) --
+    
 
     public static void vaultPut(android.content.Context ctx, String uuid, String k, String v) {
         Vpnlib.phoVaultPut(uuid, k, v);

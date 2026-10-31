@@ -1,14 +1,7 @@
 package com.borum.vpn;
 
-import android.content.ContentUris;
-import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.database.Cursor;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Environment;
-import android.provider.MediaStore;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -189,7 +182,7 @@ public class BinaryManager {
                 "  max_retries: 10\n" +
                 "udpgw:\n" +
                 "  enabled: true\n" +
-                "  listen_addr: \"127.0.0.1:" + nativeUdpgwPort() + "\"\n" +
+                "  listen_addr: \"127.0.0.1:\" + nativeUdpgwPort() + "\"\n" +
                 "  max_clients: 100\n" +
                 "  timeout: 30\n" +
                 "  mtu: 1500\n";
@@ -219,7 +212,7 @@ public class BinaryManager {
         } catch (Throwable ignored) {
         }
         if (n == null || n.isEmpty()) {
-            n = "kighmu.txt";
+            n = "vpn.log";
         }
         sLogName = n;
         return n;
@@ -294,18 +287,9 @@ public class BinaryManager {
         return null;
     }
 
-    public static String downloadDir() {
-        File d = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-        if (d == null) {
-            return "";
-        }
-        return d.getAbsolutePath();
-    }
-
     public static File logDir() {
         File d = new File(VPNApplication.getInstance().getFilesDir(), "logs");
         if (!d.exists()) {
-
             d.mkdirs();
         }
         return d;
@@ -315,11 +299,11 @@ public class BinaryManager {
         return new File(logDir(), logFileName());
     }
 
-    public static synchronized void appendKighmu(String line) {
-        appendKighmuRaw(null, line);
+    public static synchronized void appendLog(String line) {
+        appendLogRaw(null, line);
     }
 
-    public static synchronized void appendKighmuRaw(String timePrefix, String line) {
+    public static synchronized void appendLogRaw(String timePrefix, String line) {
         String row;
         try {
             File d = logDir();
@@ -336,227 +320,11 @@ public class BinaryManager {
             }
 
         } catch (Exception e) {
-            android.util.Log.w("Tasmol", "appendKighmu: " + e);
+            android.util.Log.w("Tasmol", "appendLog: " + e);
         }
     }
 
-    private static void appendKighmuToDownload(String row) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Context ctx = VPNApplication.getInstance();
-                if (ctx == null) return;
-                Uri uri = downloadKighmuUri(ctx);
-                if (uri != null) {
-                    try (OutputStream out = ctx.getContentResolver()
-                            .openOutputStream(uri, "wa")) {
-                        if (out != null) {
-                            out.write(row.getBytes(StandardCharsets.UTF_8));
-                            out.flush();
-                        }
-                    }
-                }
-            } else {
-
-                File downloadDir = Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS);
-                if (downloadDir != null && downloadDir.exists()) {
-                    File f = new File(downloadDir, "kighmu.txt");
-                    try (FileOutputStream out = new FileOutputStream(f, true)) {
-                        out.write(row.getBytes(StandardCharsets.UTF_8));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            android.util.Log.w("Tasmol", "appendKighmuToDownload: " + e);
-        }
-    }
-
-    private static synchronized Uri downloadKighmuUri(Context ctx) {
-        Uri uri = sDownloadKighmuUri;
-        if (uri != null) {
-            return uri;
-        }
-        try {
-
-            String[] proj = { MediaStore.MediaColumns._ID };
-            String sel = MediaStore.MediaColumns.DISPLAY_NAME + "=? AND "
-                    + MediaStore.MediaColumns.RELATIVE_PATH + " LIKE ?";
-            String[] args = { "kighmu.txt", "Download%" };
-            try (Cursor c = ctx.getContentResolver().query(
-                    MediaStore.Downloads.getContentUri(
-                            MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                    proj, sel, args, null)) {
-                if (c != null && c.moveToFirst()) {
-                    long id = c.getLong(0);
-                    uri = ContentUris.withAppendedId(
-                            MediaStore.Downloads.getContentUri(
-                                    MediaStore.VOLUME_EXTERNAL_PRIMARY), id);
-                    sDownloadKighmuUri = uri;
-                    return uri;
-                }
-            }
-
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.MediaColumns.DISPLAY_NAME, "kighmu.txt");
-            values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
-            values.put(MediaStore.MediaColumns.RELATIVE_PATH,
-                    Environment.DIRECTORY_DOWNLOADS);
-            uri = ctx.getContentResolver().insert(
-                    MediaStore.Downloads.getContentUri(
-                            MediaStore.VOLUME_EXTERNAL_PRIMARY),
-                    values);
-            sDownloadKighmuUri = uri;
-            return uri;
-        } catch (Exception e) {
-            android.util.Log.w("Tasmol", "downloadKighmuUri: " + e);
-            return null;
-        }
-    }
-
-    private static volatile Uri sDownloadKighmuUri = null;
-
-    private static volatile long sMirrorOffset = -2L;
-    private static volatile boolean sMirrorThread = false;
-    private static final Object sMirrorLock = new Object();
-
-    public static void startDownloadMirror() {
-        if (sMirrorThread) {
-            return;
-        }
-        synchronized (sMirrorLock) {
-            if (sMirrorThread) {
-                return;
-            }
-            sMirrorThread = true;
-        }
-        Thread t = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                while (true) {
-                    try {
-                        mirrorTick();
-                    } catch (Throwable th) {
-
-                        mirrorDiag("tick failed: " + th);
-                    }
-                    try {
-                        Thread.sleep(700);
-                    } catch (InterruptedException ignored) {
-
-                        sMirrorThread = false;
-                        return;
-                    }
-                }
-            }
-        }, "kighmu-mirror");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    private static void mirrorTick() {
-        Context ctx = VPNApplication.getInstance();
-        if (ctx == null) {
-            return;
-        }
-        File src;
-        try {
-            src = logFile();
-        } catch (Throwable ignored) {
-            return;
-        }
-        if (src == null) {
-            return;
-        }
-        long srcLen = src.exists() ? src.length() : -1L;
-        if (srcLen < 0) {
-
-            resetDownloadKighmu(ctx, false);
-            sMirrorOffset = -2L;
-            return;
-        }
-        if (sMirrorOffset == -2L) {
-
-            resetDownloadKighmu(ctx, true);
-            sMirrorOffset = 0;
-        }
-        if (srcLen < sMirrorOffset) {
-
-            sMirrorOffset = 0;
-            resetDownloadKighmu(ctx, true);
-            return;
-        }
-        if (srcLen == sMirrorOffset) {
-            return; 
-        }
-        long from = sMirrorOffset;
-        long remaining = srcLen - from;
-
-        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(src, "r")) {
-            raf.seek(from);
-            byte[] buf = new byte[65536];
-            long written = 0;
-            int n;
-            while (written < remaining && (n = raf.read(buf)) > 0) {
-                String chunk = new String(buf, 0, n, StandardCharsets.UTF_8);
-                appendKighmuToDownload(chunk);
-                written += n;
-            }
-            sMirrorOffset = from + written;
-        } catch (Exception e) {
-
-            Log.w(TAG, "kighmu-mirror read: " + e);
-        }
-    }
-
-    private static synchronized void resetDownloadKighmu(Context ctx,
-                                                         boolean createIfMissing) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            File downloadDir = Environment.getExternalStoragePublicDirectory(
-                    Environment.DIRECTORY_DOWNLOADS);
-            if (downloadDir != null) {
-                File f = new File(downloadDir, "kighmu.txt");
-                try {
-                    if (f.exists()) {
-                        new FileOutputStream(f, false).close();
-                    }
-                } catch (Exception e) {
-                    Log.w(TAG, "resetDownloadKighmu(preQ): " + e);
-                }
-                return;
-            }
-        }
-        Uri uri = sDownloadKighmuUri;
-        if (uri == null && createIfMissing) {
-            uri = downloadKighmuUri(ctx);
-        }
-        if (uri == null) {
-            return;
-        }
-        try (OutputStream out = ctx.getContentResolver()
-                .openOutputStream(uri, "wt")) {
-
-        } catch (Exception e) {
-            Log.w(TAG, "resetDownloadKighmu: " + e);
-        }
-    }
-
-    private static void mirrorDiag(String cause) {
-        long now = System.currentTimeMillis();
-        if (now - sLastMirrorDiag < 30_000L) {
-            return;
-        }
-        sLastMirrorDiag = now;
-        try {
-            appendKighmu("[warning] [mirror] copie Download/kighmu.txt en échec: "
-                    + cause + " (le journal privé filesDir/logs/kighmu.txt reste "
-                    + "la source complète — mode Verbose)");
-        } catch (Throwable ignored) {
-        }
-    }
-
-    private static volatile long sLastMirrorDiag = 0L;
-
-    public static long kighmuStamp() {
+    public static long logStamp() {
         try {
             File f = logFile();
             return f.exists() ? (f.length() ^ (f.lastModified() << 1)) : 0;
@@ -565,7 +333,7 @@ public class BinaryManager {
         }
     }
 
-    public static String readKighmuTail(int maxChars) {
+    public static String readLogTail(int maxChars) {
         try {
             File f = logFile();
             if (!f.exists()) {
@@ -595,43 +363,14 @@ public class BinaryManager {
         }
     }
 
-    public static void clearKighmu() {
+    public static void clearLog() {
         try {
             File f = logFile();
             if (f.exists()) {
                 new java.io.FileOutputStream(f, false).close();
             }
         } catch (Exception e) {
-            android.util.Log.w("Tasmol", "clearKighmu: " + e);
-        }
-
-        try {
-            Context ctx = VPNApplication.getInstance();
-            if (ctx == null) return;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                Uri uri = sDownloadKighmuUri; 
-
-                if (uri == null) {
-                    uri = downloadKighmuUri(ctx); 
-                }
-                if (uri != null) {
-                    try (OutputStream out = ctx.getContentResolver()
-                            .openOutputStream(uri, "wt")) { 
-
-                    }
-                }
-            } else {
-                File downloadDir = Environment.getExternalStoragePublicDirectory(
-                        Environment.DIRECTORY_DOWNLOADS);
-                if (downloadDir != null) {
-                    File f2 = new File(downloadDir, "kighmu.txt");
-                    if (f2.exists()) {
-                        new FileOutputStream(f2, false).close();
-                    }
-                }
-            }
-        } catch (Exception e) {
-            android.util.Log.w("Tasmol", "clearKighmu(Download): " + e);
+            android.util.Log.w("Tasmol", "clearLog: " + e);
         }
     }
 

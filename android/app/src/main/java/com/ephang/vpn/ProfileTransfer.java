@@ -16,12 +16,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 
-/**
- * Profile transfer: .epha files and ephang:// clipboard links, with
- * Picko-style locks (lockConfiguration, expiry date, hardware-id binding).
- * Locked profiles cannot be edited or cloned after import; expired or
- * foreign-device profiles refuse to connect.
- */
+
 public final class ProfileTransfer {
     private ProfileTransfer() {
     }
@@ -31,7 +26,7 @@ public final class ProfileTransfer {
     public static final String CLIPBOARD_PREFIX = "ephang://";
     private static final int MAX_IMPORT_BYTES = 1_000_000;
 
-    // --- device hardware id (Picko-compatible: MD5(ANDROID_ID), uppercase) ---
+    
 
     public static String deviceHardwareId(Context ctx) {
         try {
@@ -52,7 +47,7 @@ public final class ProfileTransfer {
         }
     }
 
-    // --- per-profile lock state (stored in Advanced map) ---
+    
 
     public static boolean isLocked(JSONObject tunnel) {
         if (tunnel == null) {
@@ -105,7 +100,7 @@ public final class ProfileTransfer {
         }
     }
 
-    /** False when bound to other devices. Empty list = any device. */
+    
     public static boolean isHwidAllowed(Context ctx, JSONObject tunnel) {
         List<String> allowed = lockHwids(tunnel);
         if (allowed.isEmpty()) {
@@ -132,7 +127,7 @@ public final class ProfileTransfer {
         return "";
     }
 
-    /** Nom d'opérateur courant en minuscules (MTN/Orange/Camtel…). */
+    
     public static String currentIsp(Context ctx) {
         try {
             android.telephony.TelephonyManager tm =
@@ -154,19 +149,13 @@ public final class ProfileTransfer {
         }
     }
 
-    /**
-     * Code opérateur canonique de la SIM active ("mtn", "orange",
-     * "camtel", ...) : detection automatique, sans saisie. Renvoie "" si
-     * aucune SIM n'est presente ou si l'operateur est inconnu.
-     * Le code produit est directement utilisable comme lock_isp, car
-     * isIspAllowed() teste cur.contains(want).
-     */
+    
     public static String detectIspCode(Context ctx) {
         if (ctx == null) {
             return "";
         }
-        // 1) MCC/MNC : source la plus fiable (identifiant numerique du
-        //    reseau, independant du nom affiche par l'operateur).
+        
+        
         try {
             android.telephony.TelephonyManager tm =
                     (android.telephony.TelephonyManager)
@@ -184,7 +173,7 @@ public final class ProfileTransfer {
             }
         } catch (Throwable ignored) {
         }
-        // 2) Repli sur le nom affiche par la SIM / le reseau.
+        
         String name = currentIsp(ctx);
         if (name.isEmpty()) {
             return "";
@@ -195,7 +184,7 @@ public final class ProfileTransfer {
                 return key;
             }
         }
-        // 3) Dernier recours : le nom brut, nettoye et valide pour lock_isp.
+        
         String clean = name.replaceAll("[^a-z0-9 ._-]", "").trim();
         if (clean.isEmpty()) {
             return "";
@@ -203,7 +192,7 @@ public final class ProfileTransfer {
         return clean.length() > 30 ? clean.substring(0, 30) : clean;
     }
 
-    /** Table MCC/MNC des operateurs connus (Cameroun 624 en tete). */
+    
     private static String ispFromMccMnc(String mccmnc) {
         String v = mccmnc == null ? "" : mccmnc.trim();
         if (v.isEmpty()) {
@@ -226,7 +215,7 @@ public final class ProfileTransfer {
             case "624-05":
                 return "vodacom";
             default:
-                // MNC seul (le MCC n'est pas toujours expose).
+                
                 switch (v) {
                     case "01":
                         return "mtn";
@@ -242,7 +231,7 @@ public final class ProfileTransfer {
         }
     }
 
-    /** Nom lisible de l'operateur actif (pour l'affichage dans l'UI). */
+    
     public static String displayIspName(Context ctx) {
         try {
             android.telephony.TelephonyManager tm =
@@ -261,7 +250,7 @@ public final class ProfileTransfer {
         }
     }
 
-    // Opérateur imposé par l'export ("lock_isp"), "" = toutes SIMs.
+    
     public static String lockIsp(JSONObject tunnel) {
         if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
             return "";
@@ -289,22 +278,17 @@ public final class ProfileTransfer {
     }
 
     public static boolean isExternalAllowed(JSONObject tunnel) {
-        // Un profil importe n'est jamais re-exportable : le verrou est
-        // pose a l'import, independamment du drapeau "external" du fichier.
+        
+        
         if (isImported(tunnel)) {
             return false;
         }
-        // Absent = allowed (legacy exports). Explicit false blocks re-share.
+        
         return tunnel == null || tunnel.optJSONObject("advanced") == null
                 || tunnel.optJSONObject("advanced").optBoolean("external", true);
     }
 
-    /**
-     * Profil issu d'un import (fichier .epha ou lien presse-papiers).
-     * Ces profils ne peuvent plus jamais etre exportes ni re-partages :
-     * le marquage est pose a l'import et survit aux modifications de
-     * l'application.
-     */
+    
     public static boolean isImported(JSONObject tunnel) {
         if (tunnel == null || tunnel.optJSONObject("advanced") == null) {
             return false;
@@ -313,13 +297,7 @@ public final class ProfileTransfer {
         return adv.optBoolean("imported", false) || adv.optString("imported", "").equals("1");
     }
 
-    /**
-     * Regle unique d'export appliquee par le fichier ET le presse-papiers.
-     * Un profil verrouille est nécessairement issu d'un import (l'editeur
-     * ne sait pas verrouiller un profil local) : il est donc lui aussi
-     * non exportable, ce qui couvre les profils deja installes avant que
-     * le marqueur "imported" n'existe.
-     */
+    
     public static boolean canExport(JSONObject tunnel) {
         return !isImported(tunnel) && !isLocked(tunnel);
     }
@@ -352,7 +330,7 @@ public final class ProfileTransfer {
         return false;
     }
 
-    // --- export ---
+    
 
     public static class Restrictions {
         public boolean lockConfiguration = false;
@@ -364,20 +342,20 @@ public final class ProfileTransfer {
         public boolean customBanner = false;
         public String expiresAt = "";
         public String userNote = "";
-        public String password = ""; // chiffrement fort (vide = pas de chiffrement)
-        public String allowedIsp = ""; // opérateur imposé, ex "mtn" (vide = tous)
+        public String password = ""; 
+        public String allowedIsp = ""; 
         public List<String> allowedHardwareIds = new ArrayList<>();
     }
 
-    // --- chiffrement fort des exports (optionnel, par mot de passe) ---
+    
 
     private static final String ENC_SCHEME = "PBKDF2-AES256-GCM";
-    private static final int ENC_ITERATIONS = 310_000; // ligne 2024+ OWASP PBKDF2-HMAC-SHA256
+    private static final int ENC_ITERATIONS = 310_000; 
     private static final int SALT_LEN = 16;
     private static final int IV_LEN = 12;
     private static final int GCM_TAG_BITS = 128;
 
-    /** Levée quand l'import détecte un export chiffré sans mot de passe. */
+    
     public static class PasswordRequiredException extends Exception {
         public PasswordRequiredException() {
             super("Export chiffré — mot de passe requis");
@@ -394,13 +372,7 @@ public final class ProfileTransfer {
         return key;
     }
 
-    /**
-     * Chiffre la charge JSON de l'export : PBKDF2-HMAC-SHA256 (310k itérations,
-     * sel aléatoire 128 bits) -> clé AES-256, puis AES-GCM (IV 96 bits aléatoire,
-     * tag 128 bits). Le GCM authentifie : toute modification du fichier ou
-     * mot de passe erroné échoue à l'ouverture, impossible à craquer offline
-     * à moindre coût et impossible à altérer silencieusement.
-     */
+    
     public static String buildExportEncrypted(String payload, String password) throws Exception {
         byte[] salt = new byte[SALT_LEN];
         byte[] iv = new byte[IV_LEN];
@@ -423,7 +395,7 @@ public final class ProfileTransfer {
         return root.toString();
     }
 
-    /** Déchiffre un export chiffré; échoue proprement sur mauvais mot de passe. */
+    
     public static String decryptExport(JSONObject root, String password) throws Exception {
         if (!ENC_SCHEME.equals(root.optString("enc", ""))) {
             throw new Exception("Chiffrement d'export inconnu.");
@@ -440,7 +412,7 @@ public final class ProfileTransfer {
         return new String(c.doFinal(ct), StandardCharsets.UTF_8);
     }
 
-    /** Build the .epha / clipboard JSON for the given tunnel objects. */
+    
     public static String buildExport(List<JSONObject> tunnels, Restrictions r, String filename)
             throws Exception {
         JSONArray arr = new JSONArray();
@@ -530,7 +502,7 @@ public final class ProfileTransfer {
         return CLIPBOARD_PREFIX + b64;
     }
 
-    // --- import ---
+    
 
     public static class ImportResult {
         public final List<JSONObject> tunnels = new ArrayList<>();
@@ -541,12 +513,12 @@ public final class ProfileTransfer {
     private static final java.util.Set<String> KNOWN_TYPES = new java.util.HashSet<>(
             java.util.Arrays.asList("ssh", "ssh_slowdns", "xray", "xray_slowdns", "zivpn", "hysteria", "utunnel"));
 
-    /** Parse .epha content or an ephang:// link. Throws with a clear message. */
+    
     public static ImportResult parseImport(String raw) throws Exception {
         return parseImport(raw, null);
     }
 
-    /** Parse with password for encrypted exports (PasswordRequiredException sinon). */
+    
     public static ImportResult parseImport(String raw, String password) throws Exception {
         String content = raw == null ? "" : raw.trim();
         if (content.startsWith(CLIPBOARD_PREFIX)) {
@@ -570,7 +542,7 @@ public final class ProfileTransfer {
         } catch (Exception e) {
             throw new Exception("JSON invalide.");
         }
-        // Export chiffré ? Le contenu utile est dans "ct".
+        
         if (!root.optString("enc", "").isEmpty()) {
             if (password == null || password.isEmpty()) {
                 throw new PasswordRequiredException();
@@ -591,8 +563,8 @@ public final class ProfileTransfer {
         boolean lockCfg = rr != null && rr.optBoolean("lockConfiguration", false);
         String exp = "";
         List<String> hwids = new ArrayList<>();
-        // "external" du fichier est volontairement ignore : a l'import le
-        // profil devient non re-exportable (voir adv2.put plus bas).
+        
+        
         boolean hideServer = rr != null && rr.optBoolean("hideServer", false);
         boolean hideUpass = rr != null && rr.optBoolean("hideUpass", false);
         boolean blockRoot = rr != null && rr.optBoolean("blockRoot", false);
@@ -623,8 +595,8 @@ public final class ProfileTransfer {
                 out.skipped++;
                 continue;
             }
-            // Les profils du plan de contrôle (API) ne sont NI exportables
-            // NI importables : un fichier contenant ce marqueur est refusé.
+            
+            
             if (isApiManaged(t)) {
                 out.skipped++;
                 continue;
@@ -667,15 +639,15 @@ public final class ProfileTransfer {
                     && copy.optJSONObject("advanced").optBoolean("locked", false)) {
                 out.locked = true;
             }
-            // Per-profile display/policy flags travel in advanced too.
+            
             JSONObject adv2 = copy.optJSONObject("advanced");
             if (adv2 == null) {
                 adv2 = new JSONObject();
                 copy.put("advanced", adv2);
             }
-            // Marqueur definitive : un profil importe (fichier OU lien
-            // presse-papiers) ne peut jamais etre re-exporte, meme si le
-            // fichier d'origine autorisait "external" ou n'etait pas verrouille.
+            
+            
+            
             adv2.put("imported", true);
             adv2.put("external", false);
             if (hideServer) {
@@ -705,16 +677,13 @@ public final class ProfileTransfer {
         return out;
     }
 
-    /** True for profiles materialized from the secured remote API: they
-     *  must NEVER be exportable/importable (credentials belong to the
-     *  control plane, not to shareable files). */
+    
     public static boolean isApiManaged(JSONObject t) {
         JSONObject adv = t != null ? t.optJSONObject("advanced") : null;
         return adv != null && adv.optBoolean(ApiSession.ADV_API_MANAGED, false);
     }
 
-    /** Full tunnel JSON objects of the selected ids, in selection order.
-     *  API-managed profiles are excluded: they stay bound to the account. */
+    
     public static List<JSONObject> selectedTunnels(Context ctx, LinkedHashSet<String> ids) {
         List<JSONObject> out = new ArrayList<>();
         if (ids == null || ids.isEmpty()) {

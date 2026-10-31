@@ -12,23 +12,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 
-/**
- * Diffusion d'un fichier de diagnostic (crash.txt, kighmu.txt) vers le
- * dossier public Download.
- *
- * Depuis Android 10 (API 29), l'app n'a plus le droit d'ecrire dans
- * Download/ : les enregistrements echouent silencieusement et
- * l'utilisateur ne voit jamais le fichier. MediaStore.Downloads est le
- * seul chemin accepte sans permission de stockage, et il apparait
- * immediatement dans le gestionnaire de fichiers de l'utilisateur.
- * En dessous de l'API 29 on retombe sur l'ecriture directe.
- */
+
 final class CrashShare {
 
     private CrashShare() {
     }
 
-    /** Ecrit le contenu dans Download/<name>. Retourne true si visible. */
+    
     static boolean publishToDownload(Context ctx, String name, String content) {
         if (ctx == null) {
             return false;
@@ -42,7 +32,7 @@ final class CrashShare {
         return publishLegacy(ctx, name, bytes);
     }
 
-    /** API 29+ : insertion dans MediaStore.Downloads (visible immediat). */
+    
     private static boolean publishMediaStore(Context ctx, String name, byte[] bytes) {
         try {
             ContentValues cv = new ContentValues();
@@ -70,7 +60,7 @@ final class CrashShare {
         }
     }
 
-    /** API < 29 : ecriture directe (autorisee sur ces versions). */
+    
     private static boolean publishLegacy(Context ctx, String name, byte[] bytes) {
         try {
             java.io.File dir =
@@ -89,14 +79,14 @@ final class CrashShare {
         }
     }
 
-    /** Lit un fichier interne de l'app (logDir/crash.txt) ou renvoie "". */
+    
     static String readInternal(Context ctx, String name) {
         try {
             File f = new File(BinaryManager.logDir(), name);
             if (!f.exists() || f.length() == 0) {
                 return "";
             }
-            // Un rapport de crash trop long ne doit pas saturer la memoire.
+            
             long max = 512 * 1024L;
             try (InputStream in = new FileInputStream(f)) {
                 long size = in.available();
@@ -113,7 +103,7 @@ final class CrashShare {
         }
     }
 
-    /** Nom horodate : crash-2026-09-30-0312.txt, pour ne rien ecraser. */
+    
     static String timestampedName(String base, String extension) {
         java.text.SimpleDateFormat fmt =
                 new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm", java.util.Locale.US);

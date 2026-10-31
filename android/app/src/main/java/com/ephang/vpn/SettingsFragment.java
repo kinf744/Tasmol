@@ -21,7 +21,7 @@ import androidx.appcompat.app.AppCompatDelegate;
 import androidx.fragment.app.Fragment;
 
 
-/** Settings menu (Picko-style, adapted): network, reconnect, UI, device. */
+
 public class SettingsFragment extends Fragment {
 
     private TextView delayText;
@@ -34,8 +34,8 @@ public class SettingsFragment extends Fragment {
         try {
             v = inflater.inflate(R.layout.fragment_settings, container, false);
         } catch (Exception e) {
-            // Inflating the layout failed (resource issue): dark fallback
-            // with the error instead of crashing the activity.
+            
+            
             TextView fallback = new TextView(container.getContext());
             fallback.setText("Settings error: " + e.getMessage());
             fallback.setTextColor(0xFFFFFFFF);
@@ -44,8 +44,8 @@ public class SettingsFragment extends Fragment {
         try {
             initSettingsView(v);
         } catch (Exception | Error e) {
-            // Best-effort UI: never crash the host activity for a broken
-            // settings fragment (log the real cause to kighmu).
+            
+            
             TasVpnService.logEvent("error", "settings", "init failed: " + e);
             TextView fallback = new TextView(container.getContext());
             fallback.setText("Settings unavailable: " + e.getMessage());
@@ -59,7 +59,7 @@ public class SettingsFragment extends Fragment {
         VPNApplication app = VPNApplication.getInstance();
         View portInput = v.findViewById(R.id.settings_port);
 
-        // Device identity (no permission needed).
+        
         String androidId = "";
         try {
             androidId = Settings.Secure.getString(
@@ -190,11 +190,11 @@ public class SettingsFragment extends Fragment {
         try {
             gov = VpnlibHelper.version();
         } catch (Throwable ignored) {
-            // Native Go call can throw Error (not Exception) when the Go
-            // runtime isn't loaded yet: never crash the fragment for it.
+            
+            
         }
-        // VpnlibHelper.version() can crash at native level (gomobile call
-        // failure → JNI throw caught here) or at parse level. Shield both.
+        
+        
         if (gov == null) {
             gov = "";
         }

@@ -29,11 +29,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/** CONFIGS tab (NPV Tunnel style): last ping, active card, saved group. */
+
 public class ConfigsFragment extends Fragment {
     private static final int REQ_IMPORT_SHARE = 3001;
     private static final int REQ_EXPORT_SHARE = 3002;
-    /** Destination bound to the ⋮ menu entry that opened the export form. */
+    
     private static final String TARGET_FILE = "file";
     private static final String TARGET_CLIPBOARD = "clipboard";
     private String pendingExport = null;
@@ -67,8 +67,8 @@ public class ConfigsFragment extends Fragment {
         adapter = new TunnelAdapter(new TunnelAdapter.Listener() {
             @Override
             public void onTap(JSONObject tunnel) {
-                // Tap = select / deselect (green frame). No round-robin
-                // menu: every selected profile connects from Home.
+                
+                
                 toggleSelect(tunnel);
             }
 
@@ -107,8 +107,8 @@ public class ConfigsFragment extends Fragment {
         v.findViewById(R.id.configs_active_menu).setOnClickListener(view -> showShareMenu());
 
         v.findViewById(R.id.configs_ping_btn).setOnClickListener(view -> pingActive());
-        // Connection happens from Home only: tapping the header card
-        // explains selection instead of connecting.
+        
+        
         activeCard.setOnClickListener(view ->
                 toast("Tap profiles below to select them (green = will connect)"));
         v.findViewById(R.id.configs_group_toggle).setOnClickListener(view -> {
@@ -119,7 +119,7 @@ public class ConfigsFragment extends Fragment {
         v.findViewById(R.id.configs_group_menu).setOnClickListener(view -> showSortMenu());
 
         v.findViewById(R.id.configs_refresh).setOnClickListener(view -> reload());
-        // No connect button on this screen: connection happens from Home only.
+        
         v.findViewById(R.id.bar_connect).setVisibility(View.GONE);
         v.findViewById(R.id.bar_sort).setOnClickListener(view -> {
             sortByType = !sortByType;
@@ -152,7 +152,7 @@ public class ConfigsFragment extends Fragment {
             lastPingText.setText(VPNApplication.getInstance().getLastPingDate());
             JSONArray arr = new JSONArray(VpnlibHelper.listTunnels(cfgPath()));
 
-            // Prune selections pointing at deleted profiles.
+            
             java.util.Set<String> existing = new java.util.HashSet<>();
             for (int i = 0; i < arr.length(); i++) {
                 existing.add(arr.getJSONObject(i).optString("id", ""));
@@ -161,16 +161,16 @@ public class ConfigsFragment extends Fragment {
                     VPNApplication.getInstance().getSelectedIds();
             selected.retainAll(existing);
             VPNApplication.getInstance().setSelectedIds(selected);
-            // Keep the single-active pointer on the first selected profile
-            // (Home display, restart flow).
+            
+            
             String first = selected.isEmpty() ? "" : selected.iterator().next();
             VPNApplication.getInstance().setActiveTunnelId(first);
 
             List<JSONObject> items = new ArrayList<>();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject t = arr.getJSONObject(i);
-                // Les profils matérialisés depuis l'API sont invisibles ici:
-                // CONFIGS gère uniquement les profils manuels.
+                
+                
                 JSONObject adv0 = t.optJSONObject("advanced");
                 if (adv0 != null && adv0.optBoolean(ApiSession.ADV_API_MANAGED, false)) {
                     continue;
@@ -184,15 +184,15 @@ public class ConfigsFragment extends Fragment {
                 items.add(t);
             }
             if (sortByType) {
-                // Tri par type affiche : les variantes *SlowDNS se rangeent
-                // avec leur type de base (ssh / xray).
+                
+                
                 Collections.sort(items, (a, b) -> TunnelAdapter.prettyType(
                         a.optString("type", "")).compareTo(TunnelAdapter.prettyType(
                         b.optString("type", ""))));
             } else {
                 Collections.sort(items, (a, b) -> a.optString("name", "").compareToIgnoreCase(b.optString("name", "")));
             }
-            // Selected first.
+            
             for (int i = items.size() - 1; i >= 0; i--) {
                 if (selected.contains(items.get(i).optString("id", ""))) {
                     JSONObject top = items.remove(i);
@@ -217,8 +217,8 @@ public class ConfigsFragment extends Fragment {
                     }
                 }
                 if (pick == null && first.equals(ApiSession.activeTunnelId(requireContext()))) {
-                    // La sélection est une config API (cachée de la liste):
-                    // pas de substitution par un profil manuel.
+                    
+                    
                     activeName.setText("Config API active");
                     activeDetail.setText("Gérée depuis Home (section SERVER CONFIGS)");
                     activeType.setText("API");
@@ -302,8 +302,7 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    /** PING ALL (style NPV) : pinge tous les profils visibles en parallèle
-     *  et affiche le résultat sur chaque carte ("Ping <ms>"). */
+    
     private void pingActive() {
         java.util.List<JSONObject> targets = new java.util.ArrayList<>();
         try {
@@ -362,15 +361,15 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    /** Tap a card: toggle its selection (green frame = will connect). */
+    
     private void toggleSelect(JSONObject tunnel) {
         String id = tunnel.optString("id", "");
         if (id.isEmpty()) {
             return;
         }
-        // Conflict rule: an API config currently owns the selection and the
-        // user picked a manual profile. Warn; on confirm the API config is
-        // withdrawn (API mode back to standby) and manual selection resumes.
+        
+        
+        
         boolean isApiTunnel = id.equals(ApiSession.activeTunnelId(requireContext()));
         if (ApiSession.isApiActive(requireContext()) && !isApiTunnel) {
             new AlertDialog.Builder(requireContext())
@@ -387,8 +386,8 @@ public class ConfigsFragment extends Fragment {
             return;
         }
         applyToggle(id, tunnel);
-        // Manual selection while an API tunnel merely existed (not active)
-        // also puts API mode in standby.
+        
+        
         ApiSession.onManualSelection(requireContext());
     }
 
@@ -407,8 +406,7 @@ public class ConfigsFragment extends Fragment {
         reload();
     }
 
-    /** Long-press a card: Ping / Clone / Edit / Delete (no connect here).
-     *  Locked profiles expose Ping + Delete only. */
+    
     private void showActions(JSONObject tunnel) {
         String id = tunnel.optString("id", "");
         String name = tunnel.optString("name", "Server");
@@ -454,7 +452,7 @@ public class ConfigsFragment extends Fragment {
                 .show();
     }
 
-    /** Duplicate a profile (fresh id, "name copy"). */
+    
     private void cloneTunnel(String id, String name) {
         if (id == null || id.isEmpty()) {
             return;
@@ -490,16 +488,7 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    /** Partager + Importer via le menu ⋮ de l'en-tête : c'est le SEUL point
-     *  d'entrée du partage. Il porte toujours sur la sélection (1+ profils au
-     *  cadre vert) — le partage d'un profil isolé n'existe plus, l'icône de
-     *  la carte est devenue un Clone.
-     *
-     *  Les 4 actions sont listées à plat, sans sous-menu ni paragraphe
-     *  explicatif : chaque entrée fait ce qu'elle annonce. L'export passe
-     *  ensuite par le formulaire de restrictions (verrou, mot de passe, HWID,
-     *  opérateur, expiration), qui est une saisie d'options et non un niveau
-     *  de navigation. */
+    
     private void showShareMenu() {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
@@ -533,8 +522,7 @@ public class ConfigsFragment extends Fragment {
                 .show();
     }
 
-    /** Show the Backup form for the currently selected profiles, bound to
-     *  one export destination (file or clipboard). */
+    
     private void showExportMenu(String target) {
         java.util.LinkedHashSet<String> selected =
                 VPNApplication.getInstance().getSelectedIds();
@@ -545,7 +533,7 @@ public class ConfigsFragment extends Fragment {
         showExportMenu(ProfileTransfer.selectedTunnels(requireContext(), selected), target);
     }
 
-    /** Open the .epha picker directly (import path, no options form). */
+    
     private void openImportFile() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
@@ -553,18 +541,16 @@ public class ConfigsFragment extends Fragment {
         startActivityForResult(i, REQ_IMPORT_SHARE);
     }
 
-    /** Backup form for an explicit list of profiles, ending on `target`
-     *  (TARGET_FILE or TARGET_CLIPBOARD). The form collects the restrictions
-     *  (lock, password, HWID, ISP, expiry) then performs that one action. */
+    
     private void showExportMenu(List<JSONObject> tunnels, String target) {
         if (tunnels.isEmpty()) {
             toast("Les configs de l'API sont sécurisées : export impossible");
             return;
         }
-        // Garde-fou unique applique au fichier ET au presse-papiers : un
-        // profil importe (ou verrouille non exportable) ne peut jamais
-        // repartir de cet appareil. Bloque avant meme d'afficher le
-        // formulaire pour ne pas laisser croire que l'export est possible.
+        
+        
+        
+        
         for (JSONObject t : tunnels) {
             if (!ProfileTransfer.canExport(t)) {
                 toast(exportBlockedReason(t));
@@ -575,7 +561,7 @@ public class ConfigsFragment extends Fragment {
         buildExportDialog(tunnels, target);
     }
 
-    /** Label de section du formulaire d'export (style NPV). */
+    
     private android.widget.TextView sectionLabel(String text) {
         android.widget.TextView tv = new android.widget.TextView(requireContext());
         tv.setText(text);
@@ -586,13 +572,7 @@ public class ConfigsFragment extends Fragment {
         return tv;
     }
 
-    /**
-     * Formulaire "Export Config" : en-titre avec croix de fermeture,
-     * cases a cocher, champs conditionnels REELLEMENT masques tant que la
-     * case n'est pas cochee, operateur detecte automatiquement, et un
-     * seul bouton d'action pleine largeur (le "Annuler" est remplace par
-     * la croix).
-     */
+    
     private void buildExportDialog(List<JSONObject> tunnels, String target) {
         final float density = getResources().getDisplayMetrics().density;
         final int pad = (int) (16 * density);
@@ -600,14 +580,14 @@ public class ConfigsFragment extends Fragment {
         final int green = 0xFF00E676;
         final int dim = 0xFF9E9E9E;
 
-        // Operateur actif detecte : "Bloquer operateur" n'exige aucune saisie.
+        
         final String detectedIsp = ProfileTransfer.detectIspCode(requireContext());
         final String detectedName = ProfileTransfer.displayIspName(requireContext());
 
         android.widget.LinearLayout root = new android.widget.LinearLayout(requireContext());
         root.setOrientation(android.widget.LinearLayout.VERTICAL);
 
-        // --- En-titre + croix -----------------------------------------------------
+        
         android.widget.LinearLayout header = new android.widget.LinearLayout(requireContext());
         header.setOrientation(android.widget.LinearLayout.HORIZONTAL);
         header.setGravity(android.view.Gravity.CENTER_VERTICAL);
@@ -645,7 +625,7 @@ public class ConfigsFragment extends Fragment {
         root.addView(scroll, new android.widget.LinearLayout.LayoutParams(
                 android.widget.LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
 
-        // --- Nom du fichier (uniquement pour l'export fichier) --------------------
+        
         final android.widget.EditText filenameInput = new android.widget.EditText(requireContext());
         filenameInput.setText("ephang-" + tunnels.size() + "-profils.epha");
         filenameInput.setTextColor(0xFFFFFFFF);
@@ -657,19 +637,19 @@ public class ConfigsFragment extends Fragment {
         layout.addView(fileCard);
         fileCard.setVisibility(toFile ? android.view.View.VISIBLE : android.view.View.GONE);
 
-        // --- Cases a cocher -------------------------------------------------------
+        
         android.widget.LinearLayout optCard = card(density);
         optCard.addView(sectionLabel("RESTRICTIONS"));
         android.widget.GridLayout grid = new android.widget.GridLayout(requireContext());
         grid.setColumnCount(2);
         final java.util.Map<String, android.widget.CheckBox> boxes = new java.util.LinkedHashMap<>();
-        // Une seule source de verite : cle -> libelle + valeur par defaut.
-        // Aucun tableau parallele a garder aligne (un bug historique
-        // (ArrayIndexOutOfBoundsException) venait d'un defaults[] plus court
-        // que opts[] quand deux options etaient ajoutees).
+        
+        
+        
+        
         java.util.LinkedHashMap<String, Object[]> opts = new java.util.LinkedHashMap<>();
         opts.put("lock", new Object[]{"Lock Backup", false});
-        opts.put("external", new Object[]{"External", true});   // défaut historique
+        opts.put("external", new Object[]{"External", true});   
         opts.put("hideserver", new Object[]{"Hide Server", false});
         opts.put("hideupass", new Object[]{"Hide UPass", false});
         opts.put("blockroot", new Object[]{"Block Root", false});
@@ -702,8 +682,8 @@ public class ConfigsFragment extends Fragment {
         optCard.addView(grid);
         layout.addView(optCard);
 
-        // --- Champs conditionnels (cartes masquees tant que non coches) ----------
-        // HWID
+        
+        
         android.widget.LinearLayout hwidCard = card(density);
         hwidCard.addView(sectionLabel("HARDWARE ID"));
         final android.widget.EditText hwidInput = new android.widget.EditText(requireContext());
@@ -713,7 +693,7 @@ public class ConfigsFragment extends Fragment {
         hwidCard.addView(hwidInput);
         layout.addView(hwidCard);
 
-        // Operateur (auto-detecte)
+        
         android.widget.LinearLayout ispCard = card(density);
         ispCard.addView(sectionLabel("OPÉRATEUR DÉTECTÉ"));
         final android.widget.EditText ispInput = new android.widget.EditText(requireContext());
@@ -732,7 +712,7 @@ public class ConfigsFragment extends Fragment {
         ispCard.addView(ispInfo);
         layout.addView(ispCard);
 
-        // Mot de passe
+        
         android.widget.LinearLayout passCard = card(density);
         passCard.addView(sectionLabel("MOT DE PASSE"));
         final android.widget.EditText passwordInput = new android.widget.EditText(requireContext());
@@ -744,7 +724,7 @@ public class ConfigsFragment extends Fragment {
         passCard.addView(passwordInput);
         layout.addView(passCard);
 
-        // Note
+        
         android.widget.LinearLayout noteCard = card(density);
         noteCard.addView(sectionLabel("NOTE"));
         final android.widget.EditText noteInput = new android.widget.EditText(requireContext());
@@ -754,7 +734,7 @@ public class ConfigsFragment extends Fragment {
         noteCard.addView(noteInput);
         layout.addView(noteCard);
 
-        // Expiration
+        
         final String[] expiry = {""};
         android.widget.LinearLayout expCard = card(density);
         expCard.addView(sectionLabel("EXPIRATION"));
@@ -768,7 +748,7 @@ public class ConfigsFragment extends Fragment {
         expCard.addView(expiryText);
         layout.addView(expCard);
 
-        // Resume
+        
         android.widget.TextView summary = new android.widget.TextView(requireContext());
         summary.setText(tunnels.size() + " profil(s) sélectionné(s)");
         summary.setTextColor(dim);
@@ -776,8 +756,8 @@ public class ConfigsFragment extends Fragment {
         summary.setPadding((int) (4 * density), (int) (10 * density), 0, (int) (6 * density));
         layout.addView(summary);
 
-        // Affichage conditionnel : chaque champ n'existe visuellement que si
-        // sa case est cochee.
+        
+        
         final android.view.View[] cards = {
                 hwidCard, ispCard, passCard, noteCard, expCard};
         final String[] keys = {"hwid", "isp", "password", "note", "expired"};
@@ -790,8 +770,8 @@ public class ConfigsFragment extends Fragment {
                         field.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE));
             }
         }
-        // La date d'expiration demande un choix : on ouvre le picker quand
-        // la case devient cochee.
+        
+        
         boxes.get("expired").setOnCheckedChangeListener((b, c) -> {
             expCard.setVisibility(c ? android.view.View.VISIBLE : android.view.View.GONE);
             if (c) {
@@ -799,7 +779,7 @@ public class ConfigsFragment extends Fragment {
             }
         });
 
-        // --- Bouton d'action plein ecran (remplace Annuler + ancien bouton) ---
+        
         final android.widget.Button action = new android.widget.Button(requireContext());
         action.setText(toFile ? "ENREGISTRER LE .EPHA" : "COPIER LE LIEN");
         action.setTextColor(0xFF001B00);
@@ -839,7 +819,7 @@ public class ConfigsFragment extends Fragment {
         dlgRef.show();
     }
 
-    /** Conteneur "carte" sombre, aligne sur le style de l'application. */
+    
     private android.widget.LinearLayout card(float density) {
         android.widget.LinearLayout c = new android.widget.LinearLayout(requireContext());
         c.setOrientation(android.widget.LinearLayout.VERTICAL);
@@ -853,8 +833,7 @@ public class ConfigsFragment extends Fragment {
         c.setLayoutParams(lp);
         return c;
     }
-    /** Green date picker for the Expired option (AAAA-MM-JJ). Material style
-     *  with explicit green buttons (the default can be unreadable). */
+    
     private void showExpiryPicker(final String[] expiry, final android.widget.TextView label) {
         java.util.Calendar cal = java.util.Calendar.getInstance();
         android.app.DatePickerDialog dlg = new android.app.DatePickerDialog(requireContext(),
@@ -867,8 +846,8 @@ public class ConfigsFragment extends Fragment {
                 cal.get(java.util.Calendar.DAY_OF_MONTH));
         dlg.getDatePicker().setMinDate(System.currentTimeMillis() - 1000);
         dlg.show();
-        // Force readable green buttons: the Material theme otherwise can
-        // render light-on-light text.
+        
+        
         try {
             android.widget.Button ok = dlg.getButton(android.content.DialogInterface.BUTTON_POSITIVE);
             android.widget.Button cancel = dlg.getButton(android.content.DialogInterface.BUTTON_NEGATIVE);
@@ -884,14 +863,14 @@ public class ConfigsFragment extends Fragment {
         }
     }
 
-    /** Read an export option, tolerating options that have no checkbox. */
+    
     private static boolean checked(java.util.Map<String, android.widget.CheckBox> boxes,
                                    String key) {
         android.widget.CheckBox cb = boxes.get(key);
         return cb != null && cb.isChecked();
     }
 
-    /** Validate Backup options; null = invalid (toast shown). */
+    
     private ProfileTransfer.Restrictions readBackupOptions(
             java.util.Map<String, android.widget.CheckBox> boxes,
             String hwids, String note, String expiry, String password, String isp) {
@@ -901,9 +880,9 @@ public class ConfigsFragment extends Fragment {
         r.hideServer = checked(boxes, "hideserver");
         r.hideUpass = checked(boxes, "hideupass");
         r.blockRoot = checked(boxes, "blockroot");
-        // "rmbanner"/"custombanner" have no checkbox in the grid any more:
-        // read them defensively (a missing key means "off"), otherwise this
-        // threw NullPointerException right after the dialog was validated.
+        
+        
+        
         r.removeBanner = checked(boxes, "rmbanner");
         r.customBanner = checked(boxes, "custombanner");
         if (checked(boxes, "expired")) {
@@ -952,10 +931,10 @@ public class ConfigsFragment extends Fragment {
         return r;
     }
 
-    /** Dialogue d'export courant (ferme par la croix en haut a droite). */
+    
     private androidx.appcompat.app.AlertDialog exportDialog;
 
-    /** Message d refus d'export, different selon la cause du blocage. */
+    
     private String exportBlockedReason(JSONObject t) {
         String name = t.optString("name", "Server");
         if (ProfileTransfer.isImported(t)) {
@@ -1043,7 +1022,7 @@ public class ConfigsFragment extends Fragment {
         try {
             res = ProfileTransfer.parseImport(raw, password);
         } catch (ProfileTransfer.PasswordRequiredException e) {
-            // Export chiffré : on demande le mot de passe puis on réessaie.
+            
             final android.widget.EditText pw = new android.widget.EditText(requireContext());
             pw.setHint("Mot de passe de l'export");
             pw.setInputType(android.text.InputType.TYPE_CLASS_TEXT

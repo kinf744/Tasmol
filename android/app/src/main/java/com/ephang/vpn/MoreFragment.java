@@ -9,7 +9,7 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 
-/** MORE tab: two menus - Settings and Hotspot sharing. */
+
 public class MoreFragment extends Fragment {
     @Nullable
     @Override

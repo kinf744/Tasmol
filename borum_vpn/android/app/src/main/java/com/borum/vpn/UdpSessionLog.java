@@ -71,7 +71,7 @@ final class UdpSessionLog {
     }
 
     private static void line(String level, String msg) {
-        BinaryManager.appendKighmuRaw(
+        BinaryManager.appendLogRaw(
                 new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
                         .format(new java.util.Date()),
                 "[" + level + "] " + msg);

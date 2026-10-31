@@ -6,20 +6,13 @@ import android.os.Looper;
 
 import org.json.JSONObject;
 
-/**
- * Unified ping. While connected, measures real end-to-end latency through
- * the tunnel's own SOCKS, trying in order:
- *   1. UDP ASSOCIATE + DNS query ("udp") — best for UDP-capable upstreams;
- *   2. SOCKS CONNECT to 8.8.8.8:53 ("tun") — works with ANY SOCKS,
- *      including TCP-only ones (uz, native SSH);
- * otherwise falls back to a direct TCP connect probe of host:port.
- */
+
 public final class TunnelPing {
     private TunnelPing() {
     }
 
     public interface Callback {
-        /** ms >= 0 on success (via is "udp" or "tcp"), -1 on failure. */
+        
         void onResult(long ms, String via);
     }
 
@@ -46,8 +39,8 @@ public final class TunnelPing {
                                 ms = SocksUdpPing.ping(hp[0], Integer.parseInt(hp[1]), 5000);
                                 via = "udp";
                                 if (ms < 0) {
-                                    // TCP-only SOCKS (uz, native SSH): CONNECT
-                                    // through the tunnel instead.
+                                    
+                                    
                                     ms = SocksTcpPing.ping(hp[0], Integer.parseInt(hp[1]), 5000);
                                     via = "tun";
                                 }
@@ -57,9 +50,9 @@ public final class TunnelPing {
                     }
                 }
                 if (ms < 0 && !host.isEmpty() && port > 0) {
-                    // Skip meaningless TCP probes against zivpn UDP ranges
-                    // when we already know UDP is the only transport... still
-                    // attempt: some servers answer TCP too.
+                    
+                    
+                    
                     ms = PingUtil.ping(host, port, 4000);
                     via = "tcp";
                 }
@@ -74,7 +67,7 @@ public final class TunnelPing {
                     if (result >= 0 || !udpOnly) {
                         cb.onResult(result, how);
                     } else {
-                        cb.onResult(-2, "udp"); // marker: UDP tunnel, TCP closed
+                        cb.onResult(-2, "udp"); 
                     }
                 });
             } catch (Exception e) {

@@ -63,7 +63,7 @@ public class LogsFragment extends Fragment {
         scroller = v.findViewById(R.id.logs_scroll);
         v.findViewById(R.id.logs_clear).setOnClickListener(view -> {
             TasVpnService.clearLog();
-            BinaryManager.clearKighmu();
+            BinaryManager.clearLog();
             refresh();
         });
         v.findViewById(R.id.logs_share).setOnClickListener(view -> shareJournal());
@@ -99,7 +99,7 @@ public class LogsFragment extends Fragment {
             return;
         }
 
-        long stamp = BinaryManager.kighmuStamp();
+        long stamp = BinaryManager.logStamp();
         if (stamp == 0) {
             lastSeenStamp = -1;
         } else if (stamp == lastSeenStamp && verbose == lastSeenVerbose) {
@@ -107,7 +107,7 @@ public class LogsFragment extends Fragment {
         }
         lastSeenStamp = stamp;
         lastSeenVerbose = verbose;
-        String raw = BinaryManager.readKighmuTail(TAIL_CHARS);
+        String raw = BinaryManager.readLogTail(TAIL_CHARS);
         if (raw == null || raw.trim().isEmpty()) {
             logText.setText("No events yet.\nConnect to start the journal.");
             return;
@@ -120,7 +120,7 @@ public class LogsFragment extends Fragment {
 
     private void shareJournal() {
         try {
-            String raw = BinaryManager.readKighmuTail(300_000);
+            String raw = BinaryManager.readLogTail(300_000);
             if (raw == null || raw.trim().isEmpty()) {
                 Toast.makeText(getContext(), "Nothing to share yet", Toast.LENGTH_SHORT).show();
                 return;
@@ -132,13 +132,13 @@ public class LogsFragment extends Fragment {
                             Intent i = new Intent(Intent.ACTION_SEND);
                             i.setType("text/plain");
                             i.putExtra(Intent.EXTRA_TEXT, raw);
-                            i.putExtra(Intent.EXTRA_SUBJECT, "kighmu.txt");
+                            i.putExtra(Intent.EXTRA_SUBJECT, "vpn.log");
                             startActivity(Intent.createChooser(i, "Share journal via"));
                         } else {
                             Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
                             i.addCategory(Intent.CATEGORY_OPENABLE);
                             i.setType("text/plain");
-                            i.putExtra(Intent.EXTRA_TITLE, "kighmu.txt");
+                            i.putExtra(Intent.EXTRA_TITLE, "vpn.log");
                             startActivityForResult(i, REQ_SAVE_JOURNAL);
                         }
                     })
@@ -165,7 +165,7 @@ public class LogsFragment extends Fragment {
             if (out == null) {
                 throw new IllegalStateException("openOutputStream returned null");
             }
-            out.write(BinaryManager.readKighmuTail(2_000_000)
+            out.write(BinaryManager.readLogTail(2_000_000)
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8));
             Toast.makeText(getContext(), "Journal enregistré", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {

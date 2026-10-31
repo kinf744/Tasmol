@@ -106,10 +106,10 @@ func (ks *KillSwitch) applyKillSwitch() error {
 		return fmt.Errorf("failed to set default route: %w", err)
 	}
 
-	// NOTE: vishvananda/netlink does not expose ip-rule actions
-	// (unreachable/blackhole), so blocking is enforced purely by
-	// routing all traffic through the VPN gateway above. The
-	// background monitor disables the switch if the interface drops.
+	
+	
+	
+	
 	return nil
 }
 

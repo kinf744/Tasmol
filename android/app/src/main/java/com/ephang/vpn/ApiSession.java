@@ -8,24 +8,15 @@ import org.json.JSONObject;
 
 import java.util.UUID;
 
-/**
- * Persistent API-auth state + helpers bridging remote configs into the
- * local tunnel store.
- *
- * Mode model:
- *  - "API mode"    = an API-materialized tunnel is the (single) selected
- *                    profile. Manual profiles must not be selectable.
- *  - "Manual mode" = user picked profiles in CONFIGS: the API config is
- *                    withdrawn automatically (standby).
- */
+
 public final class ApiSession {
     private static final String K_UUID = "api_device_uuid";
     private static final String K_ACTIVE_TUNNEL = "api_active_tunnel_id";
     private static final String K_SELECTED_CONFIG = "api_selected_config_id";
-    // Round-robin (2 profils API) : ids des tunnels matérialisés, csv.
+    
     private static final String K_ACTIVE_IDS = "api_active_tunnel_ids";
-    // Les valeurs sensibles (téléphone, code, configs) ne vivent que dans
-    // le vault chiffré de libpho (jamais de SharedPreferences en clair).
+    
+    
     private static final String V_PHONE = "phone";
     private static final String V_CODE = "code";
     private static final String V_EXPIRES = "expires";
@@ -40,9 +31,9 @@ public final class ApiSession {
         return ctx.getSharedPreferences("ephang_api_prefs", Context.MODE_PRIVATE);
     }
 
-    // --- Identity / auth state ---
+    
 
-    /** Device UUID, generated once on first use, stable afterwards. */
+    
     public static String deviceUuid(Context ctx) {
         SharedPreferences sp = p(ctx);
         String u = sp.getString(K_UUID, null);
@@ -63,11 +54,11 @@ public final class ApiSession {
 
     public static boolean isAuthenticated(Context ctx) {
         if (p(ctx).getBoolean(K_AUTHED, false)) {
-            return true; // chemin rapide : pas de decrypt par tick UI
+            return true; 
         }
         boolean ok = !code(ctx).isEmpty() && !phone(ctx).isEmpty();
         if (ok) {
-            p(ctx).edit().putBoolean(K_AUTHED, true).apply(); // migration
+            p(ctx).edit().putBoolean(K_AUTHED, true).apply(); 
         }
         return ok;
     }
@@ -84,7 +75,7 @@ public final class ApiSession {
         return PhoHelper.vaultGet(deviceUuid(ctx), V_EXPIRES);
     }
 
-    /** Full logout: forget credentials and detach any active API tunnel. */
+    
     public static void logout(Context ctx) {
         clearActive(ctx);
         clearAccountCard(ctx);
@@ -92,12 +83,12 @@ public final class ApiSession {
         PhoHelper.vaultClear(deviceUuid(ctx));
     }
 
-    // --- Bloc compte (carte "Client" de l'écran d'activation) ---
-    // Non sensible : nom, plan, quota et expiration. Uniquement quand le
-    // compte est actif et validé ; rafraîchi via /api/v1/devices/check.
+    
+    
+    
     private static final String K_ACCOUNT_CARD = "api_account_card";
-    // Drapeau non secret : évite d'appeler le coffre chiffré (lecture =
-    // fichier + AES-GCM) à chaque tick UI de la Home.
+    
+    
     private static final String K_AUTHED = "api_authed";
 
     public static void saveAccountCard(Context ctx, JSONObject card) {
@@ -121,16 +112,16 @@ public final class ApiSession {
         p(ctx).edit().remove(K_ACCOUNT_CARD).apply();
     }
 
-    // --- Remote configs cache ---
+    
 
     public static void saveConfigs(Context ctx, JSONArray configs) {
         PhoHelper.vaultPut(ctx, deviceUuid(ctx), V_CONFIGS,
                 configs == null ? "[]" : configs.toString());
-        lastConfigsRaw = null; // force le re-parse au prochain accès
+        lastConfigsRaw = null; 
     }
 
-    // Cache anti-reparse : le tick UI d'accueil (2 s) relisait et re-parsait
-    // TOUT le JSON des configs depuis le coffre chiffré à chaque tick.
+    
+    
     private static String lastConfigsRaw = null;
     private static JSONArray lastConfigsParsed = new JSONArray();
 
@@ -148,13 +139,13 @@ public final class ApiSession {
         return lastConfigsParsed;
     }
 
-    // --- Active API tunnel ---
+    
 
     public static String activeTunnelId(Context ctx) {
         return p(ctx).getString(K_ACTIVE_TUNNEL, "");
     }
 
-    /** True when an API config currently owns the profile selection. */
+    
     public static boolean isApiActive(Context ctx) {
         java.util.LinkedHashSet<String> sel = VPNApplication.getInstance().getSelectedIds();
         for (String id : activeTunnelIds(ctx)) {
@@ -165,7 +156,7 @@ public final class ApiSession {
         return false;
     }
 
-    /** All materialized API tunnel ids (1 in single mode, 2 in round-robin). */
+    
     public static java.util.List<String> activeTunnelIds(Context ctx) {
         java.util.List<String> out = new java.util.ArrayList<>();
         String csv = p(ctx).getString(K_ACTIVE_IDS, "");
@@ -181,10 +172,7 @@ public final class ApiSession {
         return out;
     }
 
-    /**
-     * Materialize a remote config (from /user/configs) as a local tunnel
-     * and make it the single selected profile. Returns the tunnel id.
-     */
+    
     public static String activate(Context ctx, JSONObject apiCfg) throws Exception {
         String tunnelId = materialize(ctx, apiCfg, activeTunnelId(ctx));
 
@@ -203,13 +191,7 @@ public final class ApiSession {
         return tunnelId;
     }
 
-    /**
-     * Round-robin over the two SlowDNS API profiles (SSH + SlowDNS and
-     * V2Ray + SlowDNS): both are materialized locally and selected
-     * together, so the connection runs in round-robin mode. Selecting
-     * either of the two API configs activates the pair. Returns the
-     * comma-separated tunnel ids.
-     */
+    
     public static String activateRoundRobin(Context ctx, JSONObject cfgA, JSONObject cfgB)
             throws Exception {
         java.util.List<JSONObject> cfgs = new java.util.ArrayList<>();
@@ -218,14 +200,7 @@ public final class ApiSession {
         return activateRoundRobinN(ctx, cfgs);
     }
 
-    /**
-     * Round-robin generalise a N profils SlowDNS (SSHL+DNS x4 ou
-     * WireGuard+SlowDNS x4) : tous les profils DE MEME MODE servis par
-     * l'API sont materialises en local et selectionnes ensemble, donc la
-     * connexion agrege N flux dnstt paralleles sur le meme canal.
-     * Limite dure a 4 profils (des tests a montre une saturation dnstt
-     * au-dela, sans gain de debit mesurable). Retourne les ids CSV.
-     */
+    
     public static String activateRoundRobinN(Context ctx, java.util.List<JSONObject> cfgs)
             throws Exception {
         if (cfgs == null || cfgs.isEmpty()) {
@@ -234,10 +209,10 @@ public final class ApiSession {
         java.util.List<JSONObject> use = cfgs.size() > 4
                 ? cfgs.subList(0, 4) : cfgs;
 
-        // Reuse previously stored ids (update in place) when possible.
+        
         String[] stored = p(ctx).getString(K_ACTIVE_IDS, "").split(",", -1);
-        // K_SELECTED_CONFIG recoit les config_id N-exaires (Information for
-        // "update" dedup), K_ACTIVE_IDS les tunnel ids.
+        
+        
         java.util.List<String> ids = new java.util.ArrayList<>();
         java.util.List<String> cfgIds = new java.util.ArrayList<>();
         for (int i = 0; i < use.size(); i++) {
@@ -262,7 +237,7 @@ public final class ApiSession {
         return csv;
     }
 
-    /** Insert or update the local tunnel backing an API config. */
+    
     private static String materialize(Context ctx, JSONObject apiCfg, String reuseId)
             throws Exception {
         String cfgPath = BinaryManager.configPath(ctx).getAbsolutePath();
@@ -298,10 +273,7 @@ public final class ApiSession {
         return tunnelId;
     }
 
-    /**
-     * Withdraw the API config: selection cleared, API mode to standby.
-     * The materialized tunnels stay on disk (cheap, re-usable on re-select).
-     */
+    
     public static void clearActive(Context ctx) {
         java.util.List<String> ids = activeTunnelIds(ctx);
         if (!ids.isEmpty()) {
@@ -317,14 +289,14 @@ public final class ApiSession {
                 .remove(K_SELECTED_CONFIG).apply();
     }
 
-    /** Called when the user manually selects a profile in CONFIGS. */
+    
     public static void onManualSelection(Context ctx) {
         if (isApiActive(ctx)) {
             clearActive(ctx);
         }
     }
 
-    // --- Mapping API config -> TunnelConfig JSON (mirrors TunnelEditorActivity) ---
+    
 
     static JSONObject toTunnelJson(JSONObject c) throws Exception {
         String label = c.optString("label", "API config");
@@ -355,15 +327,15 @@ public final class ApiSession {
         if ("zivpn".equalsIgnoreCase(mode) || "zivpn".equalsIgnoreCase(c.optString("protocol", ""))) {
             type = "zivpn";
             auth.put("password", c.optString("zivpn_password", ""));
-            // Multi-range round-robin: 8 sub-ranges covering 6000-19999
-            // (server DNATs them all to :5667). API may override.
+            
+            
             String ranges = c.optString("port_range", "");
             if (ranges.isEmpty()) {
                 ranges = "6000-9499,9500-12999,13000-16499,16500-19999";
             }
             server.put("port_range", ranges);
         } else if ("sshslowdns".equalsIgnoreCase(mode)) {
-            // SSH over SlowDNS (dnstt): server = nameserver/pubkey + ssh creds.
+            
             type = "ssh_slowdns";
             String ns = c.optString("nameserver", "");
             if (!ns.isEmpty()) {
@@ -373,7 +345,7 @@ public final class ApiSession {
             auth.put("username", c.optString("ssh_user", ""));
             auth.put("password", c.optString("ssh_pass", ""));
         } else if ("v2raydns".equalsIgnoreCase(mode)) {
-            // V2Ray/Xray over SlowDNS (dnstt): VLESS uuid + nameserver/pubkey.
+            
             type = "xray_slowdns";
             String ns = c.optString("nameserver", "");
             if (!ns.isEmpty()) {
@@ -384,10 +356,10 @@ public final class ApiSession {
             transport.put("network", "tcp");
             transport.put("security", "none");
         } else if ("utunnel".equalsIgnoreCase(mode)) {
-            // Utunnel UDP propriétaire : PSK pré-calculée (64 hex =
-            // SHA256(uuid:secret)) servie telle quelle au binaire ;
-            // server.port = port RÉEL d'écoute (ex. 5669), la plage
-            // clients est DNAT-ée côté serveur, jamais dialée.
+            
+            
+            
+            
             type = "utunnel";
             auth.put("password", c.optString("utunnel_secret", ""));
             String ranges = c.optString("port_range", "");
@@ -425,12 +397,12 @@ public final class ApiSession {
         advanced.put("api_label", label);
         advanced.put("api_isp", c.optString("isp", ""));
         advanced.put("api_tier", c.optString("tier", ""));
-        // SlowDNS modes carry the dnstt server public key.
+        
         String dnsttPub = c.optString("slowdns_pubkey", "");
         if (!dnsttPub.isEmpty()) {
             advanced.put("slowdns_pubkey", dnsttPub);
         }
-        // Utunnel: source port rotation (seconds, 0 = never, server default 10).
+        
         if (c.has("utunnel_hop")) {
             advanced.put("utunnel_hop", c.optInt("utunnel_hop", 10));
         }

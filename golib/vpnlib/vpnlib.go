@@ -112,12 +112,12 @@ type Controller struct {
 	logPath    string
 	rrLastTry  map[string]time.Time
 
-	// stopRequested est mis à true par Stop() quand le mutex du contrôleur
-	// est retenu par un Start() en vol : Stop() ferme alors immédiatement le
-	// fd TUN et retourne sans attendre, afin de ne jamais bloquer le caller
-	// Java ni déclencher le watchdog kill du processus. Le Start() en vol,
-	// dont le contexte est annulé, échoue et effectue son propre cleanupLocked
-	// idempotent quand il relâche le mutex.
+	
+	
+	
+	
+	
+	
 	stopRequested atomic.Bool
 }
 
@@ -399,12 +399,12 @@ func (c *Controller) Stop() (out string) {
 	}()
 
 	c.abort.Store(true)
-	// NOTE: ne PAS appeler c.cancel() ici. En path contended (Start() tient
-	// le mutex), annuler le contexte maintenant ferait échouer t.Start(c.ctx)
-	// avec "context canceled" alors qu'une nouvelle connexion essaie de
-	// démarrer. L'annulation a lieu après acquisition du mutex (fast path
-	// ligne 411, ou goroutine différée ligne 431) quand Start() a relâché
-	// le mutex.
+	
+	
+	
+	
+	
+	
 
 	if c.mu.TryLock() {
 		c.running = false
