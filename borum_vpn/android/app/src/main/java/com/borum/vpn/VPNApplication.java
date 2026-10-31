@@ -18,6 +18,10 @@ public class VPNApplication extends Application {
     @Override
     public void onCreate() {
 
+        super.onCreate();
+        instance = this;
+        prefs = getSharedPreferences("borum_vpn_prefs", Context.MODE_PRIVATE);
+
         Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, err) -> {
@@ -69,16 +73,13 @@ public class VPNApplication extends Application {
             }
 
             @Override
-            public void onActivitySaveInstanceState(android.app.Activity a, android.os.Bundle b) {
+            public void onActivitySaveInstanceState(android.app.Activity a) {
             }
 
             @Override
             public void onActivityDestroyed(android.app.Activity a) {
             }
         });
-        super.onCreate();
-        instance = this;
-        prefs = getSharedPreferences("borum_vpn_prefs", Context.MODE_PRIVATE);
 
         try {
             String prev = getSharedPreferences("crash_report", Context.MODE_PRIVATE)
@@ -94,6 +95,7 @@ public class VPNApplication extends Application {
             BinaryManager.ensureReady(this);
         } catch (Exception e) {
             Log.e("VPNApplication", "ensureReady failed on launch", e);
+            BinaryManager.appendLog("[APP] BinaryManager ensureReady FAILED: " + e.getMessage());
         }
 
         ExpiryGuard.getInstance(this).start();

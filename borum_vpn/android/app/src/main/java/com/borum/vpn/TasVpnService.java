@@ -30,7 +30,8 @@ public class TasVpnService extends VpnService {
     public static final String ACTION_NUCLEAR_DISCONNECT = "com.borum.vpn.action.NUCLEAR_DISCONNECT";
     public static final String EXTRA_TUNNEL_ID = "tunnel_id";
 
-    private static volatile Object controller = null;
+    private static final java.util.concurrent.atomic.AtomicReference<Object> controllerRef =
+            new java.util.concurrent.atomic.AtomicReference<>(null);
     private static volatile String activeTunnelId = null;
     private static volatile String lastError = null;
 
@@ -139,7 +140,7 @@ public class TasVpnService extends VpnService {
     private volatile int detachedFd = -1;
 
     public static Object getController() {
-        return controller;
+        return controllerRef.get();
     }
 
     public static String getActiveTunnelId() {
@@ -151,7 +152,7 @@ public class TasVpnService extends VpnService {
     }
 
     public static boolean isRunning() {
-        return controller != null;
+        return controllerRef.get() != null;
     }
 
     public static boolean isStarting() {
@@ -214,7 +215,7 @@ public class TasVpnService extends VpnService {
     }
 
     private void startSession(String tunnelId) {
-        if (controller != null || starting) {
+        if (controllerRef.get() != null || starting) {
             Log.i(TAG, "session start already in progress/running, ignoring duplicate");
             return;
         }
@@ -350,7 +351,11 @@ public class TasVpnService extends VpnService {
                         return;
                     }
 
-                    controller = ctrl;
+                    if (!controllerRef.compareAndSet(null, ctrl)) {
+                        // un autre thread a pris la main, abandonner ce controleur
+                        abortSupersededStart(gen, ctrl);
+                        return;
+                    }
                     pendingController.compareAndSet(ctrl, null);
                     ctrl = null;
                     activeTunnelId = tid;
@@ -558,7 +563,7 @@ public class TasVpnService extends VpnService {
         boolean wasConnecting = connectInFlight.getAndSet(false);
 
         try {
-            if (controller != null && activeTunnelId != null) {
+            if (controllerRef.get() != null && activeTunnelId != null) {
                 String t = UdpSessionLog.prettyType(UdpSessionLog.typeOfTunnel(this, activeTunnelId));
                 if (!t.isEmpty()) {
                     UdpSessionLog.stopping();
@@ -591,9 +596,9 @@ public class TasVpnService extends VpnService {
 
         cancelNotification();
 
-        final Object ctrl = controller;
+        final Object ctrl = controllerRef.get();
         final String tidAtStop = activeTunnelId;
-        controller = null;
+        controllerRef.set(null);
         final Object inflight = pendingController.getAndSet(null);
         activeTunnelId = null;
 
@@ -728,7 +733,7 @@ public class TasVpnService extends VpnService {
     };
 
     public static boolean hasSessionActivity() {
-        return controller != null
+        return controllerRef.get() != null
                 || starting
                 || pendingController.get() != null
                 || connectInFlight.get()
@@ -780,8 +785,8 @@ public class TasVpnService extends VpnService {
             }
         }
 
-        final Object live = controller;
-        controller = null;
+        final Object live = controllerRef.get();
+        controllerRef.set(null);
         final Object inflight = pendingController.getAndSet(null);
         final Object target = live != null ? live : inflight;
         if (target != null) {
@@ -805,8 +810,8 @@ public class TasVpnService extends VpnService {
         cancelNotification();
         releaseWakeLock();
 
-        Object live = controller;
-        controller = null;
+        Object live = controllerRef.get();
+        controllerRef.set(null);
         Object victim = live != null ? live : localCtrl;
         pendingController.compareAndSet(localCtrl, null);
         closeTunQuietly();
@@ -836,7 +841,9 @@ public class TasVpnService extends VpnService {
     @Override
     public void onDestroy() {
         logEvent("connection", "app", "service detruit (onDestroy)");
-        stopSession();
+        if (!stopping) {
+            stopSession();
+        }
         releaseWakeLock();
         super.onDestroy();
     }
@@ -844,7 +851,9 @@ public class TasVpnService extends VpnService {
     @Override
     public void onRevoke() {
         logEvent("connection", "app", "systeme a revoque le VPN (onRevoke)");
-        stopSession();
+        if (!stopping) {
+            stopSession();
+        }
         super.onRevoke();
     }
 
@@ -859,7 +868,7 @@ public class TasVpnService extends VpnService {
 
     public static void updateApiProxy() {
         String socks = "";
-        Object ctrl = controller;
+        Object ctrl = controllerRef.get();
         if (ctrl != null) {
             try {
                 String id = activeTunnelId;
@@ -879,7 +888,7 @@ public class TasVpnService extends VpnService {
     }
 
     public static String controllerStatus() {
-        Object ctrl = controller;
+        Object ctrl = controllerRef.get();
         if (ctrl == null) {
             return "{\"running\":false}";
         }
@@ -891,7 +900,7 @@ public class TasVpnService extends VpnService {
     }
 
     public static String setActiveTunnel(String tunnelId) {
-        Object ctrl = controller;
+        Object ctrl = controllerRef.get();
         if (ctrl == null) {
             return "{\"error\":\"not running\"}";
         }
@@ -952,7 +961,7 @@ public class TasVpnService extends VpnService {
     }
 
     public static String statusSummary() {
-        if (controller == null) {
+        if (controllerRef.get() == null) {
             if (lastError != null) {
                 return "error: " + lastError;
             }

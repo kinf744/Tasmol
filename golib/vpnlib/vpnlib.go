@@ -80,6 +80,8 @@ type Controller struct {
 	cancelHolder atomic.Value
 
 	hardKilled atomic.Bool
+	stopping   atomic.Bool
+	cleanedUp  atomic.Bool
 
 	cfgMgr *config.Manager
 	vpn    *core.VPNCore
@@ -387,7 +389,6 @@ func (c *Controller) ApiSocksAddr(activeTunnelID string) string {
 	}
 	return ""
 }
-
 func (c *Controller) Stop() (out string) {
 
 	defer func() {
@@ -399,12 +400,10 @@ func (c *Controller) Stop() (out string) {
 	}()
 
 	c.abort.Store(true)
-	
-	
-	
-	
-	
-	
+
+	if c.stopping.Swap(true) {
+		return ""
+	}
 
 	if c.mu.TryLock() {
 		c.running = false
@@ -424,7 +423,6 @@ func (c *Controller) Stop() (out string) {
 	c.hardKillTunFd()
 	go func() {
 		defer func() {
-
 			_ = recover()
 		}()
 		c.mu.Lock()
@@ -440,12 +438,12 @@ func (c *Controller) Stop() (out string) {
 	}()
 	return ""
 }
-
 func (c *Controller) hardKillTunFd() {
 	if c.hardKilled.Swap(true) {
 		return
 	}
 	if fd := c.tunFd; fd > 0 {
+		c.tunFd = -1
 		_ = unix.Close(fd)
 	}
 }
@@ -479,6 +477,9 @@ func safeCall(what string, fn func()) {
 }
 
 func (c *Controller) cleanupLocked() {
+	if c.cleanedUp.Swap(true) {
+		return
+	}
 	if c.cancel != nil {
 		c.cancel()
 	}

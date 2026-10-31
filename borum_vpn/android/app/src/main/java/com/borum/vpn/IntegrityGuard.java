@@ -29,6 +29,7 @@ public final class IntegrityGuard {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static volatile boolean started = false;
     private static volatile boolean hard = false;
+    private static volatile boolean sigBadOnly = false;
     private static volatile boolean killed = false;
     private static volatile String lastVerdict = "{}";
 
@@ -76,7 +77,7 @@ public final class IntegrityGuard {
             } catch (Throwable th) {
                 Log.w(TAG, "evaluate failed: " + th);
             }
-            if (hard && KILL_ON_HARD && !killed) {
+            if (hard && KILL_ON_HARD && !killed && !sigBadOnly) {
                 killed = true;
                 terminate("hard");
                 return;
@@ -125,11 +126,19 @@ public final class IntegrityGuard {
         } catch (Throwable ignored) {
         }
 
-        hard = gHard || jDebugger || jXposed || sigBad;
+        boolean realHard = gHard || jDebugger || jXposed;
+        hard = realHard || sigBad;
+        sigBadOnly = sigBad && !realHard;
 
-        if (hard) {
+        if (realHard) {
             TasVpnService.logEvent("error", "security",
                     "environnement non autorisé — session protégée");
+            terminate("hard");
+            return;
+        }
+        if (sigBadOnly) {
+            TasVpnService.logEvent("warning", "security",
+                    "signature APK differente — connexion bloquee (pas de kill)");
         } else if (gRoot || gEmu || gMagisk || jRoot || jProxy || jUserCa || jVpn) {
 
             lastVerdict = mergeSoft(lastVerdict, jProxy, jUserCa, jVpn);
