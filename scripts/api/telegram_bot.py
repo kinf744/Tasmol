@@ -24,6 +24,11 @@ ORANGE_FAST_SNI = "crashlyticsreports-pa.googleapis.com"
 ORANGE_FAST_HOST_FILE = BASE / "orange_fast_host.txt"
 ORANGE_FAST_PATH = "/@kighmu"
 ORANGE_FAST_UUID = "aaaa0000-1111-4222-8333-444455556666"
+ORANGE_FAST2_ADDR = "192.179.18.100"
+ORANGE_FAST2_SNI = "crashlyticsreports-pa.googleapis.com"
+ORANGE_FAST2_HOST_FILE = BASE / "orange_fast2_host.txt"
+ORANGE_FAST2_PATH = "/@kighmu"
+ORANGE_FAST2_UUID = "aaaa0000-1111-4222-8333-444455556666"
 XRAY_PATH = "/vless-xhttp"
 ORANGE_ADDR = "reprise.orange-business.com"
 ORANGE_HOST_FILE = BASE / "orange_host.txt"
@@ -115,6 +120,14 @@ def orange_fast_host_get():
     try:
         if ORANGE_FAST_HOST_FILE.exists():
             return ORANGE_FAST_HOST_FILE.read_text().strip()
+    except:
+        pass
+    return ""
+
+def orange_fast2_host_get():
+    try:
+        if ORANGE_FAST2_HOST_FILE.exists():
+            return ORANGE_FAST2_HOST_FILE.read_text().strip()
     except:
         pass
     return ""
@@ -373,11 +386,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("4. V2Ray + SlowDNS", callback_data="cfg_4")],
             [InlineKeyboardButton("5. Orange Fast (VLESS WS TLS)", callback_data="cfg_5")],
             [InlineKeyboardButton("6. MTN Illimité (VLESS WS TLS)", callback_data="cfg_6")],
+            [InlineKeyboardButton("7. Orange Fast 2 (VLESS WS TLS, host dédié)", callback_data="cfg_7")],
             [InlineKeyboardButton("0. Toutes", callback_data="cfg_0")],
         ])
         await update.message.reply_text(
             "✅ Quota enregistré.\n\nÉtape 6/8 — <b>Configs à inclure</b> :\n"
-            "(ex: <b>2,4,5,6</b> ou <b>0</b> pour tout — vous pouvez aussi cliquer sur un bouton ci-dessus)",
+            "(ex: <b>2,4,5,6,7</b> ou <b>0</b> pour tout — vous pouvez aussi cliquer sur un bouton ci-dessus)",
             reply_markup=kb, parse_mode="HTML")
         return
     if step == "configs":
@@ -393,7 +407,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     raise ValueError
                 for p in parts:
                     n = int(p)
-                    if n < 1 or n > 6:
+                    if n < 1 or n > 7:
                         raise ValueError
                 context.user_data["cfg_sel"] = ",".join(str(int(p)) for p in parts)
             except Exception:
@@ -481,8 +495,9 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         want_v2dns = 1 if want(4) else 0
         want_orange_fast = 1 if want(5) else 0
         want_mtn_unlimited = 1 if want(6) else 0
-        if not any([want_xray,want_zivpn,want_sshdns,want_v2dns,want_orange_fast,want_mtn_unlimited]):
-            want_xray=want_zivpn=want_sshdns=want_v2dns=want_orange_fast=want_mtn_unlimited=1
+        want_orange_fast2 = 1 if want(7) else 0
+        if not any([want_xray,want_zivpn,want_sshdns,want_v2dns,want_orange_fast,want_mtn_unlimited,want_orange_fast2]):
+            want_xray=want_zivpn=want_sshdns=want_v2dns=want_orange_fast=want_mtn_unlimited=want_orange_fast2=1
         domain = get_domain()
         try:
             out = subprocess.check_output(["hostname", "-I"], text=True)
@@ -522,6 +537,10 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         # 5) Orange Fast (VLESS WS TLS)
         if want_orange_fast:
             sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_FAST_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(ORANGE_FAST_SNI)}', '{sqlq(orange_fast_host_get())}', 'orange_fast', 'orange_fast', '0', '{sqlq(ORANGE_FAST_UUID)}', '{sqlq(ORANGE_FAST_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
+
+        # 7) Orange Fast 2 (VLESS WS TLS, host dédié)
+        if want_orange_fast2:
+            sql_list.append(f"INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path) SELECT id, '{sqlq(ORANGE_FAST2_ADDR)}', 443, 'vless', 'ws', 1, '{sqlq(ORANGE_FAST2_SNI)}', '{sqlq(orange_fast2_host_get())}', 'orange_fast2', 'orange_fast2', '0', '{sqlq(ORANGE_FAST2_UUID)}', '{sqlq(ORANGE_FAST2_PATH)}' FROM users WHERE uuid='{sqlq(uid)}';")
 
         # 6) MTN Illimité (VLESS WS TLS)
         if want_mtn_unlimited:

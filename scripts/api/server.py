@@ -365,6 +365,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = f"XRAY {tier}Mo"
                 elif mode == "orange_fast":
                     label = "Orange Fast"
+                elif mode == "orange_fast2":
+                    label = "Orange Fast 2"
                 elif mode == "mtn_unlimited":
                     label = "MTN Illimité"
                 else:

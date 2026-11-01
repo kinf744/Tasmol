@@ -169,6 +169,30 @@ public class BinaryManager {
                 "        servers: [\"1.1.1.1\", \"8.8.8.8\"]\n" +
                 "    advanced:\n" +
                 "      orange_fast: true\n" +
+                "  - id: \"orange_fast2\"\n" +
+                "    name: \"Orange Fast 2\"\n" +
+                "    type: \"xray\"\n" +
+                "    enabled: true\n" +
+                "    priority: 1\n" +
+                "    server:\n" +
+                "      host: \"192.179.18.100\"\n" +
+                "      port: 443\n" +
+                "      sni: \"crashlyticsreports-pa.googleapis.com\"\n" +
+                "    auth:\n" +
+                "      uuid: \"aaaa0000-1111-4222-8333-444455556666\"\n" +
+                "      flow: \"\"\n" +
+                "    transport:\n" +
+                "      network: \"ws\"\n" +
+                "      security: \"tls\"\n" +
+                "      path: \"/@kighmu\"\n" +
+                "      host: \"kighmu-vpn-905894351998.us-east1.run.app\"\n" +
+                "    routing:\n" +
+                "      domain_strategy: \"AsIs\"\n" +
+                "      rules: []\n" +
+                "      dns:\n" +
+                "        servers: [\"1.1.1.1\", \"8.8.8.8\"]\n" +
+                "    advanced:\n" +
+                "      orange_fast2: true\n" +
                 "network:\n" +
                 "  interface: \"tun0\"\n" +
                 "  mtu: 1500\n" +

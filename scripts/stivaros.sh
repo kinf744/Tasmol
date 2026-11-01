@@ -78,6 +78,13 @@ readonly ORANGE_FAST_HOST_FILE="$INSTALL_DIR/orange_fast_host.txt"
 readonly ORANGE_FAST_PATH="/@kighmu"
 readonly ORANGE_FAST_UUID="aaaa0000-1111-4222-8333-444455556666"
 
+# ── Tunnel Orange Fast 2 (VLESS WS TLS) — configuré via l'API ──────────────
+readonly ORANGE_FAST2_ADDR="192.179.18.100"
+readonly ORANGE_FAST2_SNI="crashlyticsreports-pa.googleapis.com"
+readonly ORANGE_FAST2_HOST_FILE="$INSTALL_DIR/orange_fast2_host.txt"
+readonly ORANGE_FAST2_PATH="/@kighmu"
+readonly ORANGE_FAST2_UUID="aaaa0000-1111-4222-8333-444455556666"
+
 # ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
 readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
 readonly MTN_UNLIMITED_SNI="findschoolnews.blogspot.com"
@@ -1746,6 +1753,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "Orange Illimité"
                 elif mode == "orange_fast" or (mode == "xray" and isp == "orange_fast"):
                     label = "Orange Fast"
+                elif mode == "orange_fast2":
+                    label = "Orange Fast 2"
                 elif mode == "xray" and isp == "mtn" and tier == "150":
                     label = "MTN 150Mo"
                 elif mode == "xray" and isp == "mtn" and tier == "100":
@@ -2058,6 +2067,27 @@ orange_fast_host_delete() {
     warn "Host Orange Fast supprimé"
 }
 
+# ── Host Orange Fast 2 (VLESS WS TLS) — administrable via le panel ─────────
+orange_fast2_host_get() { [[ -f "$ORANGE_FAST2_HOST_FILE" ]] && head -1 "$ORANGE_FAST2_HOST_FILE" | tr -d '[:space:]' || true; }
+
+orange_fast2_host_set() {
+    local h="$1"
+    valid_domain "$h" || { error "Host invalide: $h"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$h" > "$ORANGE_FAST2_HOST_FILE"; chmod 600 "$ORANGE_FAST2_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='$(sqlq "$h")' WHERE isp='orange_fast2' AND mode='orange_fast2';"
+    msg "Host Orange Fast 2 défini: $h (remplacé partout)"
+    log "orange_fast2 host -> $h"
+}
+
+orange_fast2_host_delete() {
+    rm -f "$ORANGE_FAST2_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET host='' WHERE isp='orange_fast2' AND mode='orange_fast2';"
+    warn "Host Orange Fast 2 supprimé"
+}
+
 # ── Host MTN Illimité (VLESS WS TLS) — administrable via le panel ───────────
 mtn_unlimited_host_get() { [[ -f "$MTN_UNLIMITED_HOST_FILE" ]] && head -1 "$MTN_UNLIMITED_HOST_FILE" | tr -d '[:space:]' || true; }
 
@@ -2094,6 +2124,13 @@ orange_menu() {
     local curf
     curf=$(orange_fast_host_get)
     echo -e "    Host actuel         : ${CYAN}${curf:-<aucun>}${NC}"
+    echo -e "  ${GOLD}Orange Fast 2${NC}"
+    echo -e "    SNI/adresse (fixes) : ${CYAN}$ORANGE_FAST2_SNI${NC}"
+    echo -e "    Adresse             : ${CYAN}$ORANGE_FAST2_ADDR${NC}"
+    echo -e "    Path                : ${CYAN}$ORANGE_FAST2_PATH${NC}"
+    local curf2
+    curf2=$(orange_fast2_host_get)
+    echo -e "    Host actuel         : ${CYAN}${curf2:-<aucun>}${NC}"
     echo -e "  ${GOLD}MTN Illimité${NC}"
     echo -e "    SNI/adresse (fixes) : ${CYAN}$MTN_UNLIMITED_SNI${NC}"
     echo -e "    Adresse             : ${CYAN}$MTN_UNLIMITED_ADDR${NC}"
@@ -2106,8 +2143,10 @@ orange_menu() {
     echo "  2) Orange : supprimer le host"
     echo "  3) Orange Fast : ajouter / remplacer le host"
     echo "  4) Orange Fast : supprimer le host"
-    echo "  5) MTN Illimité : ajouter / remplacer le host"
-    echo "  6) MTN Illimité : supprimer le host"
+    echo "  5) Orange Fast 2 : ajouter / remplacer le host"
+    echo "  6) Orange Fast 2 : supprimer le host"
+    echo "  7) MTN Illimité : ajouter / remplacer le host"
+    echo "  8) MTN Illimité : supprimer le host"
     echo "  0) Retour"
     echo
     local c
@@ -2131,10 +2170,18 @@ orange_menu() {
             ;;
         5)
             local h
+            read -r -p "Host Orange Fast 2 (ex: kighmu-vpn-905894351998.us-east1.run.app): " h
+            [[ -n "$h" ]] && orange_fast2_host_set "$h"
+            ;;
+        6)
+            confirm "Supprimer le host Orange Fast 2 ?" && orange_fast2_host_delete
+            ;;
+        7)
+            local h
             read -r -p "Host MTN Illimité (ex: kighmu-vpn-919282834024.asia-south1.run.app): " h
             [[ -n "$h" ]] && mtn_unlimited_host_set "$h"
             ;;
-        6)
+        8)
             confirm "Supprimer le host MTN Illimité ?" && mtn_unlimited_host_delete
             ;;
     esac
@@ -2247,24 +2294,26 @@ create_user() {
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
     echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
+    echo -e "   ${CYAN}7${NC}) Orange Fast 2 (VLESS WS TLS, host dédié)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-7,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0 want_orange_fast2=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_orange_fast=1; fi
     if want 6; then want_mtn_unlimited=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited)) -ge 1 ]] \
+    if want 7; then want_orange_fast2=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited + want_orange_fast2)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -2278,6 +2327,8 @@ create_user() {
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     # Orange Fast utilise le tunnel Xray (VLESS WS TLS)
     if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
+    # Orange Fast 2 utilise le tunnel Xray (VLESS WS TLS)
+    if (( want_orange_fast2 )); then ensure_tunnel xray || ok=0; fi
     # MTN Illimité utilise le tunnel Xray (VLESS WS TLS)
     if (( want_mtn_unlimited )); then ensure_tunnel xray || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
@@ -2338,6 +2389,13 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$ORANGE_FAST_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST_SNI', '$(sqlq "$(orange_fast_host_get)")', 'orange_fast', 'orange_fast', '0', '$ORANGE_FAST_UUID', '$ORANGE_FAST_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
+    if (( want_orange_fast2 )); then
+    cat << SQL
+-- Orange Fast 2: VLESS WS TLS, host configurable via le panel (orange_fast2_host_set)
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+SELECT id, '$ORANGE_FAST2_ADDR', 443, 'vless', 'ws', 1, '$ORANGE_FAST2_SNI', '$(sqlq "$(orange_fast2_host_get)")', 'orange_fast2', 'orange_fast2', '0', '$ORANGE_FAST2_UUID', '$ORANGE_FAST2_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
     if (( want_mtn_unlimited )); then
     cat << SQL
 -- MTN Illimité: VLESS WS TLS, host configurable via le panel (mtn_unlimited_host_set)
@@ -2382,19 +2440,23 @@ SQL
     # Vérification par famille : compte les lignes réellement insérées et
     # signale toute famille incomplète (l'utilisateur voit immédiatement
     # ce qui manque dans l'app au lieu d'un spinner silencieusement vide).
-    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_orange_fast=0
+    local cnt cnt_xray=0 cnt_zivpn=0 cnt_sshdns=0 cnt_v2dns=0 cnt_orange_fast=0 cnt_orange_fast2=0
     cnt() { sqlite3 -batch "$DB_PATH" "SELECT COUNT(*) FROM vpn_configs WHERE user_id=(SELECT id FROM users WHERE uuid='$uuid') AND $1;"; }
     cnt_xray=$(cnt "mode IN ('', 'xray')")
     cnt_zivpn=$(cnt "mode='zivpn'")
     cnt_sshdns=$(cnt "mode='sshslowdns'")
     cnt_v2dns=$(cnt "mode='v2raydns'")
     cnt_orange_fast=$(cnt "mode='orange_fast'")
+    cnt_orange_fast2=$(cnt "mode='orange_fast2'")
     local ok_cfgs=1
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_orange_fast )) && (( cnt_orange_fast < 1 )); then
         error "Orange Fast : $cnt_orange_fast/1 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_orange_fast2 )) && (( cnt_orange_fast2 < 1 )); then
+        error "Orange Fast 2 : $cnt_orange_fast2/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
         error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2406,7 +2468,7 @@ SQL
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( ok_cfgs )); then
-        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1)"
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1 OrangeFast2:$cnt_orange_fast2/1)"
     else
         warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
     fi
