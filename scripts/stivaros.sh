@@ -760,8 +760,8 @@ xray_uninstall() {
 
 xray_sync_uuids() {
     [[ -f "$DB_PATH" && -f "$XRAY_DIR/config.json" ]] || return 0
-    STIVAROS_DB="$DB_PATH" STIVAROS_DEFAULT_UUID="$XRAY_UUID_DEFAULT" python3 - << 'PYEOF' 2>/dev/null || true
-import json, os, sqlite3
+    STIVAROS_DB="$DB_PATH" STIVAROS_DEFAULT_UUID="$XRAY_UUID_DEFAULT" python3 - << 'PYEOF'
+import json, os, sqlite3, sys
 
 db, default = os.environ["STIVAROS_DB"], os.environ["STIVAROS_DEFAULT_UUID"]
 uuids = []
@@ -774,16 +774,15 @@ try:
     """).fetchall()
     uuids = [r[0] for r in rows if r[0]]
     conn.close()
-except Exception:
-    pass
+except Exception as e:
+    print(f"ERREUR xray_sync_uuids: {e}", file=sys.stderr)
+    sys.exit(1)
 if default not in uuids:
     uuids.insert(0, default)
 with open("/etc/xray/config.json") as f:
     cfg = json.load(f)
 clients = [{"id": u, "email": u, "level": 0} for u in uuids]
 for ib in cfg.get("inbounds", []):
-    # Tous les inbounds vless (xhttp :4443 ET ws :8443) partagent les
-    # mêmes comptes.
     if ib.get("protocol") == "vless":
         ib["settings"]["clients"] = clients
 tmp = "/etc/xray/config.json.tmp"
@@ -791,7 +790,8 @@ with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
 os.replace(tmp, "/etc/xray/config.json")
 PYEOF
-    tunnel_installed xray && systemctl restart xray
+    systemctl restart xray 2>/dev/null || { error "Echec redemarrage xray apres sync"; return 1; }
+    msg "Xray synchronise (UUIDs actifs injectes)"
 }
 
 # ── ZIVPN (UDP Camtel :5667, DNAT 6000-19999) ──────────────────────────
@@ -1134,8 +1134,8 @@ v2ray_uninstall() {
 # clients = UUID xray des comptes actifs (réutilisés côté VLESS/TROJAN).
 v2ray_sync_users() {
     [[ -f "$DB_PATH" && -f "$V2RAY_DIR/config.json" ]] || return 0
-    STIVAROS_DB="$DB_PATH" python3 - << 'PYEOF' 2>/dev/null || true
-import json, os, sqlite3
+    STIVAROS_DB="$DB_PATH" python3 - << 'PYEOF'
+import json, os, sqlite3, sys
 
 db = os.environ["STIVAROS_DB"]
 clients = []
@@ -1149,8 +1149,9 @@ try:
     clients = [{"id": r[0], "password": r[0], "level": 0, "email": r[0]}
                for r in rows if r[0]]
     conn.close()
-except Exception:
-    pass
+except Exception as e:
+    print(f"ERREUR v2ray_sync_users: {e}", file=sys.stderr)
+    sys.exit(1)
 conf = "/etc/stivaros-v2ray/config.json"
 with open(conf) as f:
     cfg = json.load(f)
@@ -1162,7 +1163,8 @@ with open(tmp, "w") as f:
     json.dump(cfg, f, indent=2)
 os.replace(tmp, conf)
 PYEOF
-    tunnel_active v2ray && systemctl restart "$V2RAY_SERVICE"
+    systemctl restart "$V2RAY_SERVICE" 2>/dev/null || { error "Echec redemarrage stivaros-v2ray apres sync"; return 1; }
+    msg "V2Ray synchronise (UUIDs actifs injectes)"
 }
 
 # ── SlowDNS (dnstt NS4→SSH:22, NV4→V2Ray:5402, dnsdist routeur :5300) ──
@@ -3780,10 +3782,10 @@ main() {
         --tunnels)   tunnel_menu || true ;;
         --zivpn)     install_zivpn || true ;;
         --sync-only)
-            # Appelé par le moteur de quota après un blocage.
-            xray_sync_uuids 2>/dev/null || true
-            v2ray_sync_users 2>/dev/null || true
-            zivpn_update_passwords 2>/dev/null || true
+            # Appelé par le moteur de quota après un blocage, et par le bot Telegram.
+            xray_sync_uuids || true
+            v2ray_sync_users || true
+            zivpn_update_passwords || true
             ;;
         *) menu ;;
     esac

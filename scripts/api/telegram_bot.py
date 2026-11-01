@@ -584,6 +584,12 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         try:
             if want_xray: subprocess.run(["systemctl","reload-or-restart","xray"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except: pass
+        # Synchroniser Xray et V2Ray avec les UUIDs actifs (y compris le nouveau compte)
+        try:
+            subprocess.run(["bash", "/opt/stivaros/stivaros.sh", "--sync-only"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
         context.user_data.clear()
         msg = f"✅ <b>Compte créé</b>\n\n• Nom : {html.escape(nom)}\n• Téléphone : {tel}\n• Code : <b>{code}</b>\n• Type : {'Compte normal (jours)' if ctype=='jours' else 'Compte TEST (heures)'}\n• Durée : {duree}\n• Expire : {expires}\n• ID : {user_id}\n• Appareils : {'Multi' if multi_device else 'Mono'}"
         if want_xray: msg += "\n• XRAY : inclus"
