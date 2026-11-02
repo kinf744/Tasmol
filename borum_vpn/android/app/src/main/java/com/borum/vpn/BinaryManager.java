@@ -439,4 +439,54 @@ public class BinaryManager {
         }
         return s;
     }
+
+    /**
+     * Ecrit le rapport de crash dans le dossier Download public sous le nom
+     * fixe "crash.txt" pour qu'il soit recuperable depuis un gestionnaire de
+     * fichiers sans ouvrir l'application.
+     */
+    public static void writeCrashToDownload(Context ctx, String report) {
+        try {
+            byte[] bytes = report.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if (ctx == null) {
+                return;
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                // Android 10+ : utiliser MediaStore Downloads
+                android.content.ContentValues cv = new android.content.ContentValues();
+                cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, "crash.txt");
+                cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+                cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+                android.net.Uri item =
+                        ctx.getContentResolver()
+                                .insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (item != null) {
+                    try (java.io.OutputStream out =
+                                 ctx.getContentResolver().openOutputStream(item)) {
+                        if (out != null) {
+                            out.write(bytes);
+                            out.flush();
+                        }
+                    }
+                    cv.clear();
+                    cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                    ctx.getContentResolver().update(item, cv, null, null);
+                    return;
+                }
+            }
+            // Fallback legacy (Android < 10) ou si MediaStore echoue
+            java.io.File dir =
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null && (dir.exists() || dir.mkdirs())) {
+                java.io.File out = new java.io.File(dir, "crash.txt");
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out, false)) {
+                    fos.write(bytes);
+                    fos.flush();
+                }
+            }
+        } catch (Throwable t) {
+            // Ignore silencieusement : le rapport reste dans filesDir/logs/crash.txt
+        }
+    }
 }

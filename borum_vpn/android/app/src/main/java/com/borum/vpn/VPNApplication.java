@@ -147,16 +147,22 @@ public class VPNApplication extends Application {
 
             String report = sb.toString();
             try (java.io.FileOutputStream out =
-                         new java.io.FileOutputStream(
-                                 new java.io.File(BinaryManager.logDir(), "crash.txt"), false)) {
+                          new java.io.FileOutputStream(
+                                  new java.io.File(BinaryManager.logDir(), "crash.txt"), false)) {
                 out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
 
-            getSharedPreferences("crash_report", Context.MODE_PRIVATE)
-                    .edit().putString("last", report).apply();
+            // Ecrire aussi crash.txt (nom fixe) dans le dossier Download pour
+            // faciliter le diagnostic depuis un gestionnaire de fichiers.
+            try {
+                BinaryManager.writeCrashToDownload(this, report);
+            } catch (Throwable ignored) {
+            }
 
             boolean published = CrashShare.publishToDownload(this,
-                    CrashShare.timestampedName("borum-crash", ".txt"), report);
+                    "crash.txt", report);
+            getSharedPreferences("crash_report", Context.MODE_PRIVATE)
+                    .edit().putString("last", report).apply();
             lastCrashReport = report;
             hasPendingCrash = true;
             TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err
