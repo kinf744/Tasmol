@@ -534,7 +534,6 @@ public class VPNApplication extends Application {
                 .putBoolean("set_wakelock", true)
                 .putBoolean("set_slowdns_boost", false)
                 .putBoolean("set_tcp_nodelay", true)
-                .putString(ORANGE_FAST_HOST_KEY, ORANGE_FAST_DEFAULT_HOST)
                 .apply();
     }
 
