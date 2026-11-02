@@ -21,6 +21,16 @@ def releasePassword = System.getenv('TASMOL_KEY_PASSWORD')
 def hasReleaseKey = releaseStoreFile && new File(releaseStoreFile).exists()
                     && releaseAlias && releasePassword
 
+if (!hasReleaseKey) {
+    throw new GradleException(
+        "TASMOL_KEYSTORE_B64 / TASMOL_KEY_ALIAS / TASMOL_KEY_PASSWORD secrets manquants: " +
+        "la signature de release nécessite une keystore stable. Configurez-les dans GitHub " +
+        "Settings > Secrets and variables > Actions. Sans cela, chaque build signerait avec " +
+        "une clé debug différente et Android refuserait l'installation par-dessus " +
+        "(INSTALL_FAILED_UPDATE_INCOMPATIBLE)."
+    )
+}
+
 // versionCode must strictly increase for Android to accept an update, and it
 // was hardcoded to 1, so every build claimed the same code. Derive it from
 // the CI run number when available, else from the commit count, so each
@@ -76,7 +86,7 @@ android {
             // gomobile vpnlib.** (JNI) et les points d'entrée manifeste.
             minifyEnabled true
             shrinkResources false
-            signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
+            signingConfig signingConfigs.release
         }
         debug {
             minifyEnabled false
