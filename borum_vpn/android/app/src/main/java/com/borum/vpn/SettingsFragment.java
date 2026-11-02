@@ -223,43 +223,6 @@ public class SettingsFragment extends Fragment {
             version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
         }
 
-        final EditText orangeHost = v.findViewById(R.id.settings_orange_host);
-        final View orangeSave = v.findViewById(R.id.settings_orange_save);
-        if (orangeHost != null) {
-            orangeHost.setText(app.getOrangeFastHost());
-        }
-        if (orangeSave != null && orangeHost != null) {
-            orangeSave.setOnClickListener(view -> {
-                String h = orangeHost.getText().toString().trim();
-                if (h.isEmpty()) {
-                    toast("Host invalide");
-                    return;
-                }
-                app.setOrangeFastHost(h);
-
-                app.resetConfigFile(requireContext());
-                toast("Orange Fast host enregistré - recréation config");
-            });
-        }
-
-        final EditText mtnHost = v.findViewById(R.id.settings_mtn_host);
-        final View mtnSave = v.findViewById(R.id.settings_mtn_save);
-        if (mtnHost != null) {
-            mtnHost.setText(app.getMtnUnlimitedHost());
-        }
-        if (mtnSave != null && mtnHost != null) {
-            mtnSave.setOnClickListener(view -> {
-                String h = mtnHost.getText().toString().trim();
-                if (h.isEmpty()) {
-                    toast("Host invalide");
-                    return;
-                }
-                app.setMtnUnlimitedHost(h);
-
-                app.resetConfigFile(requireContext());
-                toast("MTN Illimité host enregistré - recréation config");
-            });
-        }
     }
 
     private void saveDnsFields(EditText dns1, EditText dns2) {

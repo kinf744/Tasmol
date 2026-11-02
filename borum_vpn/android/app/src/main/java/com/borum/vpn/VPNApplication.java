@@ -363,32 +363,6 @@ public class VPNApplication extends Application {
         prefs.edit().putBoolean("auto_start", enabled).apply();
     }
 
-    public static final String ORANGE_FAST_HOST_KEY = "orange_fast_host";
-    public static final String ORANGE_FAST_DEFAULT_HOST =
-            "kighmu-vpn-919282834024.asia-south1.run.app";
-
-    public String getOrangeFastHost() {
-        return prefs.getString(ORANGE_FAST_HOST_KEY, ORANGE_FAST_DEFAULT_HOST);
-    }
-
-    public void setOrangeFastHost(String host) {
-        prefs.edit().putString(ORANGE_FAST_HOST_KEY, host == null
-                ? ORANGE_FAST_DEFAULT_HOST : host.trim()).apply();
-    }
-
-    public static final String MTN_UNLIMITED_HOST_KEY = "mtn_unlimited_host";
-    public static final String MTN_UNLIMITED_DEFAULT_HOST =
-            "kighmu-vpn-919282834024.asia-south1.run.app";
-
-    public String getMtnUnlimitedHost() {
-        return prefs.getString(MTN_UNLIMITED_HOST_KEY, MTN_UNLIMITED_DEFAULT_HOST);
-    }
-
-    public void setMtnUnlimitedHost(String host) {
-        prefs.edit().putString(MTN_UNLIMITED_HOST_KEY, host == null
-                ? MTN_UNLIMITED_DEFAULT_HOST : host.trim()).apply();
-    }
-
     public boolean isDnsProtectionEnabled() {
         return prefs.getBoolean("set_dns_protection", true);
     }
