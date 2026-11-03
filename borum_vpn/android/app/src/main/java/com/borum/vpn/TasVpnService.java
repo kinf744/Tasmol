@@ -242,6 +242,7 @@ public class TasVpnService extends VpnService {
         logEvent("connection", "app",
                 ">>> CONNEXION demandee tunnel=" + (requestedId == null ? "?" : requestedId)
                 + " gen=" + gen + " autoReconnect=" + VPNApplication.getInstance().isAutoReconnectEnabled());
+        VPNApplication.getInstance().recordBreadcrumb("CONNECT " + (requestedId == null ? "?" : requestedId));
         new Thread(() -> startSessionBackground(gen, requestedId), "borum-connect").start();
     }
 
@@ -255,6 +256,7 @@ public class TasVpnService extends VpnService {
                 + " maxAttempts=" + maxAttempts + " retryDelayMs=" + retryDelay
                 + " autoReconnect=" + (VPNApplication.getInstance() != null
                 && VPNApplication.getInstance().isAutoReconnectEnabled()));
+        VPNApplication.getInstance().recordBreadcrumb("CONNECT-LOOP " + tunnelId);
         try {
             while (attempt < maxAttempts && !isSuperseded(gen)) {
                 attempt++;
@@ -300,6 +302,7 @@ public class TasVpnService extends VpnService {
                     detachedFd = fd;
                     logEvent("connection", "app",
                             "TUN etablie fd=" + fd + " gen=" + gen + " tentative=" + attempt);
+                    VPNApplication.getInstance().recordBreadcrumb("TUN-ESTABLISHED fd=" + fd);
 
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
@@ -561,6 +564,7 @@ public class TasVpnService extends VpnService {
         starting = false;
         stopping = true;
         boolean wasConnecting = connectInFlight.getAndSet(false);
+        VPNApplication.getInstance().recordBreadcrumb("DISCONNECT nuclear=" + nuclear);
 
         try {
             if (controllerRef.get() != null && activeTunnelId != null) {
