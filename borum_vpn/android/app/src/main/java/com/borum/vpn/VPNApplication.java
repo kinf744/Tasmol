@@ -3,17 +3,26 @@ package com.borum.vpn;
 import android.app.Application;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.Build;
+import android.telephony.TelephonyManager;
 import android.util.Log;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 import vpnlib.Vpnlib;
 
 public class VPNApplication extends Application {
     private static VPNApplication instance;
     private SharedPreferences prefs;
+
+    /** Breadcrumbs : derniere actions pour diagnostiquer un crash. */
+    private final Deque<String> breadcrumbs = new ArrayDeque<>(16);
+    private String lastAction = "inconnu";
 
     @Override
     public void onCreate() {
@@ -105,6 +114,45 @@ public class VPNApplication extends Application {
         return instance;
     }
 
+    /** Enregistre une action pour le diagnostic de crash (breadcrumbs). */
+    public void recordBreadcrumb(String action) {
+        lastAction = action;
+        breadcrumbs.addLast(java.text.DateFormat.getTimeInstance().format(new java.util.Date())
+                + "  " + action);
+        if (breadcrumbs.size() > 16) {
+            breadcrumbs.removeFirst();
+        }
+    }
+
+    public String getLastAction() {
+        return lastAction;
+    }
+
+    public String getBreadcrumbs() {
+        StringBuilder sb = new StringBuilder();
+        for (String b : breadcrumbs) {
+            sb.append("  > ").append(b).append('\n');
+        }
+        return sb.toString();
+    }
+
+    /** Contexte reseau pour le rapport de crash. */
+    public String networkContext() {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            NetworkInfo ni = cm != null ? cm.getActiveNetworkInfo() : null;
+            if (ni != null) {
+                return ni.getTypeName() + " / " + (ni.isConnected() ? "connecte" : "deconnecte")
+                        + " / " + ni.getSubtypeName();
+            }
+            TelephonyManager tm = (TelephonyManager) getSystemService(Context.TELEPHONY_SERVICE);
+            String op = tm != null ? tm.getNetworkOperatorName() : "inconnu";
+            return "operator=" + op + " / reseau inconnu";
+        } catch (Throwable ignored) {
+            return "reseau non verifie";
+        }
+    }
+
     private void writeCrashReport(Thread thread, Throwable err) {
         try {
             StringBuilder sb = new StringBuilder();
@@ -114,17 +162,21 @@ public class VPNApplication extends Application {
             sb.append("========== borum VPN CRASH ==========\n");
             sb.append("Date       : ").append(fmt.format(new java.util.Date())).append('\n');
             sb.append("Thread     : ").append(thread.getName()).append('\n');
+            sb.append("Derniere action : ").append(lastAction).append('\n');
             sb.append("Exception  : ").append(err).append('\n');
             sb.append("Cause      : ").append(rootCause(err)).append('\n');
             sb.append("Appareil   : ").append(Build.MANUFACTURER).append(' ')
                     .append(Build.MODEL).append(" (Android ").append(Build.VERSION.RELEASE)
                     .append(", API ").append(Build.VERSION.SDK_INT).append(")\n");
+            sb.append("CPU        : ").append(Build.CPU_ABI).append(" / ").append(Build.HARDWARE)
+                    .append(" / ").append(Build.BOARD).append('\n');
             try {
                 android.content.pm.PackageInfo pi = getPackageManager()
                         .getPackageInfo(getPackageName(), 0);
                 sb.append("App        : ").append(pi.versionName).append('\n');
             } catch (Throwable ignored) {
             }
+            sb.append("Reseau     : ").append(networkContext()).append('\n');
             sb.append("VPN etat   : running=").append(TasVpnService.isRunning())
                     .append(" starting=").append(TasVpnService.isStarting())
                     .append(" active=").append(String.valueOf(TasVpnService.getActiveTunnelId()))
@@ -138,6 +190,9 @@ public class VPNApplication extends Application {
             sb.append("Threads    : ").append(Thread.activeCount()).append(" actifs\n");
             sb.append("Activite   : ").append(String.valueOf(currentActivityName())).append('\n');
             sb.append("--------------------------------------\n");
+            sb.append("BREADCRUMBS (dernieres actions):\n");
+            sb.append(getBreadcrumbs());
+            sb.append("--------------------------------------\n");
             sb.append("STACKTRACE COMPLETE:\n").append(fullStack(err)).append('\n');
             sb.append("--------------------------------------\n");
             sb.append("CAUSE RACINE:\n").append(causeChain(err)).append('\n');
@@ -146,19 +201,27 @@ public class VPNApplication extends Application {
             sb.append(TasVpnService.getLog()).append('\n');
 
             String report = sb.toString();
-            try (java.io.FileOutputStream out =
-                          new java.io.FileOutputStream(
-                                  new java.io.File(BinaryManager.logDir(), "crash.txt"), false)) {
-                out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            // 1) Ecriture dans le repertoire prive de l'app (toujours accessible)
+            try {
+                java.io.File logDir = BinaryManager.logDir();
+                if (logDir != null && (!logDir.exists() && !logDir.mkdirs())) {
+                    // ignore, tente quand meme d'ecrire
+                }
+                try (java.io.FileOutputStream out =
+                              new java.io.FileOutputStream(
+                                      new java.io.File(logDir, "crash.txt"), false)) {
+                    out.write(report.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                }
+            } catch (Throwable ignored) {
             }
 
-            // Ecrire aussi crash.txt (nom fixe) dans le dossier Download pour
-            // faciliter le diagnostic depuis un gestionnaire de fichiers.
+            // 2) Ecriture dans le dossier Download (nom fixe crash.txt)
             try {
                 BinaryManager.writeCrashToDownload(this, report);
             } catch (Throwable ignored) {
             }
 
+            // 3) Publication via CrashShare (MediaStore / legacy / external cache)
             boolean published = CrashShare.publishToDownload(this,
                     "crash.txt", report);
             getSharedPreferences("crash_report", Context.MODE_PRIVATE)
@@ -166,8 +229,8 @@ public class VPNApplication extends Application {
             lastCrashReport = report;
             hasPendingCrash = true;
             TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err
-                    + " (rapport " + (published ? "copie dans Download" : "interne")
-                    + " : " + BinaryManager.logDir().getAbsolutePath() + "/crash.txt)");
+                    + " (Download=" + published + " | prive=" + BinaryManager.logDir()
+                    + "/crash.txt)");
         } catch (Throwable ignored) {
         }
     }

@@ -17,17 +17,32 @@ final class CrashShare {
     private CrashShare() {
     }
 
+    /**
+     * Ecrit le rapport de crash dans le dossier Download public sous le nom
+     * fixe "crash.txt". Plusieurs methodes sont essayees successivement
+     * pour maximiser les chances de reussite sur EMUI/Huawei et Android 10+.
+     *
+     * @return true si au moins une methode a reussi.
+     */
     static boolean publishToDownload(Context ctx, String name, String content) {
-        if (ctx == null) {
+        if (ctx == null || content == null) {
             return false;
         }
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+        boolean ok = false;
+        // 1) MediaStore Downloads (Android 10+, mode scoped storage)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (publishMediaStore(ctx, name, bytes)) {
-                return true;
-            }
+            ok = publishMediaStore(ctx, name, bytes);
         }
-        return publishLegacy(ctx, name, bytes);
+        // 2) Legacy fichier public (Android < 10 ou fallback si MediaStore echoue)
+        if (!ok) {
+            ok = publishLegacy(ctx, name, bytes);
+        }
+        // 3) Cache externe accessible par le gestionnaire de fichiers
+        if (!ok) {
+            ok = publishExternalCache(ctx, name, bytes);
+        }
+        return ok;
     }
 
     private static boolean publishMediaStore(Context ctx, String name, byte[] bytes) {
@@ -61,7 +76,30 @@ final class CrashShare {
         try {
             java.io.File dir =
                     Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
-            if (dir == null || !dir.exists()) {
+            if (dir == null) {
+                return false;
+            }
+            if (!dir.exists() && !dir.mkdirs()) {
+                return false;
+            }
+            File out = new File(dir, name);
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out, false)) {
+                fos.write(bytes);
+                fos.flush();
+            }
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    private static boolean publishExternalCache(Context ctx, String name, byte[] bytes) {
+        try {
+            java.io.File dir = ctx.getExternalCacheDir();
+            if (dir == null) {
+                return false;
+            }
+            if (!dir.exists() && !dir.mkdirs()) {
                 return false;
             }
             File out = new File(dir, name);
@@ -81,7 +119,6 @@ final class CrashShare {
             if (!f.exists() || f.length() == 0) {
                 return "";
             }
-
             long max = 512 * 1024L;
             try (InputStream in = new FileInputStream(f)) {
                 long size = in.available();
