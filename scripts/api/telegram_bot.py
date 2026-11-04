@@ -483,11 +483,11 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 raise ValueError
             quota_mb = int(gb * 1024)
         except Exception:
-            await update.message.reply_text("❌ Quota invalide. Ex: 0, 0.15, 10\nRéessayez :")
+            await update.message.reply_text("❌ Quota invalide. Ex: 0, 0.15, 10\nRéessayez :", reply_markup=BACK_KB)
             return
         ids = context.user_data.get("quota_ids", [])
         if not ids:
-            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            await update.message.reply_text("❌ Aucun compte sélectionné.", reply_markup=BACK_KB)
             return
         conn = db()
         conn.execute(f"UPDATE users SET quota_mb={quota_mb} WHERE id IN ({','.join('?'*len(ids))})", ids)
@@ -504,12 +504,12 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             datetime.strptime(text.strip(), "%Y-%m-%d")
         except Exception:
-            await update.message.reply_text("❌ Date invalide. Format attendu : YYYY-MM-DD\nRéessayez :")
+            await update.message.reply_text("❌ Date invalide. Format attendu : YYYY-MM-DD\nRéessayez :", reply_markup=BACK_KB)
             return
         new_date = text.strip()
         ids = context.user_data.get("quota_ids", [])
         if not ids:
-            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            await update.message.reply_text("❌ Aucun compte sélectionné.", reply_markup=BACK_KB)
             return
         conn = db()
         conn.execute(f"UPDATE users SET expires_at='{new_date}' WHERE id IN ({','.join('?'*len(ids))})", ids)
@@ -533,13 +533,13 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await update.message.reply_text(
                 "❌ Format invalide. Utilisez : <code>Go, YYYY-MM-DD</code>\nExemple : <code>10, 2026-12-31</code>\nRéessayez :",
-                parse_mode="HTML")
+                parse_mode="HTML", reply_markup=BACK_KB)
             return
         quota_mb = int(gb * 1024)
         new_date = parts[1]
         ids = context.user_data.get("quota_ids", [])
         if not ids:
-            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            await update.message.reply_text("❌ Aucun compte sélectionné.", reply_markup=BACK_KB)
             return
         conn = db()
         conn.execute(f"UPDATE users SET quota_mb={quota_mb}, expires_at='{new_date}' WHERE id IN ({','.join('?'*len(ids))})", ids)
@@ -791,27 +791,27 @@ async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.commit(); conn.close()
         liste = ", ".join(f"#{i}" for i in ids)
         nom_txt = ", ".join(html.escape(n or "?") for n in noms)
-        await update.message.reply_text(f"✅ Comptes {liste} ({nom_txt}) supprimés avec leurs configs.")
+        await update.message.reply_text(f"✅ Comptes {liste} ({nom_txt}) supprimés avec leurs configs.", reply_markup=BACK_KB)
     except Exception as e:
-        await update.message.reply_text(f"❌ Erreur : {e}")
+        await update.message.reply_text(f"❌ Erreur : {e}", reply_markup=BACK_KB)
 
 async def quota_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
-    if len(context.args) < 2:
+    if len(context.args) < 1:
         # Afficher la liste complète des comptes triés par ID (croissant)
         try:
             conn = db()
-            rows = conn.execute("SELECT id, name, phone, expires_at, active, quota_mb FROM users ORDER BY id ASC").fetchall()
+            rows = conn.execute("SELECT id, name, phone, expires_at, quota_mb, active FROM users ORDER BY id ASC").fetchall()
             conn.close()
             if not rows:
                 return await update.message.reply_text("Aucun compte.")
-            text = "💾 <b>Modifier le quota data de plusieurs comptes</b>\n\nComptes disponibles :\n\n"
+            text = "💾 <b>Modifier le quota / expiration</b>\n\nComptes disponibles :\n\n"
             for r in rows:
                 st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
-                q = fmt_bytes(r["quota_mb"]*1024*1024) if r["quota_mb"] and r["quota_mb"] > 0 else "Illimité"
+                qv = fmt_bytes(r["quota_mb"]*1024*1024) if r["quota_mb"] and r["quota_mb"] > 0 else "Illimité"
                 text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
-                         f"⏰ {r['expires_at']} | 📊 {q} | {st}\n")
-            text += "\n💡 Utilisation : <code>/quota 1,2,3 10</code> (IDs séparés par des virgules, puis quota en Go)"
+                         f"📊 {qv} | ⏰ {r['expires_at']} | {st}\n")
+            text += "\n💡 Utilisation : <code>/quota 1,2,3</code> (IDs séparés par des virgules)"
             await update.message.reply_text(text, parse_mode="HTML")
         except Exception as e:
             await update.message.reply_text(f"❌ Erreur : {e}")
@@ -842,7 +842,7 @@ async def quota_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Choisissez ce que vous souhaitez modifier :",
             reply_markup=kb, parse_mode="HTML")
     except Exception as e:
-        await update.message.reply_text(f"❌ Erreur : {e}")
+        await update.message.reply_text(f"❌ Erreur : {e}", reply_markup=BACK_KB)
 
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
@@ -917,7 +917,7 @@ async def cleanup_expired_tests_cmd(update: Update, context: ContextTypes.DEFAUL
             cur.execute("DELETE FROM users WHERE id=?", (r["id"],))
         conn.commit(); conn.close()
         liste = ", ".join(f"#{r['id']} ({html.escape(r['name'] or '-')}, {r['phone']}, exp {r['expires_at']})" for r in to_delete)
-        await update.message.reply_text(f"🗑 <b>Comptes TEST expirés supprimés</b> ({len(to_delete)} compte(s)) :\n{liste}", parse_mode="HTML")
+        await update.message.reply_text(f"🗑 <b>Comptes TEST expirés supprimés</b> ({len(to_delete)} compte(s)) :\n{liste}", parse_mode="HTML", reply_markup=BACK_KB)
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur nettoyage : {e}")
 
