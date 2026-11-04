@@ -228,7 +228,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif d == "cmd_list":
         await liste_comptes(q, context)
     elif d == "cmd_delete":
-        await q.edit_message_text("🗑 <b>Supprimer un compte</b>\n\nUtilisation : <code>/delete &lt;id_compte&gt;</code>", reply_markup=GESTION_KB, parse_mode="HTML")
+        await liste_pour_suppression(q, context)
     elif d == "cmd_quota":
         await q.edit_message_text("💾 <b>Modifier le quota</b>\n\nUtilisation : <code>/quota &lt;id&gt; &lt;Go&gt;</code> (0 = illimité)", reply_markup=GESTION_KB, parse_mode="HTML")
     elif d == "cmd_status":
@@ -618,6 +618,23 @@ async def list_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(text, parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
+
+async def liste_pour_suppression(q, context):
+    try:
+        conn = db()
+        rows = conn.execute("SELECT id, name, phone, expires_at, active FROM users ORDER BY id ASC").fetchall()
+        conn.close()
+        if not rows:
+            return await q.edit_message_text("🗑 <b>Supprimer un compte</b>\n\nAucun compte à supprimer.", reply_markup=GESTION_KB, parse_mode="HTML")
+        text = "🗑 <b>Supprimer un ou plusieurs comptes</b>\n\nComptes disponibles :\n\n"
+        for r in rows:
+            st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
+            text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
+                     f"⏰ {r['expires_at']} | {st}\n")
+        text += "\n💡 Utilisation : <code>/delete 1,2,3</code> (plusieurs IDs séparés par des virgules)"
+        await q.edit_message_text(text, reply_markup=GESTION_KB, parse_mode="HTML")
+    except Exception as e:
+        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=GESTION_KB, parse_mode="HTML")
 
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
