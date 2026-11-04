@@ -174,7 +174,6 @@ GESTION_KB = InlineKeyboardMarkup([
     [InlineKeyboardButton("🗑 Supprimer un compte", callback_data="cmd_delete")],
     [InlineKeyboardButton("💾 Modifier le quota", callback_data="cmd_quota")],
     [InlineKeyboardButton("📊 État du panel", callback_data="cmd_status")],
-    [InlineKeyboardButton("🔧 État des services", callback_data="cmd_services")],
     [InlineKeyboardButton("⬅️ Retour", callback_data="menu_principal")],
 ])
 
@@ -704,8 +703,42 @@ async def quota_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
     try:
-        conn=db(); active=conn.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0]; total=conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]; blocked=conn.execute("SELECT COUNT(*) FROM users WHERE active=0").fetchone()[0]; conn.close()
-        await update.message.reply_text(f"📊 <b>État du panel Stivaros</b>\n\nComptes totaux : {total}\nActifs : {active}\nBloqués/Expirés : {blocked}\nHeure : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", parse_mode="HTML")
+        conn=db()
+        total=conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        active=conn.execute("SELECT COUNT(*) FROM users WHERE active=1").fetchone()[0]
+        blocked=conn.execute("SELECT COUNT(*) FROM users WHERE active=0").fetchone()[0]
+        jours=conn.execute("SELECT COUNT(*) FROM users WHERE account_type='jours'").fetchone()[0]
+        heures=conn.execute("SELECT COUNT(*) FROM users WHERE account_type='heures'").fetchone()[0]
+        expired=conn.execute("SELECT COUNT(*) FROM users WHERE active=1 AND expires_at < DATE('now')").fetchone()[0]
+        conn.close()
+        try:
+            upt=subprocess.check_output(["uptime","-p"],text=True).strip()
+        except: upt="N/A"
+        try:
+            disk=subprocess.check_output(["df","-h","/"],text=True).strip().splitlines()[-1]
+            disk_parts=disk.split()
+            disk_info=f"{disk_parts[3]} libre / {disk_parts[1]} total ({disk_parts[4]} utilisé)" if len(disk_parts)>=5 else "N/A"
+        except: disk_info="N/A"
+        try:
+            mem=subprocess.check_output(["free","-h"],text=True).strip().splitlines()[1]
+            mem_parts=mem.split()
+            mem_info=f"{mem_parts[3]} libre / {mem_parts[1]} total" if len(mem_parts)>=4 else "N/A"
+        except: mem_info="N/A"
+        await update.message.reply_text(
+            f"📊 <b>État du panel Stivaros</b>\n\n"
+            f"🖥 <b>Système</b>\n"
+            f"• Uptime : {upt}\n"
+            f"• Disque : {disk_info}\n"
+            f"• Mémoire : {mem_info}\n"
+            f"• Heure : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+            f"👥 <b>Comptes</b>\n"
+            f"• Totaux : {total}\n"
+            f"• Actifs : {active}\n"
+            f"• Bloqués : {blocked}\n"
+            f"• Type jours : {jours}\n"
+            f"• Type TEST (heures) : {heures}\n"
+            f"• Actifs mais expirés : {expired}\n",
+            parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
 
