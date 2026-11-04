@@ -169,13 +169,12 @@ MAIN_KB = InlineKeyboardMarkup([
 ])
 BACK_KB = InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Retour", callback_data="menu_principal")]])
 GESTION_KB = InlineKeyboardMarkup([
-    [InlineKeyboardButton("❓ Aide", callback_data="menu_aide")],
-    [InlineKeyboardButton("/create — Créer un compte", callback_data="cmd_create")],
-    [InlineKeyboardButton("/list — Lister les comptes", callback_data="cmd_list")],
-    [InlineKeyboardButton("/delete — Supprimer un compte", callback_data="cmd_delete")],
-    [InlineKeyboardButton("/quota — Modifier le quota data", callback_data="cmd_quota")],
-    [InlineKeyboardButton("/status — État du panel", callback_data="cmd_status")],
-    [InlineKeyboardButton("/services — État des services", callback_data="cmd_services")],
+    [InlineKeyboardButton("➕ Créer un compte", callback_data="cmd_create")],
+    [InlineKeyboardButton("📋 Lister les comptes", callback_data="cmd_list")],
+    [InlineKeyboardButton("🗑 Supprimer un compte", callback_data="cmd_delete")],
+    [InlineKeyboardButton("💾 Modifier le quota", callback_data="cmd_quota")],
+    [InlineKeyboardButton("📊 État du panel", callback_data="cmd_status")],
+    [InlineKeyboardButton("🔧 État des services", callback_data="cmd_services")],
     [InlineKeyboardButton("⬅️ Retour", callback_data="menu_principal")],
 ])
 
@@ -473,6 +472,9 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         try:
             cur.execute("ALTER TABLE users ADD COLUMN multi_device INTEGER NOT NULL DEFAULT 0"); conn.commit()
         except: pass
+        try:
+            cur.execute("ALTER TABLE users ADD COLUMN account_type TEXT DEFAULT 'jours'"); conn.commit()
+        except: pass
         uid = str(uuid.uuid4())
         code = gen_code()
         if ctype == "jours":
@@ -480,8 +482,8 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         else:
             expires = apply_tz_offset_date(hours=duree)
         cur.execute(
-            "INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id, allowed_uuids) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?)",
-            (uid, tel, nom, code, expires, quota_mb, multi_device, dev_uuid, allowed_uuids))
+            "INSERT INTO users (uuid, phone, name, activation_code, expires_at, active, quota_mb, multi_device, device_install_id, allowed_uuids, account_type) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+            (uid, tel, nom, code, expires, quota_mb, multi_device, dev_uuid, allowed_uuids, ctype))
         conn.commit()
         user_id = cur.lastrowid
         conn.close()
@@ -722,7 +724,42 @@ async def services_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
-    await update.message.reply_text("❓ <b>Aide Stivaros VPN Bot</b>\n\n/start — Menu principal\n/create — Créer un compte\n/list — Lister les comptes\n/delete &lt;id&gt; — Supprimer\n/quota &lt;id&gt; &lt;Go&gt; — Quota\n/status — État\n/services — Services", parse_mode="HTML")
+    await update.message.reply_text("❓ <b>Aide Stivaros VPN Bot</b>\n\n/start — Menu principal\n/create — Créer un compte\n/list — Lister les comptes\n/delete &lt;id&gt; — Supprimer\n/quota &lt;id&gt; &lt;Go&gt; — Quota\n/status — État\n/services — Services\n/cleanup — Nettoyer comptes TEST expirés", parse_mode="HTML")
+
+async def cleanup_expired_tests_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("SELECT id, name, phone, expires_at FROM users WHERE account_type='heures' AND expires_at < DATE('now') AND active=1")
+        to_delete = cur.fetchall()
+        if not to_delete:
+            conn.close()
+            return await update.message.reply_text("✅ Aucun compte TEST expiré à supprimer.")
+        for r in to_delete:
+            cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (r["id"],))
+            cur.execute("DELETE FROM users WHERE id=?", (r["id"],))
+        conn.commit(); conn.close()
+        liste = ", ".join(f"#{r['id']} ({html.escape(r['name'] or '-')}, {r['phone']}, exp {r['expires_at']})" for r in to_delete)
+        await update.message.reply_text(f"🗑 <b>Comptes TEST expirés supprimés</b> ({len(to_delete)} compte(s)) :\n{liste}", parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Erreur nettoyage : {e}")
+
+def cleanup_expired_tests_auto():
+    """Appelé au démarrage du bot : supprime définitivement les comptes TEST (heures) expirés."""
+    try:
+        conn = db(); cur = conn.cursor()
+        cur.execute("SELECT id FROM users WHERE account_type='heures' AND expires_at < DATE('now')")
+        ids = [r["id"] for r in cur.fetchall()]
+        if ids:
+            for uid in ids:
+                cur.execute("DELETE FROM vpn_configs WHERE user_id=?", (uid,))
+                cur.execute("DELETE FROM users WHERE id=?", (uid,))
+            conn.commit()
+        conn.close()
+        if ids:
+            log(f"Nettoyage auto: {len(ids)} compte(s) TEST expiré(s) supprimé(s)")
+    except Exception as e:
+        log(f"Erreur nettoyage auto: {e}")
 
 async def liste_comptes(q,context):
     try:
@@ -761,6 +798,8 @@ def main():
     cfg=get_config(); token=cfg.get("token","")
     if not token:
         print("Aucun token configuré"); sys.exit(1)
+    # Nettoyage automatique des comptes TEST expirés au démarrage du bot
+    cleanup_expired_tests_auto()
     app=Application.builder().token(token).build()
     app.add_handler(CommandHandler("start",start))
     app.add_handler(CommandHandler("list",list_cmd))
@@ -768,6 +807,7 @@ def main():
     app.add_handler(CommandHandler("quota",quota_cmd))
     app.add_handler(CommandHandler("status",status_cmd))
     app.add_handler(CommandHandler("services",services_cmd))
+    app.add_handler(CommandHandler("cleanup",cleanup_expired_tests_cmd))
     app.add_handler(CommandHandler("help",help_cmd))
     app.add_handler(CallbackQueryHandler(dev_callback, pattern="^dev_"))
     app.add_handler(CallbackQueryHandler(cfg_callback, pattern="^cfg_"))
