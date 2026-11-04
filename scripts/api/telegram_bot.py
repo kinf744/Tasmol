@@ -230,7 +230,30 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif d == "cmd_delete":
         await liste_pour_suppression(q, context)
     elif d == "cmd_quota":
-        await q.edit_message_text("💾 <b>Modifier le quota</b>\n\nUtilisation : <code>/quota &lt;id&gt; &lt;Go&gt;</code> (0 = illimité)", reply_markup=GESTION_KB, parse_mode="HTML")
+        await liste_pour_quota(q, context)
+    elif d == "quota_opt_1":
+        context.user_data["quota_option"] = 1
+        context.user_data["quota_step"] = "value_quota"
+        await q.edit_message_text(
+            "💾 <b>Modifier le quota</b>\n\n"
+            "Saisissez le nouveau quota en <b>Go</b> (0 = illimité) :",
+            parse_mode="HTML")
+    elif d == "quota_opt_2":
+        context.user_data["quota_option"] = 2
+        context.user_data["quota_step"] = "value_date"
+        await q.edit_message_text(
+            "📅 <b>Modifier la date d'expiration</b>\n\n"
+            "Saisissez la nouvelle date d'expiration au format <b>YYYY-MM-DD</b> :",
+            parse_mode="HTML")
+    elif d == "quota_opt_3":
+        context.user_data["quota_option"] = 3
+        context.user_data["quota_step"] = "value_both"
+        await q.edit_message_text(
+            "💾📅 <b>Modifier quota ET date d'expiration</b>\n\n"
+            "Saisissez d'abord le quota en <b>Go</b> (0 = illimité), "
+            "puis la date au format <b>YYYY-MM-DD</b>,\nséparés par une virgule.\n"
+            "Exemple : <code>10, 2026-12-31</code>",
+            parse_mode="HTML")
     elif d == "cmd_status":
         await q.edit_message_text("📊 <b>État du panel</b>\n\nUtilisation : <code>/status</code>", reply_markup=GESTION_KB, parse_mode="HTML")
     elif d == "cmd_services":
@@ -452,6 +475,83 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Envoyez <b>OUI</b> ou <b>NON</b>.", parse_mode="HTML")
         return
 
+    # ── Gestion des modifications de quota / expiration ──
+    if step == "value_quota":
+        try:
+            gb = float(str(text).replace(',', '.'))
+            if gb < 0:
+                raise ValueError
+            quota_mb = int(gb * 1024)
+        except Exception:
+            await update.message.reply_text("❌ Quota invalide. Ex: 0, 0.15, 10\nRéessayez :")
+            return
+        ids = context.user_data.get("quota_ids", [])
+        if not ids:
+            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            return
+        conn = db()
+        conn.execute(f"UPDATE users SET quota_mb={quota_mb} WHERE id IN ({','.join('?'*len(ids))})", ids)
+        conn.commit(); conn.close()
+        qstr = "Illimité" if quota_mb == 0 else f"{gb} Go"
+        liste = ", ".join(f"#{i}" for i in ids)
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ Quota des comptes {liste} mis à jour : {qstr}",
+            parse_mode="HTML", reply_markup=GESTION_KB)
+        return
+
+    if step == "value_date":
+        try:
+            datetime.strptime(text.strip(), "%Y-%m-%d")
+        except Exception:
+            await update.message.reply_text("❌ Date invalide. Format attendu : YYYY-MM-DD\nRéessayez :")
+            return
+        new_date = text.strip()
+        ids = context.user_data.get("quota_ids", [])
+        if not ids:
+            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            return
+        conn = db()
+        conn.execute(f"UPDATE users SET expires_at='{new_date}' WHERE id IN ({','.join('?'*len(ids))})", ids)
+        conn.commit(); conn.close()
+        liste = ", ".join(f"#{i}" for i in ids)
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ Date d'expiration des comptes {liste} mise à jour : {new_date}",
+            parse_mode="HTML", reply_markup=GESTION_KB)
+        return
+
+    if step == "value_both":
+        try:
+            parts = [p.strip() for p in text.split(",") if p.strip()]
+            if len(parts) != 2:
+                raise ValueError
+            gb = float(parts[0].replace(',', '.'))
+            if gb < 0:
+                raise ValueError
+            datetime.strptime(parts[1], "%Y-%m-%d")
+        except Exception:
+            await update.message.reply_text(
+                "❌ Format invalide. Utilisez : <code>Go, YYYY-MM-DD</code>\nExemple : <code>10, 2026-12-31</code>\nRéessayez :",
+                parse_mode="HTML")
+            return
+        quota_mb = int(gb * 1024)
+        new_date = parts[1]
+        ids = context.user_data.get("quota_ids", [])
+        if not ids:
+            await update.message.reply_text("❌ Aucun compte sélectionné.")
+            return
+        conn = db()
+        conn.execute(f"UPDATE users SET quota_mb={quota_mb}, expires_at='{new_date}' WHERE id IN ({','.join('?'*len(ids))})", ids)
+        conn.commit(); conn.close()
+        qstr = "Illimité" if quota_mb == 0 else f"{gb} Go"
+        liste = ", ".join(f"#{i}" for i in ids)
+        context.user_data.clear()
+        await update.message.reply_text(
+            f"✅ Comptes {liste} mis à jour : quota={qstr}, expiration={new_date}",
+            parse_mode="HTML", reply_markup=GESTION_KB)
+        return
+
 async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         nom = context.user_data.get("create_nom", "")
@@ -636,6 +736,24 @@ async def liste_pour_suppression(q, context):
     except Exception as e:
         await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=GESTION_KB, parse_mode="HTML")
 
+async def liste_pour_quota(q, context):
+    try:
+        conn = db()
+        rows = conn.execute("SELECT id, name, phone, expires_at, quota_mb, active FROM users ORDER BY id ASC").fetchall()
+        conn.close()
+        if not rows:
+            return await q.edit_message_text("💾 <b>Modifier le quota</b>\n\nAucun compte.", reply_markup=GESTION_KB, parse_mode="HTML")
+        text = "💾 <b>Modifier le quota / expiration</b>\n\nComptes disponibles :\n\n"
+        for r in rows:
+            st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
+            qv = fmt_bytes(r["quota_mb"]*1024*1024) if r["quota_mb"] and r["quota_mb"] > 0 else "Illimité"
+            text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
+                     f"📊 {qv} | ⏰ {r['expires_at']} | {st}\n")
+        text += "\n💡 Utilisation : <code>/quota 1,2,3</code> (IDs séparés par des virgules)"
+        await q.edit_message_text(text, reply_markup=GESTION_KB, parse_mode="HTML")
+    except Exception as e:
+        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=GESTION_KB, parse_mode="HTML")
+
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
     if not context.args:
@@ -699,21 +817,30 @@ async def quota_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"❌ Erreur : {e}")
         return
     try:
-        # Format : /quota 1,2,3 10  (plusieurs IDs, puis quota en Go)
+        # Format : /quota 1,2,3  (plusieurs IDs, puis choisir l'option)
         ids_raw = str(context.args[0])
         ids = [int(x.strip()) for x in ids_raw.split(",") if x.strip()]
         if not ids:
             return await update.message.reply_text("❌ Aucun ID valide.")
-        gb = float(str(context.args[1]).replace(',', '.'))
-        if gb < 0:
-            return await update.message.reply_text("❌ Quota invalide (>= 0).")
-        quota_mb = int(gb * 1024)
+        # Vérifier que les IDs existent
         conn = db()
-        conn.execute(f"UPDATE users SET quota_mb={quota_mb} WHERE id IN ({','.join('?' * len(ids))})", ids)
-        conn.commit(); conn.close()
+        existing = [r["id"] for r in conn.execute("SELECT id FROM users WHERE id IN (" + ",".join("?"*len(ids)) + ")", ids).fetchall()]
+        conn.close()
+        if not existing:
+            return await update.message.reply_text("❌ Aucun de ces IDs n'existe.")
+        context.user_data["quota_ids"] = ids
+        context.user_data["quota_step"] = "option"
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("1. Modifier uniquement le quota", callback_data="quota_opt_1")],
+            [InlineKeyboardButton("2. Modifier uniquement la date d'expiration", callback_data="quota_opt_2")],
+            [InlineKeyboardButton("3. Modifier quota ET date d'expiration", callback_data="quota_opt_3")],
+            [InlineKeyboardButton("⬅️ Retour", callback_data="menu_gestion")],
+        ])
         liste = ", ".join(f"#{i}" for i in ids)
-        qstr = "Illimité" if quota_mb == 0 else f"{gb} Go"
-        await update.message.reply_text(f"✅ Quota des comptes {liste} mis à jour : {qstr}")
+        await update.message.reply_text(
+            f"💾 Comptes sélectionnés : {liste}\n\n"
+            f"Choisissez ce que vous souhaitez modifier :",
+            reply_markup=kb, parse_mode="HTML")
     except Exception as e:
         await update.message.reply_text(f"❌ Erreur : {e}")
 
