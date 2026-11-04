@@ -255,9 +255,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Exemple : <code>10, 2026-12-31</code>",
             parse_mode="HTML")
     elif d == "cmd_status":
-        await q.edit_message_text("📊 <b>État du panel</b>\n\nUtilisation : <code>/status</code>", reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text("📊 <b>État du panel</b>\n\nUtilisation : <code>/status</code>", reply_markup=BACK_KB, parse_mode="HTML")
     elif d == "cmd_services":
-        await q.edit_message_text("🔧 <b>État des services</b>\n\nUtilisation : <code>/services</code>", reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text("🔧 <b>État des services</b>\n\nUtilisation : <code>/services</code>", reply_markup=BACK_KB, parse_mode="HTML")
     elif d == "menu_comptes":
         await liste_comptes(q, context)
     elif d == "menu_services":
@@ -497,7 +497,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         await update.message.reply_text(
             f"✅ Quota des comptes {liste} mis à jour : {qstr}",
-            parse_mode="HTML", reply_markup=GESTION_KB)
+            parse_mode="HTML", reply_markup=BACK_KB)
         return
 
     if step == "value_date":
@@ -518,7 +518,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         await update.message.reply_text(
             f"✅ Date d'expiration des comptes {liste} mise à jour : {new_date}",
-            parse_mode="HTML", reply_markup=GESTION_KB)
+            parse_mode="HTML", reply_markup=BACK_KB)
         return
 
     if step == "value_both":
@@ -549,7 +549,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.clear()
         await update.message.reply_text(
             f"✅ Comptes {liste} mis à jour : quota={qstr}, expiration={new_date}",
-            parse_mode="HTML", reply_markup=GESTION_KB)
+            parse_mode="HTML", reply_markup=BACK_KB)
         return
 
 async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -725,16 +725,16 @@ async def liste_pour_suppression(q, context):
         rows = conn.execute("SELECT id, name, phone, expires_at, active FROM users ORDER BY id ASC").fetchall()
         conn.close()
         if not rows:
-            return await q.edit_message_text("🗑 <b>Supprimer un compte</b>\n\nAucun compte à supprimer.", reply_markup=GESTION_KB, parse_mode="HTML")
+            return await q.edit_message_text("🗑 <b>Supprimer un compte</b>\n\nAucun compte à supprimer.", reply_markup=BACK_KB, parse_mode="HTML")
         text = "🗑 <b>Supprimer un ou plusieurs comptes</b>\n\nComptes disponibles :\n\n"
         for r in rows:
             st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
             text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
                      f"⏰ {r['expires_at']} | {st}\n")
         text += "\n💡 Utilisation : <code>/delete 1,2,3</code> (plusieurs IDs séparés par des virgules)"
-        await q.edit_message_text(text, reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text(text, reply_markup=BACK_KB, parse_mode="HTML")
     except Exception as e:
-        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=BACK_KB, parse_mode="HTML")
 
 async def liste_pour_quota(q, context):
     try:
@@ -742,7 +742,7 @@ async def liste_pour_quota(q, context):
         rows = conn.execute("SELECT id, name, phone, expires_at, quota_mb, active FROM users ORDER BY id ASC").fetchall()
         conn.close()
         if not rows:
-            return await q.edit_message_text("💾 <b>Modifier le quota</b>\n\nAucun compte.", reply_markup=GESTION_KB, parse_mode="HTML")
+            return await q.edit_message_text("💾 <b>Modifier le quota</b>\n\nAucun compte.", reply_markup=BACK_KB, parse_mode="HTML")
         text = "💾 <b>Modifier le quota / expiration</b>\n\nComptes disponibles :\n\n"
         for r in rows:
             st = "🟢 Actif" if r["active"] else "🔴 Bloqué"
@@ -750,9 +750,9 @@ async def liste_pour_quota(q, context):
             text += (f"• #{r['id']} {html.escape(r['name'] or '-')} | 📞 {r['phone']} | "
                      f"📊 {qv} | ⏰ {r['expires_at']} | {st}\n")
         text += "\n💡 Utilisation : <code>/quota 1,2,3</code> (IDs séparés par des virgules)"
-        await q.edit_message_text(text, reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text(text, reply_markup=BACK_KB, parse_mode="HTML")
     except Exception as e:
-        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=GESTION_KB, parse_mode="HTML")
+        await q.edit_message_text(f"❌ Erreur : {e}", reply_markup=BACK_KB, parse_mode="HTML")
 
 async def delete_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_authorized(update.effective_user.id): return await update.message.reply_text("⛔ Non autorisé.")
