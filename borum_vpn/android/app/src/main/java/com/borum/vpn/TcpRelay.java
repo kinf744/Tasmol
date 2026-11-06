@@ -108,19 +108,6 @@ public final class TcpRelay {
         }
     }
 
-    private void acceptLoop() {
-        while (running.get()) {
-            try {
-                Socket client = server.accept();
-                pool.execute(() -> relay(client));
-            } catch (Exception e) {
-                if (!running.get()) {
-                    break;
-                }
-            }
-        }
-    }
-
     private void relay(Socket client) {
         try {
             Socket upstream = new Socket();
