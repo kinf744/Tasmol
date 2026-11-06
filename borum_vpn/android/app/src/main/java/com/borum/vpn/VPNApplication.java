@@ -201,7 +201,7 @@ public class VPNApplication extends Application {
             sb.append(TasVpnService.getLog()).append('\n');
 
             String report = sb.toString();
-            // 1) Ecriture dans le repertoire prive de l'app (toujours accessible)
+            // Ecriture dans le repertoire prive de l'app (toujours accessible)
             try {
                 java.io.File logDir = BinaryManager.logDir();
                 if (logDir != null && (!logDir.exists() && !logDir.mkdirs())) {
@@ -215,15 +215,6 @@ public class VPNApplication extends Application {
             } catch (Throwable ignored) {
             }
 
-            // 2) Ecriture dans le dossier Download (nom fixe crash.txt)
-            try {
-                BinaryManager.writeCrashToDownload(this, report);
-            } catch (Throwable ignored) {
-            }
-
-            // 3) Publication via CrashShare (MediaStore / legacy / external cache)
-            boolean published = CrashShare.publishToDownload(this,
-                    "crash.txt", report);
             getSharedPreferences("crash_report", Context.MODE_PRIVATE)
                     .edit().putString("last", report).apply();
             lastCrashReport = report;
@@ -297,12 +288,10 @@ public class VPNApplication extends Application {
         if (report == null || report.isEmpty()) {
             return false;
         }
-        boolean ok = CrashShare.publishToDownload(this,
-                CrashShare.timestampedName("borum-crash", ".txt"), report);
-        if (ok) {
-            hasPendingCrash = false;
-        }
-        return ok;
+        // Le rapport est deja dans filesDir/logs/crash.txt (dossier prive de l'app).
+        // Aucune ecriture dans le dossier public Download n'est effectuee.
+        hasPendingCrash = false;
+        return true;
     }
 
     public SharedPreferences getPrefs() {
