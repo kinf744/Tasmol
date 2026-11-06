@@ -220,7 +220,7 @@ public class SettingsFragment extends Fragment {
             gov = "";
         }
         if (version != null) {
-            version.setText("borum VPN 1.0.0" + (gov.isEmpty() ? "" : "  •  core " + gov));
+            version.setText("borum VPN 1.2.1" + (gov.isEmpty() ? "" : "  •  core " + gov));
         }
 
     }

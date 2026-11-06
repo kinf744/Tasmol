@@ -138,7 +138,7 @@ public class BinaryManager {
         String yaml =
                 "app:\n" +
                 "  name: \"borum VPN\"\n" +
-                "  version: \"1.0.0\"\n" +
+                "  version: \"1.2.1\"\n" +
                 "  web_port: 0\n" +
                 "  web_host: \"127.0.0.1\"\n" +
                 "  log_level: \"info\"\n" +

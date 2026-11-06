@@ -727,7 +727,7 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="18dp"
-            android:text="borum VPN 1.0.0"
+            android:text="borum VPN 1.2.1"
             android:textColor="@color/npv_grey"
             android:textSize="11sp"
             android:typeface="monospace" />
