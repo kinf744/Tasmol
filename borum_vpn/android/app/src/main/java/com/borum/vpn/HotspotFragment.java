@@ -229,7 +229,12 @@ public class HotspotFragment extends Fragment {
 
         proxyIp = pickProxyIp();
 
-        if (RELAY.start(host, port, proxyIp, isWifiApEnabled())) {
+        // Le partage de connexion via hotspot doit ecouter sur toutes les
+        // interfaces (0.0.0.0) pour etre accessible depuis les autres appareils
+        // connectes au point d'acces Wi-Fi. isWifiApEnabled() est une methode
+        // cachee qui retourne souvent false sur Android 10+, empechant le
+        // bind sur l'interface LAN.
+        if (RELAY.start(host, port, proxyIp, true)) {
             TasVpnService.logEvent("connection", "app",
                     "hotspot relay " + proxyIp + ":" + RELAY.getListenPort()
                             + " -> " + host + ":" + port);
@@ -301,6 +306,15 @@ public class HotspotFragment extends Fragment {
                     int b0 = b[0] & 0xFF;
                     int b1 = b[1] & 0xFF;
 
+                    // Plage TUN du VPN (10.8.x.x)
+                    if (b0 == 10) {
+                        return addr.getHostAddress();
+                    }
+                    // Plage hotspot Wi-Fi Android typique (192.168.43.x, 192.168.42.x, etc.)
+                    if (b0 == 192 && b1 == 168) {
+                        return addr.getHostAddress();
+                    }
+                    // Plage 172.16.0.0/12 (fallback)
                     if (b0 == 172 && b1 >= 16 && b1 <= 31) {
                         return addr.getHostAddress();
                     }
@@ -308,7 +322,7 @@ public class HotspotFragment extends Fragment {
             }
         } catch (Exception ignored) {
         }
-        return "172.16." + (1 + RNG.nextInt(255)) + "." + (1 + RNG.nextInt(255));
+        return "127.0.0.1";
     }
 
     private int activeSocksPort() {
