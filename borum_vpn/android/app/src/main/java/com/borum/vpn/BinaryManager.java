@@ -151,7 +151,7 @@ public class BinaryManager {
                 "    enabled: true\n" +
                 "    priority: 0\n" +
                 "    server:\n" +
-                "      host: \"192.179.18.100\"\n" +
+                "      host: \"172.253.62.138\"\n" +
                 "      port: 443\n" +
                 "      sni: \"crashlyticsreports-pa.googleapis.com\"\n" +
                 "    auth:\n" +
@@ -175,7 +175,7 @@ public class BinaryManager {
                 "    enabled: true\n" +
                 "    priority: 1\n" +
                 "    server:\n" +
-                "      host: \"192.179.18.100\"\n" +
+                "      host: \"172.253.62.138\"\n" +
                 "      port: 443\n" +
                 "      sni: \"crashlyticsreports-pa.googleapis.com\"\n" +
                 "    auth:\n" +

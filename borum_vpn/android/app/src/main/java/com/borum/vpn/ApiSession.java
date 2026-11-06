@@ -432,7 +432,7 @@ public final class ApiSession {
 
                 
                 
-                server.put("host", c.optString("address", "192.179.18.100"));
+                server.put("host", c.optString("address", "172.253.62.138"));
                 server.put("port", c.optInt("port", 443));
                 server.put("sni", ofSni);
                 auth.put("uuid", ofUuid);
