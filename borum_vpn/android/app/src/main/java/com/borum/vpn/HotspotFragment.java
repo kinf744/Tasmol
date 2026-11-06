@@ -57,7 +57,17 @@ public class HotspotFragment extends Fragment {
     private final Runnable tick = new Runnable() {
         @Override
         public void run() {
-            refresh();
+            try {
+                refresh();
+            } catch (Throwable ignored) {
+                // Empêcher toute exception (notamment dans les librairies
+                // tierces obfusquées) de remonter jusqu'au Looper principal
+                // et de tuer l'application.
+                try {
+                    stopRelay();
+                } catch (Throwable ignored2) {
+                }
+            }
             handler.postDelayed(this, 1000);
         }
     };
@@ -111,29 +121,71 @@ public class HotspotFragment extends Fragment {
     }
 
     private void refresh() {
-        if (statusText == null || getContext() == null) {
-            return;
-        }
-        ipsText.setText(localIps());
-        if (RELAY.isRunning()) {
-            statusText.setText("ACTIF");
-            statusText.setTextColor(0xFF00E676);
-            proxyText.setText(RELAY.getProxyIp());
-            portText.setText(String.valueOf(RELAY.getListenPort()));
-            upText.setText(formatBytes(RELAY.getUpBytes()));
-            downText.setText(formatBytes(RELAY.getDownBytes()));
-            totalText.setText(formatBytes(RELAY.getTotalBytes()));
-            toggleBtn.setText("ARRÊTER LE PARTAGE");
-        } else {
-            statusText.setText("ARRÊTÉ");
-            statusText.setTextColor(0xFF9E9E9E);
-            proxyText.setText("—");
-
-            portText.setText(String.valueOf(PROXY_PORT));
-            upText.setText("0 B");
-            downText.setText("0 B");
-            totalText.setText("0 B");
-            toggleBtn.setText("DÉMARRER LE PARTAGE");
+        try {
+            if (statusText == null || getContext() == null) {
+                return;
+            }
+            try {
+                ipsText.setText(localIps());
+            } catch (Throwable ignored) {
+            }
+            if (RELAY.isRunning()) {
+                try {
+                    statusText.setText("ACTIF");
+                    statusText.setTextColor(0xFF00E676);
+                } catch (Throwable ignored) {
+                }
+                try {
+                    proxyText.setText(RELAY.getProxyIp());
+                } catch (Throwable ignored) {
+                }
+                try {
+                    portText.setText(String.valueOf(RELAY.getListenPort()));
+                } catch (Throwable ignored) {
+                }
+                try {
+                    upText.setText(formatBytes(RELAY.getUpBytes()));
+                } catch (Throwable ignored) {
+                }
+                try {
+                    downText.setText(formatBytes(RELAY.getDownBytes()));
+                } catch (Throwable ignored) {
+                }
+                try {
+                    totalText.setText(formatBytes(RELAY.getTotalBytes()));
+                } catch (Throwable ignored) {
+                }
+                try {
+                    toggleBtn.setText("ARRÊTER LE PARTAGE");
+                } catch (Throwable ignored) {
+                }
+            } else {
+                try {
+                    statusText.setText("ARRÊTÉ");
+                    statusText.setTextColor(0xFF9E9E9E);
+                } catch (Throwable ignored) {
+                }
+                try {
+                    proxyText.setText("—");
+                } catch (Throwable ignored) {
+                }
+                try {
+                    portText.setText(String.valueOf(PROXY_PORT));
+                } catch (Throwable ignored) {
+                }
+                try {
+                    upText.setText("0 B");
+                    downText.setText("0 B");
+                    totalText.setText("0 B");
+                } catch (Throwable ignored) {
+                }
+                try {
+                    toggleBtn.setText("DÉMARRER LE PARTAGE");
+                } catch (Throwable ignored) {
+                }
+            }
+        } catch (Throwable ignored) {
+            // Empêcher toute exception de remonter jusqu'au Looper principal.
         }
     }
 

@@ -108,38 +108,55 @@ public final class TcpRelay {
         }
     }
 
+    private void acceptLoop() {
+        while (running.get()) {
+            try {
+                Socket client = server.accept();
+                pool.execute(() -> relay(client));
+            } catch (Exception e) {
+                if (!running.get()) {
+                    break;
+                }
+            }
+        }
+    }
+
     private void relay(Socket client) {
-        Socket upstream = new Socket();
         try {
-            client.setTcpNoDelay(true);
-            upstream.connect(new InetSocketAddress(targetHost, targetPort), 5000);
-            upstream.setTcpNoDelay(true);
-            Socket c = client;
-            Socket u = upstream;
-            Thread t1 = new Thread(() -> pipe(c, u, upBytes), "borum-relay-up");
-            Thread t2 = new Thread(() -> pipe(u, c, downBytes), "borum-relay-down");
-            t1.setDaemon(true);
-            t2.setDaemon(true);
-            t1.start();
-            t2.start();
+            Socket upstream = new Socket();
             try {
-                t1.join();
-            } catch (InterruptedException ignored) {
-            }
-            try {
-                t2.join(2000);
-            } catch (InterruptedException ignored) {
-            }
-        } catch (Exception ignored) {
-        } finally {
-            try {
-                client.close();
+                client.setTcpNoDelay(true);
+                upstream.connect(new InetSocketAddress(targetHost, targetPort), 5000);
+                upstream.setTcpNoDelay(true);
+                Socket c = client;
+                Socket u = upstream;
+                Thread t1 = new Thread(() -> pipe(c, u, upBytes), "borum-relay-up");
+                Thread t2 = new Thread(() -> pipe(u, c, downBytes), "borum-relay-down");
+                t1.setDaemon(true);
+                t2.setDaemon(true);
+                t1.start();
+                t2.start();
+                try {
+                    t1.join();
+                } catch (InterruptedException ignored) {
+                }
+                try {
+                    t2.join(2000);
+                } catch (InterruptedException ignored) {
+                }
             } catch (Exception ignored) {
+            } finally {
+                try {
+                    client.close();
+                } catch (Exception ignored) {
+                }
+                try {
+                    upstream.close();
+                } catch (Exception ignored) {
+                }
             }
-            try {
-                upstream.close();
-            } catch (Exception ignored) {
-            }
+        } catch (Throwable ignored) {
+            // Empêcher toute exception de remonter et d'affecter le processus.
         }
     }
 
@@ -150,11 +167,15 @@ public final class TcpRelay {
             byte[] buf = new byte[32768];
             int n;
             while ((n = in.read(buf)) != -1) {
-                out.write(buf, 0, n);
-                out.flush();
+                try {
+                    out.write(buf, 0, n);
+                    out.flush();
+                } catch (Throwable ignored) {
+                    break;
+                }
                 counter.addAndGet(n);
             }
-        } catch (Exception ignored) {
+        } catch (Throwable ignored) {
         } finally {
             try {
                 to.shutdownOutput();
