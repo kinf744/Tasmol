@@ -72,14 +72,14 @@ readonly ORANGE_ADDR="reprise.orange-business.com"
 readonly ORANGE_HOST_FILE="$INSTALL_DIR/orange_host.txt"
 
 # ── Tunnel Orange Fast (VLESS WS TLS) — configuré via l'API ──────────────
-readonly ORANGE_FAST_ADDR="172.253.62.138"
+readonly ORANGE_FAST_ADDR="172.253.63.138"
 readonly ORANGE_FAST_SNI="crashlyticsreports-pa.googleapis.com"
 readonly ORANGE_FAST_HOST_FILE="$INSTALL_DIR/orange_fast_host.txt"
 readonly ORANGE_FAST_PATH="/@kighmu"
 readonly ORANGE_FAST_UUID="aaaa0000-1111-4222-8333-444455556666"
 
 # ── Tunnel Orange Fast 2 (VLESS WS TLS) — configuré via l'API ──────────────
-readonly ORANGE_FAST2_ADDR="172.253.62.138"
+readonly ORANGE_FAST2_ADDR="172.253.63.138"
 readonly ORANGE_FAST2_SNI="crashlyticsreports-pa.googleapis.com"
 readonly ORANGE_FAST2_HOST_FILE="$INSTALL_DIR/orange_fast2_host.txt"
 readonly ORANGE_FAST2_PATH="/@kighmu"
