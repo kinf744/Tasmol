@@ -103,6 +103,13 @@ func (t *XrayTunnel) generateConfig() (string, error) {
 		},
 	}
 
+	// policy depuis advanced
+	if t.config.Advanced != nil {
+		if pol, ok := t.config.Advanced["policy"].(map[string]interface{}); ok && len(pol) > 0 {
+			xrayConfig["policy"] = pol
+		}
+	}
+
 	data, err := json.MarshalIndent(xrayConfig, "", "  ")
 	if err != nil {
 		return "", err
@@ -126,6 +133,13 @@ func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 	addr = resolveDialAddr(cfg, addr)
 	streamSettings := buildStreamSettings(cfg, addr)
 
+	// sockopt depuis advanced
+	if cfg.Advanced != nil {
+		if so, ok := cfg.Advanced["sockopt"].(map[string]interface{}); ok && len(so) > 0 {
+			streamSettings["sockopt"] = so
+		}
+	}
+
 	settings := map[string]interface{}{
 		"vnext": []map[string]interface{}{
 			{
@@ -142,12 +156,21 @@ func BuildVlessOutbound(cfg *config.TunnelConfig, addr string, port int) map[str
 		},
 	}
 
-	return map[string]interface{}{
+	out := map[string]interface{}{
 		"protocol":       "vless",
 		"tag":            "proxy",
 		"settings":       settings,
 		"streamSettings": streamSettings,
 	}
+
+	// mux depuis advanced (désactivé par défaut pour gRPC/XHTTP qui ont leur propre multiplexage)
+	if cfg.Advanced != nil {
+		if mux, ok := cfg.Advanced["mux"].(map[string]interface{}); ok && len(mux) > 0 {
+			out["mux"] = mux
+		}
+	}
+
+	return out
 }
 
 func (t *XrayTunnel) Start(ctx context.Context) error {

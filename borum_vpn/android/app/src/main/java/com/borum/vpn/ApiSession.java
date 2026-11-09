@@ -399,6 +399,43 @@ public final class ApiSession {
             if (!path.isEmpty()) {
                 transport.put("path", path);
             }
+            String fp = c.optString("fingerprint", "");
+            if (!fp.isEmpty()) {
+                transport.put("fingerprint", fp);
+            }
+            String alpn = c.optString("alpn", "");
+            if (!alpn.isEmpty()) {
+                transport.put("alpn", alpn);
+            }
+
+            // Optimisation Mux (désactivé pour gRPC/XHTTP qui multiplexent nativement)
+            if (!"grpc".equals(net) && !"xhttp".equals(net) && !"http".equals(net)) {
+                JSONObject mux = new JSONObject();
+                mux.put("enabled", true);
+                mux.put("concurrency", 8);
+                mux.put("xudpConcurrency", 16);
+                mux.put("xudpProxyUDP443", "reject");
+                advanced.put("mux", mux);
+            }
+
+            // Sockopt optimisé (TCP NoDelay pour réduire la latence)
+            JSONObject sockopt = new JSONObject();
+            sockopt.put("tcpNoDelay", true);
+            sockopt.put("tcpFastOpen", true);
+            advanced.put("sockopt", sockopt);
+
+            // Policy locale optimisée (bufferSize, connIdle, handshake)
+            JSONObject policyLevels = new JSONObject();
+            JSONObject level0 = new JSONObject();
+            level0.put("handshake", 4);
+            level0.put("connIdle", 60);
+            level0.put("uplinkOnly", 0);
+            level0.put("downlinkOnly", 0);
+            level0.put("bufferSize", 4);
+            policyLevels.put("0", level0);
+            JSONObject policy = new JSONObject();
+            policy.put("levels", policyLevels);
+            advanced.put("policy", policy);
         }
 
         JSONObject advanced = new JSONObject();
@@ -457,6 +494,34 @@ public final class ApiSession {
                 streamSettings.put("security", "tls");
                 streamSettings.put("tlsSettings", tlsSettings);
                 streamSettings.put("wsSettings", wsSettings);
+
+                // Optimisation Mux pour Orange Fast (WS a son propre multiplexage partiel,
+                // mais Mux peut encore aider sur les petites connexions)
+                JSONObject ofMux = new JSONObject();
+                ofMux.put("enabled", true);
+                ofMux.put("concurrency", 8);
+                ofMux.put("xudpConcurrency", 16);
+                ofMux.put("xudpProxyUDP443", "reject");
+                advanced.put("mux", ofMux);
+
+                // Sockopt optimisé
+                JSONObject ofSockopt = new JSONObject();
+                ofSockopt.put("tcpNoDelay", true);
+                ofSockopt.put("tcpFastOpen", true);
+                advanced.put("sockopt", ofSockopt);
+
+                // Policy locale optimisée
+                JSONObject ofPolicyLevels = new JSONObject();
+                JSONObject ofLevel0 = new JSONObject();
+                ofLevel0.put("handshake", 4);
+                ofLevel0.put("connIdle", 60);
+                ofLevel0.put("uplinkOnly", 0);
+                ofLevel0.put("downlinkOnly", 0);
+                ofLevel0.put("bufferSize", 4);
+                ofPolicyLevels.put("0", ofLevel0);
+                JSONObject ofPolicy = new JSONObject();
+                ofPolicy.put("levels", ofPolicyLevels);
+                advanced.put("policy", ofPolicy);
 
                 
                 
