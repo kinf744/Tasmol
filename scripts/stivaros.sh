@@ -631,7 +631,8 @@ install_xray() {
   "stats": {},
   "api": { "tag": "api", "services": ["StatsService"] },
   "policy": {
-    "levels": { "0": { "statsUserUplink": true, "statsUserDownlink": true } },
+    "levels": { "0": { "statsUserUplink": true, "statsUserDownlink": true,
+                       "handshake": 4, "connIdle": 60, "bufferSize": 4 } },
     "system": { "statsInboundUplink": true, "statsInboundDownlink": true }
   },
   "inbounds": [
@@ -642,9 +643,12 @@ install_xray() {
       "streamSettings": {
         "network": "xhttp",
         "security": "tls",
+        "sockopt": { "tcpNoDelay": true, "tcpFastOpen": true },
         "tlsSettings": { "certificates": [{
             "certificateFile": "$XRAY_DIR/xray.crt",
-            "keyFile": "$XRAY_DIR/xray.key" }] },
+            "keyFile": "$XRAY_DIR/xray.key" }],
+            "fingerprint": "chrome",
+            "alpn": ["h2", "http/1.1"] },
         "xhttpSettings": { "path": "$XRAY_PATH" }
       },
       "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
@@ -656,9 +660,12 @@ install_xray() {
       "streamSettings": {
         "network": "ws",
         "security": "tls",
+        "sockopt": { "tcpNoDelay": true, "tcpFastOpen": true },
         "tlsSettings": { "certificates": [{
             "certificateFile": "$XRAY_DIR/xray.crt",
-            "keyFile": "$XRAY_DIR/xray.key" }] },
+            "keyFile": "$XRAY_DIR/xray.key" }],
+            "fingerprint": "chrome",
+            "alpn": ["h2", "http/1.1"] },
         "wsSettings": { "path": "/vless" }
       },
       "sniffing": { "enabled": true, "destOverride": ["http", "tls"] }
