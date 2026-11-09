@@ -407,9 +407,15 @@ public final class ApiSession {
             if (!alpn.isEmpty()) {
                 transport.put("alpn", alpn);
             }
+        }
 
-            // Optimisation Mux (désactivé pour gRPC/XHTTP qui multiplexent nativement)
-            if (!"grpc".equals(net) && !"xhttp".equals(net) && !"http".equals(net)) {
+        JSONObject advanced = new JSONObject();
+        advanced.put(ADV_API_MANAGED, true);
+
+        // Optimisation Xray (mux, sockopt, policy) - uniquement pour le mode xray
+        if ("xray".equalsIgnoreCase(mode)) {
+            String xrayNet = c.optString("transport", "xhttp");
+            if (!"grpc".equals(xrayNet) && !"xhttp".equals(xrayNet) && !"http".equals(xrayNet)) {
                 JSONObject mux = new JSONObject();
                 mux.put("enabled", true);
                 mux.put("concurrency", 8);
@@ -417,13 +423,11 @@ public final class ApiSession {
                 mux.put("xudpProxyUDP443", "reject");
                 advanced.put("mux", mux);
             }
-
             // Sockopt optimisé (TCP NoDelay pour réduire la latence)
             JSONObject sockopt = new JSONObject();
             sockopt.put("tcpNoDelay", true);
             sockopt.put("tcpFastOpen", true);
             advanced.put("sockopt", sockopt);
-
             // Policy locale optimisée (bufferSize, connIdle, handshake)
             JSONObject policyLevels = new JSONObject();
             JSONObject level0 = new JSONObject();
@@ -438,8 +442,6 @@ public final class ApiSession {
             advanced.put("policy", policy);
         }
 
-        JSONObject advanced = new JSONObject();
-        advanced.put(ADV_API_MANAGED, true);
         advanced.put("api_config_id", c.optInt("config_id", 0));
         advanced.put("api_mode", mode);
         advanced.put("api_label", label);
