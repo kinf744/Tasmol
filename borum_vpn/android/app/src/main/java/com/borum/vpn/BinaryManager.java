@@ -195,7 +195,7 @@ public class BinaryManager {
                 "      orange_fast2: true\n" +
                 "network:\n" +
                 "  interface: \"tun0\"\n" +
-                "  mtu: 1500\n" +
+                "  mtu: 1300\n" +
                 "  dns: [\"8.8.8.8\", \"1.1.1.1\"]\n" +
                 "features:\n" +
                 "  kill_switch: false\n" +
@@ -209,7 +209,7 @@ public class BinaryManager {
                 "  listen_addr: 127.0.0.1:" + nativeUdpgwPort() + "\n" +
                 "  max_clients: 100\n" +
                 "  timeout: 30\n" +
-                "  mtu: 1500\n";
+                "  mtu: 1300\n";
         Files.write(cfg.toPath(), yaml.getBytes(StandardCharsets.UTF_8));
     }
 

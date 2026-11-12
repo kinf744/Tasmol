@@ -235,7 +235,7 @@ func (c *Controller) Start(paramsJSON string) string {
 		return errJSON(fmt.Errorf("tun_fd is required"))
 	}
 	if p.MTU <= 0 {
-		p.MTU = 1500
+		p.MTU = 1300
 	}
 	if err := os.MkdirAll(filepath.Dir(p.ConfigPath), 0755); err != nil {
 		return errJSON(err)

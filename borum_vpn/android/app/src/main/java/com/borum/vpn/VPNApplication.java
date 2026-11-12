@@ -514,7 +514,7 @@ public class VPNApplication extends Application {
     }
 
     public int getCustomMtu() {
-        int v = prefs.getInt("set_mtu", 1500);
+        int v = prefs.getInt("set_mtu", 1300);
         if (v < 1280) {
             v = 1280;
         }
@@ -569,7 +569,7 @@ public class VPNApplication extends Application {
                 .putInt("set_reconnect_delay", 2)
                 .putString("set_dns_primary", "8.8.8.8")
                 .putString("set_dns_secondary", "1.1.1.1")
-                .putInt("set_mtu", 1500)
+                .putInt("set_mtu", 1300)
                 .putBoolean("set_wakelock", true)
                 .putBoolean("set_slowdns_boost", false)
                 .putBoolean("set_tcp_nodelay", true)
@@ -593,7 +593,7 @@ public class VPNApplication extends Application {
                 .putInt("set_reconnect_delay", 2)
                 .putString("set_dns_primary", "8.8.8.8")
                 .putString("set_dns_secondary", "1.1.1.1")
-                .putInt("set_mtu", 1500)
+                .putInt("set_mtu", 1300)
                 .putBoolean("set_wakelock", true)
                 .putBoolean("set_slowdns_boost", false)
                 .putBoolean("set_tcp_nodelay", true)
