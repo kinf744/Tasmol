@@ -310,7 +310,7 @@ public class TasVpnService extends VpnService {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             if (cm != null) {
                 long waitMs = 0;
-                while (!isNetworkAvailable(cm) && !isSuperseded(gen) && attempt < maxAttempts) {
+                while (!isNetworkAvailable(TasVpnService.this) && !isSuperseded(gen) && attempt < maxAttempts) {
                     if (waitMs % 10000 == 0) {
                         logEvent("warning", "app",
                                 "reseau indisponible, attente de rétablissement gen=" + gen);
