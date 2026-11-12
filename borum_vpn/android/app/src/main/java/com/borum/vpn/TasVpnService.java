@@ -4,7 +4,11 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.content.Context;
 import android.content.Intent;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.VpnService;
 import android.os.Build;
 import android.os.ParcelFileDescriptor;
@@ -61,8 +65,9 @@ public class TasVpnService extends VpnService {
     private static final java.util.concurrent.atomic.AtomicBoolean connectInFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
-    private static final int MAX_START_ATTEMPTS = 6;
-    private static final long RETRY_DELAY_MS = 3000;
+    private static final int MAX_START_ATTEMPTS = 10;
+    private static final long RETRY_DELAY_MS = 2000;
+    private static final long MAX_RETRY_DELAY_MS = 30000;
     private static volatile int startAttempt = 0;
 
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
@@ -175,12 +180,51 @@ public class TasVpnService extends VpnService {
         return MAX_START_ATTEMPTS;
     }
 
+    private static int currentRetryAttempt = 0;
+
     private static long retryDelayMs() {
-        VPNApplication app = VPNApplication.getInstance();
-        if (app == null) {
-            return RETRY_DELAY_MS;
+        // Backoff exponentiel : 2s, 4s, 8s, 16s, 30s (capé à MAX_RETRY_DELAY_MS)
+        // Quand le réseau dérange, on attend de plus en plus longtemps entre les tentatives
+        // pour éviter d'épuiser la batterie et donner le temps au réseau de se rétablir.
+        long delay = RETRY_DELAY_MS;
+        for (int i = 0; i < currentRetryAttempt; i++) {
+            delay *= 2;
+            if (delay > MAX_RETRY_DELAY_MS) {
+                delay = MAX_RETRY_DELAY_MS;
+                break;
+            }
         }
-        return app.getReconnectDelaySeconds() * 1000L;
+        VPNApplication app = VPNApplication.getInstance();
+        if (app != null) {
+            long userDelay = app.getReconnectDelaySeconds() * 1000L;
+            if (userDelay > delay) {
+                delay = userDelay;
+            }
+        }
+        return delay;
+    }
+
+    private static boolean isNetworkAvailable(Context ctx) {
+        try {
+            ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm == null) {
+                return false;
+            }
+            Network net = cm.getActiveNetwork();
+            if (net == null) {
+                return false;
+            }
+            NetworkCapabilities caps = cm.getNetworkCapabilities(net);
+            if (caps == null) {
+                return false;
+            }
+            return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                    || caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                    || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+                    || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
@@ -231,6 +275,7 @@ public class TasVpnService extends VpnService {
             return;
         }
         lastError = null;
+        currentRetryAttempt = 0;
 
         startForeground(NOTIFICATION_ID, buildNotification("Connecting..."));
         final String requestedId = tunnelId;
@@ -257,14 +302,37 @@ public class TasVpnService extends VpnService {
                 + " autoReconnect=" + (VPNApplication.getInstance() != null
                 && VPNApplication.getInstance().isAutoReconnectEnabled()));
         VPNApplication.getInstance().recordBreadcrumb("CONNECT-LOOP " + tunnelId);
+
+        // Vérifier la connectivité réseau avant de commencer les tentatives.
+        // Si le réseau est indisponible, attendre qu'il revienne plutôt que de
+        // consommer les tentatives en vain.
+        try {
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            if (cm != null) {
+                long waitMs = 0;
+                while (!isNetworkAvailable(cm) && !isSuperseded(gen) && attempt < maxAttempts) {
+                    if (waitMs % 10000 == 0) {
+                        logEvent("warning", "app",
+                                "reseau indisponible, attente de rétablissement gen=" + gen);
+                    }
+                    Thread.sleep(2000);
+                    waitMs += 2000;
+                }
+            }
+        } catch (InterruptedException ie) {
+            return;
+        }
+
         try {
             while (attempt < maxAttempts && !isSuperseded(gen)) {
                 attempt++;
                 startAttempt = attempt;
+                currentRetryAttempt = attempt;
                 notifyText("Connecting...");
+                long currentRetryDelay = retryDelayMs();
                 logEvent("connection", "app",
                         "tentative " + attempt + "/" + maxAttempts + " gen=" + gen
-                        + " tunnel=" + tunnelId);
+                                + " tunnel=" + tunnelId + " retryDelayMs=" + currentRetryDelay);
                 Object ctrl = null;
                 try {
 
@@ -415,7 +483,7 @@ public class TasVpnService extends VpnService {
                         logEvent("warning", "app", "connect attempt " + attempt + "/"
                                 + maxAttempts + " failed: " + e.getMessage() + " - retrying");
                         try {
-                            Thread.sleep(retryDelay);
+                            Thread.sleep(retryDelayMs());
                         } catch (InterruptedException ie) {
                             return;
                         }

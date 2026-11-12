@@ -854,7 +854,10 @@ func (c *Controller) throttledRestartLocked(t tunnel.Tunnel) bool {
 	if c.rrLastTry == nil {
 		c.rrLastTry = make(map[string]time.Time)
 	}
-	if last, tried := c.rrLastTry[t.ID()]; tried && time.Since(last) < time.Minute {
+	// Délai réduit (15s au lieu de 60s) pour le cas mono-tunnel : quand le
+	// réseau dérange, il faut redémarrer le tunnel plus vite plutôt que
+	// d'attendre une minute entière.
+	if last, tried := c.rrLastTry[t.ID()]; tried && time.Since(last) < 15*time.Second {
 		return false
 	}
 	c.rrLastTry[t.ID()] = time.Now()
@@ -874,7 +877,9 @@ func (c *Controller) throttledRestartLocked(t tunnel.Tunnel) bool {
 
 func (c *Controller) followLoop() {
 	defer c.wg.Done()
-	ticker := time.NewTicker(5 * time.Second)
+	// Ticker à 2s (au lieu de 5s) pour détecter plus rapidement la mort d'un
+	// tunnel quand le réseau est instable.
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {
