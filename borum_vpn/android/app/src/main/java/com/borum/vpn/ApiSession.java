@@ -535,129 +535,40 @@ public final class ApiSession {
         }
 
         if ("mtn_unlimited".equalsIgnoreCase(mode)) {
-            BinaryManager.appendLog("[MTN] Début construction config tunnel MTN Illimité");
+            BinaryManager.appendLog("[MTN] Début construction config tunnel MTN (VLESS WS TLS standard)");
             try {
                 String mtnHost = c.optString("host", "");
                 if (mtnHost.isEmpty()) {
                     mtnHost = "kighmu-vpn-919282834024.asia-south1.run.app";
                 }
-                BinaryManager.appendLog("[MTN] Host WS: " + mtnHost);
-                String xrayUuid = c.optString("xray_uuid", MTN_UNLIMITED_UUID_DEFAULT);
-                String wsPath = c.optString("path", MTN_UNLIMITED_PATH_DEFAULT);
+                String mtnUuid = c.optString("xray_uuid", MTN_UNLIMITED_UUID_DEFAULT);
+                String mtnPath = c.optString("path", MTN_UNLIMITED_PATH_DEFAULT);
                 String mtnSni = c.optString("sni", MTN_UNLIMITED_SNI_DEFAULT);
-                BinaryManager.appendLog("[MTN] UUID: " + xrayUuid);
-                BinaryManager.appendLog("[MTN] Path: " + wsPath);
+                String mtnAddr = c.optString("address", MTN_UNLIMITED_ADDR);
+
+                BinaryManager.appendLog("[MTN] Adresse: " + mtnAddr);
+                BinaryManager.appendLog("[MTN] Host: " + mtnHost);
+                BinaryManager.appendLog("[MTN] UUID: " + mtnUuid);
+                BinaryManager.appendLog("[MTN] Path: " + mtnPath);
                 BinaryManager.appendLog("[MTN] SNI: " + mtnSni);
 
-                JSONObject httpHeaders = new JSONObject();
-                httpHeaders.put("Host", "findschoolnews.blogspot.com:443");
-                httpHeaders.put("Proxy-Connection", "keep-alive");
-                httpHeaders.put("User-Agent",
-                        "Mozilla/5.0 (Linux; Android 14; SM-A245F Build/UP1A.231005.007; wv) "
-                                + "AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/133.0.6943.122 "
-                                + "Mobile Safari/537.36 [FBAN/InternetOrgApp;FBAV/166.0.0.0.169;]");
-                httpHeaders.put("X-iorg-bsid", "@kighmu");
+                server.put("host", mtnAddr);
+                server.put("port", c.optInt("port", 443));
+                server.put("sni", mtnSni);
+                auth.put("uuid", mtnUuid);
+                auth.put("flow", "");
+                transport.put("network", "ws");
+                transport.put("security", "tls");
+                transport.put("host", mtnHost);
+                transport.put("path", mtnPath);
 
-                JSONObject httpOutbound = new JSONObject();
-                httpOutbound.put("domainStrategy", "AsIs");
-                httpOutbound.put("protocol", "http");
-                JSONObject httpSettings = new JSONObject();
-                JSONArray httpServers = new JSONArray();
-                JSONObject httpServer = new JSONObject();
-                httpServer.put("address", "157.240.9.39");
-                httpServer.put("port", 8080);
-                httpServers.put(httpServer);
-                httpSettings.put("servers", httpServers);
-                httpSettings.put("headers", httpHeaders);
-                httpOutbound.put("settings", httpSettings);
-                httpOutbound.put("tag", "alrufaaey");
-
-                JSONObject vlessSettings = new JSONObject();
-                JSONArray vnext = new JSONArray();
-                JSONObject vnextEntry = new JSONObject();
-                vnextEntry.put("address", "findschoolnews.blogspot.com");
-                vnextEntry.put("port", 443);
-                JSONArray users = new JSONArray();
-                JSONObject user = new JSONObject();
-                user.put("encryption", "none");
-                user.put("flow", "");
-                user.put("id", xrayUuid);
-                user.put("level", 8);
-                users.put(user);
-                vnextEntry.put("users", users);
-                vnext.put(vnextEntry);
-                vlessSettings.put("vnext", vnext);
-
-                JSONObject tlsSettings = new JSONObject();
-                tlsSettings.put("serverName", mtnSni);
-                tlsSettings.put("allowInsecure", true);
-
-                JSONObject wsSettings = new JSONObject();
-                JSONObject wsHeaders = new JSONObject();
-                wsHeaders.put("Host", mtnHost);
-                wsSettings.put("headers", wsHeaders);
-                wsSettings.put("path", wsPath);
-
-                JSONObject streamSettings = new JSONObject();
-                streamSettings.put("network", "ws");
-                streamSettings.put("security", "tls");
-                streamSettings.put("tlsSettings", tlsSettings);
-                streamSettings.put("wsSettings", wsSettings);
-
-                JSONObject sockopt = new JSONObject();
-                sockopt.put("dialerProxy", "alrufaaey");
-                streamSettings.put("sockopt", sockopt);
-
-                JSONObject vlessOutbound = new JSONObject();
-                vlessOutbound.put("mux", new JSONObject().put("enabled", false));
-                vlessOutbound.put("protocol", "vless");
-                vlessOutbound.put("settings", vlessSettings);
-                vlessOutbound.put("streamSettings", streamSettings);
-                vlessOutbound.put("tag", "VLESS");
-
-                JSONArray outbounds = new JSONArray();
-                outbounds.put(vlessOutbound);
-                outbounds.put(httpOutbound);
-
-                JSONObject dns = new JSONObject();
-                JSONArray dnsServers = new JSONArray();
-                dnsServers.put("localhost");
-                dns.put("servers", dnsServers);
-
-                JSONObject policyLevels = new JSONObject();
-                JSONObject level8 = new JSONObject();
-                level8.put("connIdle", 300);
-                level8.put("downlinkOnly", 1);
-                level8.put("handshake", 4);
-                level8.put("uplinkOnly", 1);
-                policyLevels.put("8", level8);
-                JSONObject policy = new JSONObject();
-                policy.put("levels", policyLevels);
-
-                JSONObject fullCfg = new JSONObject();
-                fullCfg.put("dns", dns);
-                JSONArray inbounds = new JSONArray();
-                JSONObject socksInbound = new JSONObject();
-                socksInbound.put("listen", "127.0.0.1");
-                socksInbound.put("port", 10808);
-                socksInbound.put("protocol", "socks");
-                JSONObject socksSettings = new JSONObject();
-                socksSettings.put("auth", "noauth");
-                socksSettings.put("udp", true);
-                socksInbound.put("settings", socksSettings);
-                socksInbound.put("tag", "socks-inbound");
-                inbounds.put(socksInbound);
-                fullCfg.put("inbounds", inbounds);
-                fullCfg.put("outbounds", outbounds);
-                fullCfg.put("policy", policy);
-
-                advanced.put("outbound_json", fullCfg.toString());
-                BinaryManager.appendLog("[MTN] Config Xray complet construit (outbound_json)");
-                BinaryManager.appendLog("[MTN] Outbounds: VLESS WS TLS (sockopt.dialerProxy=alrufaaey) + HTTP proxy 157.240.9.39:8080");
+                // Pas d'outbound_json : laisser BuildVlessOutbound() gérer le tunnel
+                // Les optimisations mux/sockopt/policy sont déjà ajoutées par le
+                // bloc xray général ci-dessus.
+                BinaryManager.appendLog("[MTN] Config VLESS WS TLS construit (standard, sans outbound_json)");
                 BinaryManager.appendLog("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
                 BinaryManager.appendLog("[MTN] ERREUR construction config: " + e.getMessage());
-
             }
         }
         JSONObject routing = new JSONObject(
