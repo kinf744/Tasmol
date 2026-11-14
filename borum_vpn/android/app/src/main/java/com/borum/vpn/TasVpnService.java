@@ -241,7 +241,7 @@ public class TasVpnService extends VpnService {
      * Inclut les infos appareil, tunnel et statut pour aider a diagnostiquer
      * les problemes de connexion (notamment MTN 100Mo/150Mo).
      */
-    private static String buildKighmuReport(String tunnelId, String tunnelType,
+    private String buildKighmuReport(String tunnelId, String tunnelType,
                                             String status, String errorMsg) {
         StringBuilder sb = new StringBuilder();
         java.text.SimpleDateFormat sdf =
@@ -261,7 +261,7 @@ public class TasVpnService extends VpnService {
         sb.append("  ID       : ").append(tunnelId == null ? "?" : tunnelId).append("\n");
         sb.append("  Type     : ").append(tunnelType).append("\n");
         sb.append("  Statut   : ").append(status).append("\n");
-        sb.append("  Reseau   : ").append(isNetworkAvailable(TasVpnService.this)
+        sb.append("  Reseau   : ").append(isNetworkAvailable(this)
                 ? "DISPONIBLE" : "INDISPONIBLE").append("\n");
         if (errorMsg != null && !errorMsg.isEmpty()) {
             sb.append("  Erreur   : ").append(errorMsg).append("\n");
