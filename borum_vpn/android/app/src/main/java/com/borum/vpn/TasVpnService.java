@@ -251,36 +251,44 @@ public class TasVpnService extends VpnService {
         sb.append("BORUM VPN - RAPPORT DIAGNOSTIC kighmu.txt\n");
         sb.append("========================================\n");
         sb.append("Date/Heure : ").append(sdf.format(new java.util.Date())).append("\n");
-        sb.append("Appareil : ").append(android.os.Build.MANUFACTURER).append(" ")
+        sb.append("Appareil   : ").append(android.os.Build.MANUFACTURER).append(" ")
                 .append(android.os.Build.MODEL).append("\n");
-        sb.append("Android : ").append(android.os.Build.VERSION.RELEASE)
+        sb.append("Android  : ").append(android.os.Build.VERSION.RELEASE)
                 .append(" (API ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
-        sb.append("CPU : ").append(android.os.Build.CPU_ABI).append("\n");
+        sb.append("CPU      : ").append(android.os.Build.CPU_ABI).append("\n");
         sb.append("----------------------------------------\n");
         sb.append("TUNNEL\n");
-        sb.append("  ID       : ").append(tunnelId == null ? "?" : tunnelId).append("\n");
-        sb.append("  Type     : ").append(tunnelType).append("\n");
-        sb.append("  Statut   : ").append(status).append("\n");
-        sb.append("  Reseau   : ").append(isNetworkAvailable(ctx)
-                ? "DISPONIBLE" : "INDISPONIBLE").append("\n");
+        sb.append("  ID         : ").append(tunnelId == null ? "?" : tunnelId).append("\n");
+        sb.append("  Type       : ").append(tunnelType == null ? "?" : tunnelType).append("\n");
+        sb.append("  Statut     : ").append(status).append("\n");
         if (errorMsg != null && !errorMsg.isEmpty()) {
-            sb.append("  Erreur   : ").append(errorMsg).append("\n");
+            sb.append("  Erreur     : ").append(errorMsg).append("\n");
         }
+        sb.append("  Adresse    : ").append(currentTunnelAddr).append("\n");
+        sb.append("  Port       : ").append(currentTunnelPort).append("\n");
+        sb.append("  SNI        : ").append(currentTunnelSNI).append("\n");
+        sb.append("  Path       : ").append(currentTunnelPath).append("\n");
+        sb.append("  Host       : ").append(currentTunnelHost).append("\n");
+        sb.append("  UUID       : ").append(currentTunnelUUID).append("\n");
+        sb.append("  Network    : ").append(currentTunnelNetwork).append("\n");
+        sb.append("  Security   : ").append(currentTunnelSecurity).append("\n");
+        sb.append("  MTU        : ").append(currentTunnelMTU).append("\n");
         sb.append("----------------------------------------\n");
-        sb.append("CONFIG MTN (si applicable)\n");
-        sb.append("  Mode     : mtn_unlimited (VLESS WS TLS)\n");
-        sb.append("  Adresse  : 172.217.112.4\n");
-        sb.append("  SNI      : crasheslyticsreports-pa.googleapis.com\n");
-        sb.append("  Path     : /@kighmu\n");
-        sb.append("  Host     : kighmu-vpn-919282834024.asia-south1.run.app\n");
+        sb.append("RESEAU\n");
+        sb.append("  Disponible : ").append(isNetworkAvailable(ctx)
+                ? "OUI" : "NON").append("\n");
         sb.append("----------------------------------------\n");
-        sb.append("CONSEILS\n");
-        sb.append("  - Si le statut est ECHEC, verifiez la connexion reseau (WiFi/4G).\n");
-        sb.append("  - Si le statut est ECHEC avec 'serveur injoignable', le serveur MTN\n");
-        sb.append("    peut etre temporairement inaccessible.\n");
-        sb.append("  - Si le statut est ECHEC avec 'connexion securisee echee',\n");
-        sb.append("    le certificat TLS du serveur peut etre invalide.\n");
-        sb.append("  - Ce fichier (kighmu.txt) est dans le dossier Download de votre telephone.\n");
+        sb.append("CONSEILS DEPANNAGE\n");
+        sb.append("  - Si 'ECHEC' avec 'serveur injoignable' : serveur MTN inaccessible,\n");
+        sb.append("    verifiez votre connexion internet ou changez de serveur.\n");
+        sb.append("  - Si 'ECHEC' avec 'connexion securisee echee' : certificat TLS invalide,\n");
+        sb.append("    le serveur peut utiliser un certificat self-signed ou expiré.\n");
+        sb.append("  - Si 'ECHEC' avec 'delai depasse' : le serveur ne repond pas,\n");
+        sb.append("    probleme de routage ou firewall.\n");
+        sb.append("  - Si 'ECHEC' avec 'acces refuse' : identifiants invalides ou compte bloqué.\n");
+        sb.append("  - Pour MTN 100Mo/150Mo : verifiez que votre compte est encore valide\n");
+        sb.append("    et que vous avez du credit de données.\n");
+        sb.append("  - Fichier : Download/kighmu.txt sur votre telephone.\n");
         sb.append("========================================\n");
         return sb.toString();
     }
