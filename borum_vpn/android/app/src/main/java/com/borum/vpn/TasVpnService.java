@@ -38,6 +38,15 @@ public class TasVpnService extends VpnService {
             new java.util.concurrent.atomic.AtomicReference<>(null);
     private static volatile String activeTunnelId = null;
     private static volatile String lastError = null;
+    private static volatile String currentTunnelAddr = "";
+    private static volatile int currentTunnelPort = 0;
+    private static volatile String currentTunnelSNI = "";
+    private static volatile String currentTunnelPath = "";
+    private static volatile String currentTunnelHost = "";
+    private static volatile String currentTunnelUUID = "";
+    private static volatile String currentTunnelNetwork = "";
+    private static volatile String currentTunnelSecurity = "";
+    private static volatile int currentTunnelMTU = 1300;
 
     private static volatile boolean starting = false;
     private static volatile boolean stopping = false; 
@@ -385,6 +394,14 @@ public class TasVpnService extends VpnService {
                 Object ctrl = null;
                 try {
 
+                    // Ecrire kighmu.txt au debut de chaque tentative
+                    try {
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                                tunnelType != null ? tunnelType : "?", "TENTATIVE " + attempt,
+                                null));
+                    } catch (Throwable ignored) {
+                    }
+
                     BinaryManager.ensureReady(this);
 
                     String tid = tunnelId;
@@ -420,6 +437,13 @@ public class TasVpnService extends VpnService {
                     logEvent("connection", "app",
                             "TUN etablie fd=" + fd + " gen=" + gen + " tentative=" + attempt);
                     VPNApplication.getInstance().recordBreadcrumb("TUN-ESTABLISHED fd=" + fd);
+                    // Ecrire kighmu.txt - TUN etablie
+                    try {
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                                tunnelType != null ? tunnelType : "?", "TUN_ETABLIE",
+                                null));
+                    } catch (Throwable ignored) {
+                    }
 
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
@@ -480,6 +504,13 @@ public class TasVpnService extends VpnService {
                     ctrl = null;
                     activeTunnelId = tid;
                     VPNApplication.getInstance().setActiveTunnelId(tid);
+                    // Ecrire kighmu.txt - Controleur Go publie
+                    try {
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                                tunnelType != null ? tunnelType : "?", "CONTROLEUR_GO_PUBLIE",
+                                null));
+                    } catch (Throwable ignored) {
+                    }
                     acquireWakeLock();
                     showCustomBanner(tid);
 
