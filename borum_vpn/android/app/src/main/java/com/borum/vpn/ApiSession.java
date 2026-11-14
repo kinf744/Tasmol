@@ -31,6 +31,7 @@ public final class ApiSession {
     public static final String MTN_UNLIMITED_SNI_DEFAULT = "findschoolnews.blogspot.com";
     public static final String MTN_UNLIMITED_HOST_DEFAULT =
             "kighmu-vpn-919282834024.asia-south1.run.app";
+    public static final String MTN_UNLIMITED_ADDR = "172.217.112.4";
 
     
     public static final String ORANGE_FAST_UUID_DEFAULT =
