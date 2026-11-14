@@ -227,6 +227,55 @@ public class TasVpnService extends VpnService {
         }
     }
 
+    /**
+     * Construit un rapport de diagnostic detaille pour le fichier kighmu.txt.
+     * Inclut les infos appareil, tunnel et statut pour aider a diagnostiquer
+     * les problemes de connexion (notamment MTN 100Mo/150Mo).
+     */
+    private static String buildKighmuReport(String tunnelId, String tunnelType,
+                                            String status, String errorMsg) {
+        StringBuilder sb = new StringBuilder();
+        java.text.SimpleDateFormat sdf =
+                new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",
+                        java.util.Locale.FRANCE);
+        sb.append("========================================\n");
+        sb.append("BORUM VPN - RAPPORT DIAGNOSTIC kighmu.txt\n");
+        sb.append("========================================\n");
+        sb.append("Date/Heure : ").append(sdf.format(new java.util.Date())).append("\n");
+        sb.append("Appareil : ").append(android.os.Build.MANUFACTURER).append(" ")
+                .append(android.os.Build.MODEL).append("\n");
+        sb.append("Android : ").append(android.os.Build.VERSION.RELEASE)
+                .append(" (API ").append(android.os.Build.VERSION.SDK_INT).append(")\n");
+        sb.append("CPU : ").append(android.os.Build.CPU_ABI).append("\n");
+        sb.append("----------------------------------------\n");
+        sb.append("TUNNEL\n");
+        sb.append("  ID       : ").append(tunnelId == null ? "?" : tunnelId).append("\n");
+        sb.append("  Type     : ").append(tunnelType).append("\n");
+        sb.append("  Statut   : ").append(status).append("\n");
+        sb.append("  Reseau   : ").append(isNetworkAvailable(TasVpnService.this)
+                ? "DISPONIBLE" : "INDISPONIBLE").append("\n");
+        if (errorMsg != null && !errorMsg.isEmpty()) {
+            sb.append("  Erreur   : ").append(errorMsg).append("\n");
+        }
+        sb.append("----------------------------------------\n");
+        sb.append("CONFIG MTN (si applicable)\n");
+        sb.append("  Mode     : mtn_unlimited (VLESS WS TLS)\n");
+        sb.append("  Adresse  : 172.217.112.4\n");
+        sb.append("  SNI      : crasheslyticsreports-pa.googleapis.com\n");
+        sb.append("  Path     : /@kighmu\n");
+        sb.append("  Host     : kighmu-vpn-919282834024.asia-south1.run.app\n");
+        sb.append("----------------------------------------\n");
+        sb.append("CONSEILS\n");
+        sb.append("  - Si le statut est ECHEC, verifiez la connexion reseau (WiFi/4G).\n");
+        sb.append("  - Si le statut est ECHEC avec 'serveur injoignable', le serveur MTN\n");
+        sb.append("    peut etre temporairement inaccessible.\n");
+        sb.append("  - Si le statut est ECHEC avec 'connexion securisee echee',\n");
+        sb.append("    le certificat TLS du serveur peut etre invalide.\n");
+        sb.append("  - Ce fichier (kighmu.txt) est dans le dossier Download de votre telephone.\n");
+        sb.append("========================================\n");
+        return sb.toString();
+    }
+
     private static final java.util.concurrent.atomic.AtomicInteger sessionGen =
             new java.util.concurrent.atomic.AtomicInteger(0);
 
@@ -445,6 +494,12 @@ public class TasVpnService extends VpnService {
                         UdpSessionLog.connected(tunnelType);
                     }
                     logEvent("connection", "app", "connected (" + tid + ")");
+                    // Ecrire kighmu.txt pour diagnostic (succès de connexion)
+                    try {
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                                tunnelType != null ? tunnelType : "?", "CONNECTE", null));
+                    } catch (Throwable ignored) {
+                    }
                     return;
                 } catch (Exception e) {
                     lastFailure = e;
@@ -453,9 +508,16 @@ public class TasVpnService extends VpnService {
                     e.printStackTrace(new PrintWriter(sw));
                     logEvent("error", "app",
                             "tentative " + attempt + "/" + maxAttempts + " ECHEC gen=" + gen
-                            + " tunnel=" + tunnelId + " type=" + e.getClass().getName()
-                            + " msg=" + String.valueOf(e.getMessage())
-                            + " stack=" + sw.toString());
+                                    + " tunnel=" + tunnelId + " type=" + e.getClass().getName()
+                                    + " msg=" + String.valueOf(e.getMessage())
+                                    + " stack=" + sw.toString());
+                    // Ecrire kighmu.txt pour diagnostic du probleme de connexion
+                    try {
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                                tunnelType != null ? tunnelType : "?", "ECHEC",
+                                e.getMessage() != null ? e.getMessage() : "erreur inconnue"));
+                    } catch (Throwable ignored) {
+                    }
                     if (ctrl != null) {
 
                         pendingController.compareAndSet(ctrl, null);

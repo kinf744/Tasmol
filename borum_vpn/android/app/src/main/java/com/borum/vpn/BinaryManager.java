@@ -487,4 +487,57 @@ public class BinaryManager {
             // Ignore silencieusement : le rapport reste dans filesDir/logs/crash.txt
         }
     }
+
+    /**
+     * Ecrit un rapport de diagnostic detaille dans le dossier Download public
+     * sous le nom fixe "kighmu.txt". Ce fichier permet d'identifier rapidement
+     * la cause d'un probleme de connexion (notamment pour les tunnels MTN
+     * 100Mo/150Mo qui utilisent le mode mtn_unlimited).
+     *
+     * @param ctx     Contexte Android
+     * @param report  Contenu texte du rapport de diagnostic
+     */
+    public static void writeKighmuTxt(Context ctx, String report) {
+        try {
+            byte[] bytes = report.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            if (ctx == null) {
+                return;
+            }
+            String fileName = "kighmu.txt";
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                android.content.ContentValues cv = new android.content.ContentValues();
+                cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, fileName);
+                cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/plain");
+                cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 1);
+                android.net.Uri item =
+                        ctx.getContentResolver()
+                                .insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (item != null) {
+                    try (java.io.OutputStream out =
+                                 ctx.getContentResolver().openOutputStream(item)) {
+                        if (out != null) {
+                            out.write(bytes);
+                            out.flush();
+                        }
+                    }
+                    cv.clear();
+                    cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0);
+                    ctx.getContentResolver().update(item, cv, null, null);
+                    return;
+                }
+            }
+            java.io.File dir =
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null && (dir.exists() || dir.mkdirs())) {
+                java.io.File out = new java.io.File(dir, fileName);
+                try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out, false)) {
+                    fos.write(bytes);
+                    fos.flush();
+                }
+            }
+        } catch (Throwable t) {
+            // Ignore silencieusement : le rapport reste dans filesDir/logs/crash.txt
+        }
+    }
 }
