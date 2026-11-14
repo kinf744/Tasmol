@@ -241,7 +241,7 @@ public class TasVpnService extends VpnService {
      * Inclut les infos appareil, tunnel et statut pour aider a diagnostiquer
      * les problemes de connexion (notamment MTN 100Mo/150Mo).
      */
-    private String buildKighmuReport(String tunnelId, String tunnelType,
+    private static String buildKighmuReport(Context ctx, String tunnelId, String tunnelType,
                                             String status, String errorMsg) {
         StringBuilder sb = new StringBuilder();
         java.text.SimpleDateFormat sdf =
@@ -261,7 +261,7 @@ public class TasVpnService extends VpnService {
         sb.append("  ID       : ").append(tunnelId == null ? "?" : tunnelId).append("\n");
         sb.append("  Type     : ").append(tunnelType).append("\n");
         sb.append("  Statut   : ").append(status).append("\n");
-        sb.append("  Reseau   : ").append(isNetworkAvailable(this)
+        sb.append("  Reseau   : ").append(isNetworkAvailable(ctx)
                 ? "DISPONIBLE" : "INDISPONIBLE").append("\n");
         if (errorMsg != null && !errorMsg.isEmpty()) {
             sb.append("  Erreur   : ").append(errorMsg).append("\n");
@@ -396,7 +396,7 @@ public class TasVpnService extends VpnService {
 
                     // Ecrire kighmu.txt au debut de chaque tentative
                     try {
-                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
                                 tunnelType != null ? tunnelType : "?", "TENTATIVE " + attempt,
                                 null));
                     } catch (Throwable ignored) {
@@ -439,7 +439,7 @@ public class TasVpnService extends VpnService {
                     VPNApplication.getInstance().recordBreadcrumb("TUN-ESTABLISHED fd=" + fd);
                     // Ecrire kighmu.txt - TUN etablie
                     try {
-                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
                                 tunnelType != null ? tunnelType : "?", "TUN_ETABLIE",
                                 null));
                     } catch (Throwable ignored) {
@@ -506,7 +506,7 @@ public class TasVpnService extends VpnService {
                     VPNApplication.getInstance().setActiveTunnelId(tid);
                     // Ecrire kighmu.txt - Controleur Go publie
                     try {
-                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
                                 tunnelType != null ? tunnelType : "?", "CONTROLEUR_GO_PUBLIE",
                                 null));
                     } catch (Throwable ignored) {
@@ -527,7 +527,7 @@ public class TasVpnService extends VpnService {
                     logEvent("connection", "app", "connected (" + tid + ")");
                     // Ecrire kighmu.txt pour diagnostic (succès de connexion)
                     try {
-                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
                                 tunnelType != null ? tunnelType : "?", "CONNECTE", null));
                     } catch (Throwable ignored) {
                     }
@@ -544,7 +544,7 @@ public class TasVpnService extends VpnService {
                                     + " stack=" + sw.toString());
                     // Ecrire kighmu.txt pour diagnostic du probleme de connexion
                     try {
-                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(tunnelId,
+                        BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
                                 tunnelType != null ? tunnelType : "?", "ECHEC",
                                 e.getMessage() != null ? e.getMessage() : "erreur inconnue"));
                     } catch (Throwable ignored) {
