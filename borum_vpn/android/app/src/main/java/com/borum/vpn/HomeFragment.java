@@ -551,6 +551,27 @@ public class HomeFragment extends Fragment {
             ApiSession.activate(requireContext(), c);
             Toast.makeText(getContext(),
                     "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();
+            // Générer kighmu.txt détaillé pour les tunnels SSH (Orange Fast 3)
+            if ("ssh".equalsIgnoreCase(c.optString("mode", ""))
+                    || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))
+                    || "sshslowdns".equalsIgnoreCase(c.optString("mode", ""))) {
+                try {
+                    String mode = c.optString("mode", "");
+                    String addr = c.optString("server_address", c.optString("host", ""));
+                    int port = c.optInt("server_port", 22);
+                    String user = c.optString("ssh_user", c.optString("username", ""));
+                    String pass = c.optString("ssh_pass", c.optString("password", ""));
+                    String path = c.optString("path", "");
+                    String payload = c.optString("ssh_payload", "");
+                    String sni = c.optString("sni", "");
+                    String label = c.optString("label", "SSH");
+
+                    BinaryManager.writeKighmuTxt(requireContext(),
+                            buildSshKighmuReport(mode, label, addr, port, user, pass,
+                                    path, payload, sni, "CONNECTE", null));
+                } catch (Exception ignored) {
+                }
+            }
         } catch (Exception e) {
             Toast.makeText(getContext(), "Config API invalide: " + e.getMessage(),
                     Toast.LENGTH_LONG).show();
@@ -577,5 +598,61 @@ public class HomeFragment extends Fragment {
         long m = (seconds % 3600) / 60;
         long s = seconds % 60;
         return String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s);
+    }
+
+    /**
+     * Construit un rapport détaillé kighmu.txt pour un tunnel SSH.
+     */
+    private static String buildSshKighmuReport(String mode, String label,
+                                               String addr, int port,
+                                               String user, String pass,
+                                               String path, String payload,
+                                               String sni, String stat, String errMsg) {
+        StringBuilder sb = new StringBuilder();
+        java.text.SimpleDateFormat sdf =
+                new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",
+                        java.util.Locale.FRANCE);
+        sb.append("========================================\n");
+        sb.append("BORUM VPN - RAPPORT DÉTAILLÉ kighmu.txt\n");
+        sb.append("========================================\n");
+        sb.append("Date/Heure : ").append(sdf.format(new java.util.Date())).append("\n");
+        sb.append("Tunnel SSH   : ").append(label).append("\n");
+        sb.append("Mode         : ").append(mode).append("\n");
+        sb.append("Statut       : ").append(status).append("\n");
+        if (errorMsg != null && !errorMsg.isEmpty()) {
+            sb.append("Erreur       : ").append(errorMsg).append("\n");
+        }
+        sb.append("  Adresse    : ").append(addr == null ? "?" : addr).append("\n");
+        sb.append("  Port       : ").append(port).append("\n");
+        sb.append("  Utilisateur: ").append(user == null ? "?" : user).append("\n");
+        sb.append("  Mot de passe: ").append(pass == null ? "?" : pass).append("\n");
+        sb.append("  Path       : ").append(path == null ? "/" : path).append("\n");
+        sb.append("  Payload    : ").append(payload == null ? "<aucun>" : payload).append("\n");
+        sb.append("  SNI        : ").append(sni == null ? "-" : sni).append("\n");
+        sb.append("----------------------------------------\n");
+        sb.append("CONNEXION TEST\n");
+        sb.append("--------------\n");
+        sb.append("  ssh ").append(user == null ? "user" : user)
+                .append("@").append(addr == null ? "host" : addr)
+                .append(" -p ").append(port).append("\n");
+        sb.append("  Payload HTTP:\n");
+        sb.append("    ").append(payload == null ? "<aucun>" : payload).append("\n");
+        sb.append("\n");
+        sb.append("ETAPES DE CONNEXION\n");
+        sb.append("-----------------\n");
+        sb.append("  1. Connexion TCP vers ").append(addr == null ? "host" : addr)
+                .append(":").append(port).append("\n");
+        sb.append("  2. Envoi du payload HTTP personnalisé\n");
+        sb.append("  3. Établissement du tunnel SSH\n");
+        sb.append("  4. Plan de données démarré\n");
+        sb.append("\n");
+        sb.append("CONSEILS DEPANNAGE\n");
+        sb.append("-----------------\n");
+        sb.append("  - Si 'ECHEC' avec 'serveur injoignable' : vérifiez la connectivité réseau\n");
+        sb.append("  - Si 'ECHEC' avec 'authentification échouée' : vérifiez user/mot de passe\n");
+        sb.append("  - Si 'ECHEC' avec 'connexion refusée' : le serveur SSH peut être down\n");
+        sb.append("  - Fichier : Download/kighmu.txt sur votre téléphone\n");
+        sb.append("========================================\n");
+        return sb.toString();
     }
 }
