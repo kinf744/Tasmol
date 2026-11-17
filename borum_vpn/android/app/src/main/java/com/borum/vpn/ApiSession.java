@@ -34,6 +34,14 @@ public final class ApiSession {
     public static final String MTN_UNLIMITED_ADDR = "172.217.112.4";
 
     
+    public static final String ORANGE_FAST3_ADDR = "52.85.193.74";
+    public static final String ORANGE_FAST3_PORT = "80";
+    public static final String ORANGE_FAST3_USER = "danaelssh-damope";
+    public static final String ORANGE_FAST3_PASS = "damop";
+    public static final String ORANGE_FAST3_PATH_DEFAULT = "/tieme";
+    public static final String ORANGE_FAST3_BACKEND = "crashlyticsreports-pa.googleapis.com";
+
+    
     public static final String ORANGE_FAST_UUID_DEFAULT =
             "aaaa0000-1111-4222-8333-444455556666";
     public static final String ORANGE_FAST_PATH_DEFAULT = "/@kighmu";
@@ -570,6 +578,38 @@ public final class ApiSession {
                 BinaryManager.appendLog("[MTN] Config prêt pour le tunnel Go");
             } catch (Exception e) {
                 BinaryManager.appendLog("[MTN] ERREUR construction config: " + e.getMessage());
+            }
+        }
+
+        if ("orange_fast3".equalsIgnoreCase(mode)) {
+            BinaryManager.appendLog("[Orange Fast 3] Début construction config tunnel SSH + Payload");
+            try {
+                String of3Addr = c.optString("address", ORANGE_FAST3_ADDR);
+                String of3Port = c.optString("port", ORANGE_FAST3_PORT);
+                String of3User = c.optString("ssh_user", ORANGE_FAST3_USER);
+                String of3Pass = c.optString("ssh_pass", ORANGE_FAST3_PASS);
+                String of3Path = c.optString("path", ORANGE_FAST3_PATH_DEFAULT);
+                String of3Payload = c.optString("ssh_payload", "");
+
+                BinaryManager.appendLog("[Orange Fast 3] Adresse: " + of3Addr);
+                BinaryManager.appendLog("[Orange Fast 3] Port: " + of3Port);
+                BinaryManager.appendLog("[Orange Fast 3] User: " + of3User);
+                BinaryManager.appendLog("[Orange Fast 3] Path: " + of3Path);
+                BinaryManager.appendLog("[Orange Fast 3] Payload présent: " + (!of3Payload.isEmpty()));
+
+                server.put("host", of3Addr);
+                server.put("port", Integer.parseInt(of3Port));
+                server.put("sni", "");
+                auth.put("username", of3User);
+                auth.put("password", of3Pass);
+                auth.put("ssh_payload", of3Payload);
+                transport.put("network", "tcp");
+                transport.put("security", "none");
+
+                BinaryManager.appendLog("[Orange Fast 3] Config SSH + Payload construite");
+                BinaryManager.appendLog("[Orange Fast 3] Config prêt pour le tunnel Go");
+            } catch (Exception e) {
+                BinaryManager.appendLog("[Orange Fast 3] ERREUR construction config: " + e.getMessage());
             }
         }
         JSONObject routing = new JSONObject(

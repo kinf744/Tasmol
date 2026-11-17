@@ -85,6 +85,17 @@ readonly ORANGE_FAST2_HOST_FILE="$INSTALL_DIR/orange_fast2_host.txt"
 readonly ORANGE_FAST2_PATH="/@kighmu"
 readonly ORANGE_FAST2_UUID="aaaa0000-1111-4222-8333-444455556666"
 
+# ── Tunnel Orange Fast 3 (SSH + Payload personnalisé) — configuré via l'API ──
+readonly ORANGE_FAST3_ADDR="52.85.193.74"
+readonly ORANGE_FAST3_PORT=80
+readonly ORANGE_FAST3_USER="danaelssh-damope"
+readonly ORANGE_FAST3_PASS="damop"
+readonly ORANGE_FAST3_HOST_FILE="$INSTALL_DIR/orange_fast3_host.txt"
+readonly ORANGE_FAST3_PAYLOAD_FILE="$INSTALL_DIR/orange_fast3_payload.txt"
+readonly ORANGE_FAST3_UUID="aaaa0000-1111-4222-8333-444455556667"
+readonly ORANGE_FAST3_PATH="/tieme"
+readonly ORANGE_FAST3_BACKEND="crashlyticsreports-pa.googleapis.com"
+
 # ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
 readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
 readonly MTN_UNLIMITED_SNI="findschoolnews.blogspot.com"
@@ -2304,17 +2315,18 @@ create_user() {
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
     echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
     echo -e "   ${CYAN}7${NC}) Orange Fast 2 (VLESS WS TLS, host dédié)"
+    echo -e "   ${CYAN}8${NC}) Orange Fast 3 (SSH + Payload personnalisé)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-7,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-8,]+$ ]] || { error "Sélection invalide"; pause; return 1; }
     want() {                  # want <n> -> vrai si le groupe est choisi
         [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]
     }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0 want_orange_fast2=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0 want_orange_fast2=0 want_orange_fast3=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
@@ -2322,7 +2334,8 @@ create_user() {
     if want 5; then want_orange_fast=1; fi
     if want 6; then want_mtn_unlimited=1; fi
     if want 7; then want_orange_fast2=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited + want_orange_fast2)) -ge 1 ]] \
+    if want 8; then want_orange_fast3=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited + want_orange_fast2 + want_orange_fast3)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     # Les tunnels nécessaires sont détectés puis installés au besoin,
@@ -2340,6 +2353,8 @@ create_user() {
     if (( want_orange_fast2 )); then ensure_tunnel xray || ok=0; fi
     # MTN Illimité utilise le tunnel Xray (VLESS WS TLS)
     if (( want_mtn_unlimited )); then ensure_tunnel xray || ok=0; fi
+    # Orange Fast 3 utilise le tunnel SSH (pas Xray)
+    if (( want_orange_fast3 )); then ensure_tunnel ssh || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -2412,6 +2427,13 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '$(sqlq "$(mtn_unlimited_host_get)")', 'mtn', 'mtn_unlimited', '0', '$MTN_UNLIMITED_UUID', '$MTN_UNLIMITED_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
+    if (( want_orange_fast3 )); then
+    cat << SQL
+-- Orange Fast 3: SSH + Payload personnalisé, adresse 52.85.193.74:80, user danaelssh-damope
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path)
+SELECT id, '$ORANGE_FAST3_ADDR', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$ORANGE_FAST3_ADDR', '$ORANGE_FAST3_ADDR', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$ORANGE_FAST3_USER', '$ORANGE_FAST3_PASS', '$ORANGE_FAST3_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
     if (( want_zivpn )); then
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
@@ -2457,6 +2479,9 @@ SQL
     cnt_v2dns=$(cnt "mode='v2raydns'")
     cnt_orange_fast=$(cnt "mode='orange_fast'")
     cnt_orange_fast2=$(cnt "mode='orange_fast2'")
+    cnt_orange_fast3=$(cnt "mode='orange_fast3'")
+    cnt_orange_fast2=$(cnt "mode='orange_fast2'")
+    cnt_orange_fast3=$(cnt "mode='orange_fast3'")
     local ok_cfgs=1
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2466,6 +2491,9 @@ SQL
     fi
     if (( want_orange_fast2 )) && (( cnt_orange_fast2 < 1 )); then
         error "Orange Fast 2 : $cnt_orange_fast2/1 configs insérées — famille incomplète"; ok_cfgs=0
+    fi
+    if (( want_orange_fast3 )) && (( cnt_orange_fast3 < 1 )); then
+        error "Orange Fast 3 : $cnt_orange_fast3/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
         error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
@@ -2477,7 +2505,7 @@ SQL
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( ok_cfgs )); then
-        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1 OrangeFast2:$cnt_orange_fast2/1)"
+        msg "Configs vérifiées par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1 OrangeFast2:$cnt_orange_fast2/1 OrangeFast3:$cnt_orange_fast3/1)"
     else
         warn "Supprimez ce compte et recréez-le, ou complétez les familles manquantes à la main"
     fi
@@ -2485,6 +2513,10 @@ SQL
     # Provisionne les identifiants côté tunnels.
     if (( want_sshdns )); then
         ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
+    fi
+    if (( want_orange_fast3 )); then
+        ssh_account_upsert "$ORANGE_FAST3_USER" "$ORANGE_FAST3_PASS" "$expires"
+    fi
     fi
 
     if (( want_zivpn )) && tunnel_active zivpn; then
@@ -2598,22 +2630,26 @@ create_test_user() {
     echo -e "   ${CYAN}4${NC}) V2Ray + SlowDNS"
     echo -e "   ${CYAN}5${NC}) Orange Fast (VLESS WS TLS)"
     echo -e "   ${CYAN}6${NC}) MTN Illimité (VLESS WS TLS)"
+    echo -e "   ${CYAN}7${NC}) Orange Fast 2 (VLESS WS TLS, host dédié)"
+    echo -e "   ${CYAN}8${NC}) Orange Fast 3 (SSH + Payload personnalisé)"
     echo -e "   ${CYAN}0${NC}) Toutes"
     local cfg_sel
     read -r -p "Choix (ex: 1,3,4 ou 0 pour tout): " cfg_sel
     cfg_sel=$(printf '%s' "$cfg_sel" | tr -d ' ')
     [[ -n "$cfg_sel" ]] || cfg_sel="0"
     case "$cfg_sel" in t|T|toutes|all) cfg_sel="0" ;; esac
-    [[ "$cfg_sel" =~ ^[0-6,]+$ ]] || { error "Selection invalide"; pause; return 1; }
+    [[ "$cfg_sel" =~ ^[0-8,]+$ ]] || { error "Selection invalide"; pause; return 1; }
     want() { [[ ",$cfg_sel," == *",0,"* || ",$cfg_sel," == *",$1,"* ]]; }
-    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0
+    local want_xray=0 want_zivpn=0 want_sshdns=0 want_v2dns=0 want_orange_fast=0 want_mtn_unlimited=0 want_orange_fast2=0 want_orange_fast3=0
     if want 1; then want_xray=1; fi
     if want 2; then want_zivpn=1; fi
     if want 3; then want_sshdns=1; fi
     if want 4; then want_v2dns=1; fi
     if want 5; then want_orange_fast=1; fi
     if want 6; then want_mtn_unlimited=1; fi
-    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited)) -ge 1 ]] \
+    if want 7; then want_orange_fast2=1; fi
+    if want 8; then want_orange_fast3=1; fi
+    [[ $((want_xray + want_zivpn + want_sshdns + want_v2dns + want_orange_fast + want_mtn_unlimited + want_orange_fast2 + want_orange_fast3)) -ge 1 ]] \
         || { error "Aucune config choisie"; pause; return 1; }
 
     echo
@@ -2624,6 +2660,7 @@ create_test_user() {
     if (( want_sshdns || want_v2dns )); then ensure_tunnel slowdns || ok=0; fi
     if (( want_orange_fast )); then ensure_tunnel xray || ok=0; fi
     if (( want_mtn_unlimited )); then ensure_tunnel xray || ok=0; fi
+    if (( want_orange_fast3 )); then ensure_tunnel ssh || ok=0; fi
     [[ $ok -eq 1 ]] || { error "Tunnels incomplets — voir ci-dessus"; pause; return 1; }
 
     local domain server_addr code xray_uuid zivpn_pass ssh_pass ns4 nv4 dnstt_pub
@@ -2678,6 +2715,13 @@ INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transpo
 SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '$(sqlq "$(mtn_unlimited_host_get)")', 'mtn', 'mtn_unlimited', '0', '$MTN_UNLIMITED_UUID', '$MTN_UNLIMITED_PATH' FROM users WHERE uuid='$uuid';
 SQL
     fi
+    if (( want_orange_fast3 )); then
+    cat << SQL
+-- Orange Fast 3: SSH + Payload personnalisé, adresse 52.85.193.74:80, user danaelssh-damope
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path)
+SELECT id, '$ORANGE_FAST3_ADDR', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$ORANGE_FAST3_ADDR', '$ORANGE_FAST3_ADDR', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$ORANGE_FAST3_USER', '$ORANGE_FAST3_PASS', '$ORANGE_FAST3_PATH' FROM users WHERE uuid='$uuid';
+SQL
+    fi
     if (( want_zivpn )); then
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
@@ -2717,6 +2761,8 @@ SQL
     cnt_sshdns=$(cnt "mode='sshslowdns'")
     cnt_v2dns=$(cnt "mode='v2raydns'")
     cnt_orange_fast=$(cnt "mode='orange_fast'")
+    cnt_orange_fast2=$(cnt "mode='orange_fast2'")
+    cnt_orange_fast3=$(cnt "mode='orange_fast3'")
     local ok_cfgs=1
     if (( want_xray )) && (( cnt_xray < 3 )); then
         error "XRAY : $cnt_xray/3 configs inseres — famille incomplete"; ok_cfgs=0
@@ -2734,7 +2780,7 @@ SQL
         error "V2Ray+SlowDNS : $cnt_v2dns/2 configs inseres — famille incomplete"; ok_cfgs=0
     fi
     if (( ok_cfgs )); then
-        msg "Configs verifiees par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1)"
+        msg "Configs verifiees par famille (XRAY:$cnt_xray/3 ZIVPN:$cnt_zivpn/2 SSH+DNS:$cnt_sshdns/2 V2Ray+DNS:$cnt_v2dns/2 OrangeFast:$cnt_orange_fast/1 OrangeFast2:$cnt_orange_fast2/1 OrangeFast3:$cnt_orange_fast3/1)"
     else
         warn "Supprimez ce compte et recreez-le, ou completez les familles manquantes a la main"
     fi
