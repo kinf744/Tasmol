@@ -2108,6 +2108,120 @@ orange_fast2_host_delete() {
     warn "Host Orange Fast 2 supprimé"
 }
 
+# ── Tunnel Orange Fast 3 (SSH + Payload) — admin panel ─────────────────────
+orange_fast3_config_get() {
+    [[ -f "$ORANGE_FAST3_HOST_FILE" ]] && head -1 "$ORANGE_FAST3_HOST_FILE" | tr -d '[:space:]' || true
+}
+
+orange_fast3_config_set() {
+    local addr="$1"
+    [[ -n "$addr" ]] || { error "Adresse requise"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$addr" > "$ORANGE_FAST3_HOST_FILE"; chmod 600 "$ORANGE_FAST3_HOST_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET server_address='$(sqlq "$addr")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
+    msg "Host Orange Fast 3 défini: $addr (remplacé partout)"
+    log "orange_fast3 addr -> $addr"
+}
+
+orange_fast3_user_set() {
+    local u="$1"
+    [[ -n "$u" ]] || { error "Utilisateur requis"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$u" > "$ORANGE_FAST3_USER_FILE"; chmod 600 "$ORANGE_FAST3_USER_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET ssh_user='$(sqlq "$u")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
+    msg "Utilisateur Orange Fast 3 défini: $u (remplacé partout)"
+    log "orange_fast3 user -> $u"
+}
+
+orange_fast3_pass_set() {
+    local p="$1"
+    [[ -n "$p" ]] || { error "Mot de passe requis"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$p" > "$ORANGE_FAST3_PASS_FILE"; chmod 600 "$ORANGE_FAST3_PASS_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET ssh_pass='$(sqlq "$p")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
+    msg "Mot de passe Orange Fast 3 défini (remplacé partout)"
+    log "orange_fast3 pass -> ***"
+}
+
+orange_fast3_payload_set() {
+    local p="$1"
+    [[ -n "$p" ]] || { error "Payload requis"; return 1; }
+    mkdir -p "$INSTALL_DIR"
+    echo "$p" > "$ORANGE_FAST3_PAYLOAD_FILE"; chmod 600 "$ORANGE_FAST3_PAYLOAD_FILE"
+    [[ -f "$DB_PATH" ]] && \
+        sql "UPDATE vpn_configs SET path='$(sqlq "$p")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
+    msg "Payload Orange Fast 3 défini (remplacé partout)"
+    log "orange_fast3 payload -> set"
+}
+
+orange_fast3_config_show() {
+    echo -e "  ${GOLD}Orange Fast 3 (SSH + Payload)${NC}"
+    echo -e "    Adresse             : ${CYAN}${ORANGE_FAST3_ADDR}${NC}"
+    echo -e "    Port                : ${CYAN}${ORANGE_FAST3_PORT}${NC}"
+    local cur
+    cur=$(orange_fast3_config_get)
+    echo -e "    Host actuel         : ${CYAN}${cur:-<aucun>}${NC}"
+    local cu
+    cur=$(cat "$ORANGE_FAST3_USER_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    echo -e "    Utilisateur         : ${CYAN}${cur:-<aucun>}${NC}"
+    local cp
+    cur=$(cat "$ORANGE_FAST3_PASS_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    echo -e "    Mot de passe        : ${CYAN}${cur:-<aucun>}${NC}"
+    local cpay
+    cur=$(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    echo -e "    Payload             : ${CYAN}${cur:-<aucun>}${NC}"
+}
+
+# ── Génération fichier kighmu.txt détaillé pour tunnels SSH ─────────────────
+orange_fast3_kighmu() {
+    local out_dir="$1"
+    [[ -n "$out_dir" ]] || out_dir="/root/Download"
+    mkdir -p "$out_dir" 2>/dev/null || true
+    local out="$out_dir/kighmu.txt"
+    {
+        echo "=========================================="
+        echo "BORUM VPN - RAPPORT DÉTAILLÉ kighmu.txt"
+        echo "=========================================="
+        echo "Date/Heure : $(date '+%Y-%m-%d %H:%M:%S')"
+        echo
+        echo "TUNNEL SSH - Orange Fast 3"
+        echo "--------------------------"
+        echo "  Type       : ssh (tcp)"
+        echo "  Adresse    : ${ORANGE_FAST3_ADDR}"
+        echo "  Port       : ${ORANGE_FAST3_PORT}"
+        echo "  Utilisateur: $(cat "$ORANGE_FAST3_USER_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo "  Mot de passe: $(cat "$ORANGE_FAST3_PASS_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo "  Path       : ${ORANGE_FAST3_PATH}"
+        echo "  Payload    : $(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo
+        echo "CONNEXION TEST"
+        echo "--------------"
+        echo "  ssh ${ORANGE_FAST3_USER:-danaelssh-damope}@${ORANGE_FAST3_ADDR} -p ${ORANGE_FAST3_PORT}"
+        echo "  Payload à inclure dans la requête HTTP:"
+        echo "    $(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo
+        echo "ETAPES DE CONNEXION"
+        echo "-----------------"
+        echo "  1. Connexion TCP vers ${ORANGE_FAST3_ADDR}:${ORANGE_FAST3_PORT}"
+        echo "  2. Envoi du payload HTTP personnalisé"
+        echo "  3. Établissement du tunnel SSH"
+        echo "  4. Plan de données démarré"
+        echo
+        echo "CONSEILS DEPANNAGE"
+        echo "-----------------"
+        echo "  - Si 'ECHEC' avec 'serveur injoignable' : vérifiez la connectivité réseau"
+        echo "  - Si 'ECHEC' avec 'authentification échouée' : vérifiez user/mot de passe"
+        echo "  - Si 'ECHEC' avec 'connexion refusée' : le serveur SSH peut être down"
+        echo "  - Fichier : Download/kighmu.txt sur votre téléphone"
+        echo "=========================================="
+    } > "$out"
+    msg "Fichier kighmu.txt généré: $out"
+    log "kighmu.txt généré pour Orange Fast 3 (SSH)"
+}
+
 # ── Host MTN Illimité (VLESS WS TLS) — administrable via le panel ───────────
 mtn_unlimited_host_get() { [[ -f "$MTN_UNLIMITED_HOST_FILE" ]] && head -1 "$MTN_UNLIMITED_HOST_FILE" | tr -d '[:space:]' || true; }
 
@@ -2158,6 +2272,13 @@ orange_menu() {
     local curm
     curm=$(mtn_unlimited_host_get)
     echo -e "    Host actuel         : ${CYAN}${curm:-<aucun>}${NC}"
+    echo -e "  ${GOLD}Orange Fast 3 (SSH)${NC}"
+    echo -e "    Adresse             : ${CYAN}$ORANGE_FAST3_ADDR${NC}"
+    echo -e "    Port                : ${CYAN}$ORANGE_FAST3_PORT${NC}"
+    local curu
+    cur=$(cat "$ORANGE_FAST3_USER_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    echo -e "    Utilisateur         : ${CYAN}${cur:-<aucun>}${NC}"
+    echo -e "    Path/Host           : ${CYAN}$ORANGE_FAST3_PATH${NC}"
     echo
     echo "  1) Orange : ajouter / remplacer le host"
     echo "  2) Orange : supprimer le host"
@@ -2165,8 +2286,10 @@ orange_menu() {
     echo "  4) Orange Fast : supprimer le host"
     echo "  5) Orange Fast 2 : ajouter / remplacer le host"
     echo "  6) Orange Fast 2 : supprimer le host"
-    echo "  7) MTN Illimité : ajouter / remplacer le host"
-    echo "  8) MTN Illimité : supprimer le host"
+    echo "  7) Orange Fast 3 : config (user/pass/payload)"
+    echo "  8) Orange Fast 3 : générer kighmu.txt"
+    echo "  9) MTN Illimité : ajouter / remplacer le host"
+    echo " 10) MTN Illimité : supprimer le host"
     echo "  0) Retour"
     echo
     local c
@@ -2197,11 +2320,44 @@ orange_menu() {
             confirm "Supprimer le host Orange Fast 2 ?" && orange_fast2_host_delete
             ;;
         7)
+            echo -e "  ${GOLD}Orange Fast 3 (SSH)${NC}"
+            echo "    1) Modifier l'utilisateur"
+            echo "    2) Modifier le mot de passe"
+            echo "    3) Modifier le payload HTTP"
+            echo "    4) Modifier l'adresse"
+            read -r -p "Option: " cc
+            case "$cc" in
+                1)
+                    read -r -p "Nouvel utilisateur: " u
+                    [[ -n "$u" ]] && orange_fast3_user_set "$u"
+                    ;;
+                2)
+                    read -r -sp "Nouveau mot de passe: " p
+                    echo
+                    [[ -n "$p" ]] && orange_fast3_pass_set "$p"
+                    ;;
+                3)
+                    read -r -p "Nouveau payload HTTP: " p
+                    [[ -n "$p" ]] && orange_fast3_payload_set "$p"
+                    ;;
+                4)
+                    read -r -p "Nouvelle adresse: " a
+                    [[ -n "$a" ]] && orange_fast3_config_set "$a"
+                    ;;
+                *)
+                    echo "Option invalide"
+                    ;;
+            esac
+            ;;
+        8)
+            orange_fast3_kighmu "/root/Download"
+            ;;
+        9)
             local h
             read -r -p "Host MTN Illimité (ex: kighmu-vpn-919282834024.asia-south1.run.app): " h
             [[ -n "$h" ]] && mtn_unlimited_host_set "$h"
             ;;
-        8)
+        10)
             confirm "Supprimer le host MTN Illimité ?" && mtn_unlimited_host_delete
             ;;
     esac
@@ -2516,7 +2672,6 @@ SQL
     fi
     if (( want_orange_fast3 )); then
         ssh_account_upsert "$ORANGE_FAST3_USER" "$ORANGE_FAST3_PASS" "$expires"
-    fi
     fi
 
     if (( want_zivpn )) && tunnel_active zivpn; then
