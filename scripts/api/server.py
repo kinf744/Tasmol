@@ -116,6 +116,7 @@ def init_db():
             port_range TEXT DEFAULT '',
             nameserver TEXT DEFAULT '', slowdns_pubkey TEXT DEFAULT '',
             ssh_user TEXT DEFAULT '', ssh_pass TEXT DEFAULT '',
+            ssh_payload TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS devices (
@@ -127,7 +128,7 @@ def init_db():
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
-                     ("path", "TEXT DEFAULT ''"),
+                     ("path", "TEXT DEFAULT ''"), ("ssh_payload", "TEXT DEFAULT ''"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0"),
                      ("allowed_uuids", "TEXT DEFAULT ''")]:
         # quota_mb/bytes_used/allowed_uuids ciblent la table users
@@ -367,6 +368,8 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "Orange Fast"
                 elif mode == "orange_fast2":
                     label = "Orange Fast 2"
+                elif mode == "orange_fast3":
+                    label = "Orange Fast 3"
                 elif mode == "mtn_unlimited":
                     label = "MTN Illimité"
                 else:
@@ -410,11 +413,12 @@ class APIHandler(BaseHTTPRequestHandler):
                             entry["wg_remote_dns"] = wg_obj.get("wg_remote_dns", "1.1.1.1,8.8.8.8")
                     except Exception:
                         pass
-                if mode in ("v2raydns", "sshslowdns"):
+                if mode in ("v2raydns", "sshslowdns", "orange_fast3"):
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""
                     entry["ssh_user"] = cfg["ssh_user"] or ""
                     entry["ssh_pass"] = cfg["ssh_pass"] or ""
+                    entry["ssh_payload"] = cfg["ssh_payload"] or ""
                 configs.append(entry)
             return self._send({"success": True, "configs": configs})
 

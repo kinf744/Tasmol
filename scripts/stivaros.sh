@@ -91,10 +91,14 @@ readonly ORANGE_FAST3_PORT=80
 readonly ORANGE_FAST3_USER="danaelssh-damope"
 readonly ORANGE_FAST3_PASS="damop"
 readonly ORANGE_FAST3_HOST_FILE="$INSTALL_DIR/orange_fast3_host.txt"
+readonly ORANGE_FAST3_USER_FILE="$INSTALL_DIR/orange_fast3_user.txt"
+readonly ORANGE_FAST3_PASS_FILE="$INSTALL_DIR/orange_fast3_pass.txt"
 readonly ORANGE_FAST3_PAYLOAD_FILE="$INSTALL_DIR/orange_fast3_payload.txt"
 readonly ORANGE_FAST3_UUID="aaaa0000-1111-4222-8333-444455556667"
 readonly ORANGE_FAST3_PATH="/tieme"
 readonly ORANGE_FAST3_BACKEND="crashlyticsreports-pa.googleapis.com"
+# Payload HTTP par défaut (jetons [crlf] et [host] traduits par le moteur SSH)
+readonly ORANGE_FAST3_PAYLOAD_DEFAULT='GET / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: m.batch.com[crlf][crlf]X / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: [host][crlf][crlf]GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]'
 
 # ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
 readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
@@ -1542,6 +1546,7 @@ def init_db():
             port_range TEXT DEFAULT '',
             nameserver TEXT DEFAULT '', slowdns_pubkey TEXT DEFAULT '',
             ssh_user TEXT DEFAULT '', ssh_pass TEXT DEFAULT '',
+            ssh_payload TEXT DEFAULT '',
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
         CREATE TABLE IF NOT EXISTS devices (
@@ -1553,7 +1558,7 @@ def init_db():
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
                      ("host", "TEXT DEFAULT ''"), ("port_range", "TEXT DEFAULT ''"),
-                     ("path", "TEXT DEFAULT ''"),
+                     ("path", "TEXT DEFAULT ''"), ("ssh_payload", "TEXT DEFAULT ''"),
                      ("quota_mb", "INTEGER DEFAULT 0"), ("bytes_used", "INTEGER DEFAULT 0")]:
         # quota_mb/bytes_used ciblent la table users
         table = "users" if col in ("quota_mb", "bytes_used") else "vpn_configs"
@@ -2113,6 +2118,30 @@ orange_fast3_config_get() {
     [[ -f "$ORANGE_FAST3_HOST_FILE" ]] && head -1 "$ORANGE_FAST3_HOST_FILE" | tr -d '[:space:]' || true
 }
 
+orange_fast3_user_get() {
+    if [[ -f "$ORANGE_FAST3_USER_FILE" ]]; then
+        head -1 "$ORANGE_FAST3_USER_FILE" | tr -d '[:space:]'
+    else
+        printf '%s' "$ORANGE_FAST3_USER"
+    fi
+}
+
+orange_fast3_pass_get() {
+    if [[ -f "$ORANGE_FAST3_PASS_FILE" ]]; then
+        head -1 "$ORANGE_FAST3_PASS_FILE" | tr -d '[:space:]'
+    else
+        printf '%s' "$ORANGE_FAST3_PASS"
+    fi
+}
+
+orange_fast3_payload_get() {
+    if [[ -f "$ORANGE_FAST3_PAYLOAD_FILE" ]]; then
+        cat "$ORANGE_FAST3_PAYLOAD_FILE"
+    else
+        printf '%s' "$ORANGE_FAST3_PAYLOAD_DEFAULT"
+    fi
+}
+
 orange_fast3_config_set() {
     local addr="$1"
     [[ -n "$addr" ]] || { error "Adresse requise"; return 1; }
@@ -2150,9 +2179,9 @@ orange_fast3_payload_set() {
     local p="$1"
     [[ -n "$p" ]] || { error "Payload requis"; return 1; }
     mkdir -p "$INSTALL_DIR"
-    echo "$p" > "$ORANGE_FAST3_PAYLOAD_FILE"; chmod 600 "$ORANGE_FAST3_PAYLOAD_FILE"
+    printf '%s' "$p" > "$ORANGE_FAST3_PAYLOAD_FILE"; chmod 600 "$ORANGE_FAST3_PAYLOAD_FILE"
     [[ -f "$DB_PATH" ]] && \
-        sql "UPDATE vpn_configs SET path='$(sqlq "$p")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
+        sql "UPDATE vpn_configs SET ssh_payload='$(sqlq "$p")' WHERE isp='orange_fast3' AND mode='orange_fast3';"
     msg "Payload Orange Fast 3 défini (remplacé partout)"
     log "orange_fast3 payload -> set"
 }
@@ -2164,15 +2193,13 @@ orange_fast3_config_show() {
     local cur
     cur=$(orange_fast3_config_get)
     echo -e "    Host actuel         : ${CYAN}${cur:-<aucun>}${NC}"
-    local cu
-    cur=$(cat "$ORANGE_FAST3_USER_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    cur=$(orange_fast3_user_get)
     echo -e "    Utilisateur         : ${CYAN}${cur:-<aucun>}${NC}"
-    local cp
-    cur=$(cat "$ORANGE_FAST3_PASS_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    cur=$(orange_fast3_pass_get)
     echo -e "    Mot de passe        : ${CYAN}${cur:-<aucun>}${NC}"
-    local cpay
-    cur=$(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || true)
+    cur=$(orange_fast3_payload_get)
     echo -e "    Payload             : ${CYAN}${cur:-<aucun>}${NC}"
+    echo -e "    Path                : ${CYAN}${ORANGE_FAST3_PATH}${NC}"
 }
 
 # ── Génération fichier kighmu.txt détaillé pour tunnels SSH ─────────────────
@@ -2192,16 +2219,16 @@ orange_fast3_kighmu() {
         echo "  Type       : ssh (tcp)"
         echo "  Adresse    : ${ORANGE_FAST3_ADDR}"
         echo "  Port       : ${ORANGE_FAST3_PORT}"
-        echo "  Utilisateur: $(cat "$ORANGE_FAST3_USER_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
-        echo "  Mot de passe: $(cat "$ORANGE_FAST3_PASS_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo "  Utilisateur: $(orange_fast3_user_get)"
+        echo "  Mot de passe: $(orange_fast3_pass_get)"
         echo "  Path       : ${ORANGE_FAST3_PATH}"
-        echo "  Payload    : $(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo "  Payload    : $(orange_fast3_payload_get)"
         echo
         echo "CONNEXION TEST"
         echo "--------------"
-        echo "  ssh ${ORANGE_FAST3_USER:-danaelssh-damope}@${ORANGE_FAST3_ADDR} -p ${ORANGE_FAST3_PORT}"
+        echo "  ssh $(orange_fast3_user_get)@${ORANGE_FAST3_ADDR} -p ${ORANGE_FAST3_PORT}"
         echo "  Payload à inclure dans la requête HTTP:"
-        echo "    $(cat "$ORANGE_FAST3_PAYLOAD_FILE" 2>/dev/null | tr -d '[:space:]' || echo '<aucun>')"
+        echo "    $(orange_fast3_payload_get)"
         echo
         echo "ETAPES DE CONNEXION"
         echo "-----------------"
@@ -2584,10 +2611,15 @@ SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '
 SQL
     fi
     if (( want_orange_fast3 )); then
+    local of3_addr of3_user of3_pass of3_payload
+    of3_addr=$(orange_fast3_config_get); [[ -n "$of3_addr" ]] || of3_addr="$ORANGE_FAST3_ADDR"
+    of3_user=$(orange_fast3_user_get); [[ -n "$of3_user" ]] || of3_user="$ORANGE_FAST3_USER"
+    of3_pass=$(orange_fast3_pass_get); [[ -n "$of3_pass" ]] || of3_pass="$ORANGE_FAST3_PASS"
+    of3_payload=$(orange_fast3_payload_get)
     cat << SQL
--- Orange Fast 3: SSH + Payload personnalisé, adresse 52.85.193.74:80, user danaelssh-damope
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path)
-SELECT id, '$ORANGE_FAST3_ADDR', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$ORANGE_FAST3_ADDR', '$ORANGE_FAST3_ADDR', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$ORANGE_FAST3_USER', '$ORANGE_FAST3_PASS', '$ORANGE_FAST3_PATH' FROM users WHERE uuid='$uuid';
+-- Orange Fast 3: SSH + Payload personnalisé (front HTTP + tunnel SSH)
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
+SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_zivpn )); then
@@ -2871,10 +2903,15 @@ SELECT id, '$MTN_UNLIMITED_ADDR', 443, 'vless', 'ws', 1, '$MTN_UNLIMITED_SNI', '
 SQL
     fi
     if (( want_orange_fast3 )); then
+    local of3_addr of3_user of3_pass of3_payload
+    of3_addr=$(orange_fast3_config_get); [[ -n "$of3_addr" ]] || of3_addr="$ORANGE_FAST3_ADDR"
+    of3_user=$(orange_fast3_user_get); [[ -n "$of3_user" ]] || of3_user="$ORANGE_FAST3_USER"
+    of3_pass=$(orange_fast3_pass_get); [[ -n "$of3_pass" ]] || of3_pass="$ORANGE_FAST3_PASS"
+    of3_payload=$(orange_fast3_payload_get)
     cat << SQL
--- Orange Fast 3: SSH + Payload personnalisé, adresse 52.85.193.74:80, user danaelssh-damope
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path)
-SELECT id, '$ORANGE_FAST3_ADDR', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$ORANGE_FAST3_ADDR', '$ORANGE_FAST3_ADDR', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$ORANGE_FAST3_USER', '$ORANGE_FAST3_PASS', '$ORANGE_FAST3_PATH' FROM users WHERE uuid='$uuid';
+-- Orange Fast 3: SSH + Payload personnalisé (front HTTP + tunnel SSH)
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
+SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 SQL
     fi
     if (( want_zivpn )); then

@@ -65,6 +65,11 @@ func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn
 	return tlsConn, nil
 }
 
+// defaultPayloadUA est le User-Agent injecté à la place du jeton [ua]
+// dans les payloads HTTP de type SSH PAYLOAD.
+const defaultPayloadUA = "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+
 func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	hasPass := cfg.Auth.Password != ""
 	hasKey := strings.TrimSpace(cfg.Auth.PrivateKey) != ""
@@ -293,6 +298,8 @@ func renderPayload(tpl, host, port, proxyHost, proxyPort string) string {
 	p = strings.ReplaceAll(p, "[lf]", "\n")
 	p = strings.ReplaceAll(p, "[CR]", "\r")
 	p = strings.ReplaceAll(p, "[cr]", "\r")
+	p = strings.ReplaceAll(p, "[UA]", defaultPayloadUA)
+	p = strings.ReplaceAll(p, "[ua]", defaultPayloadUA)
 	p = strings.ReplaceAll(p, "[host_port]", host+":"+port)
 	p = strings.ReplaceAll(p, "[HOST_PORT]", host+":"+port)
 	p = strings.ReplaceAll(p, "[host]", host)

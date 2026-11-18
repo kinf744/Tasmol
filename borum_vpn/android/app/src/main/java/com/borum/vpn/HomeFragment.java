@@ -562,8 +562,8 @@ public class HomeFragment extends Fragment {
                     || "sshslowdns".equalsIgnoreCase(c.optString("mode", ""))) {
                 try {
                     String mode = c.optString("mode", "");
-                    String addr = c.optString("server_address", c.optString("host", ""));
-                    int port = c.optInt("server_port", 22);
+                    String addr = c.optString("address", c.optString("server_address", c.optString("host", "")));
+                    int port = c.optInt("port", c.optInt("server_port", 22));
                     String user = c.optString("ssh_user", c.optString("username", ""));
                     String pass = c.optString("ssh_pass", c.optString("password", ""));
                     String path = c.optString("path", "");
@@ -606,7 +606,7 @@ public class HomeFragment extends Fragment {
     }
 
     /**
-     * Affiche une boîte de dialogue pour modifier les paramètres SSH d'un tunnel
+     * Affiche une boîte de dialogue pour modifier les parameters SSH d'un tunnel
      * (utilisateur, mot de passe, payload HTTP). Les modifications sont appliquées
      * immédiatement dans la config JSON stockée localement.
      */
@@ -614,29 +614,30 @@ public class HomeFragment extends Fragment {
         if (cfg == null || getContext() == null) {
             return;
         }
-        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(getContext());
+        final android.content.Context ctx = getContext();
+        android.app.AlertDialog.Builder d = new android.app.AlertDialog.Builder(ctx);
         d.setTitle("Modifier SSH - " + cfg.optString("label", "config"));
-        android.widget.LinearLayout layout = new android.widget.LinearLayout(getContext());
+        android.widget.LinearLayout layout = new android.widget.LinearLayout(ctx);
         layout.setOrientation(android.widget.LinearLayout.VERTICAL);
         layout.setPadding(24, 24, 24, 24);
 
-        final android.widget.EditText etUser = new android.widget.EditText(getContext());
+        final android.widget.EditText etUser = new android.widget.EditText(ctx);
         etUser.setHint("Utilisateur SSH");
         etUser.setText(cfg.optString("ssh_user", cfg.optString("username", "")));
         layout.addView(etUser);
 
-        final android.widget.EditText etPass = new android.widget.EditText(getContext());
+        final android.widget.EditText etPass = new android.widget.EditText(ctx);
         etPass.setHint("Mot de passe SSH");
         etPass.setText(cfg.optString("ssh_pass", cfg.optString("password", "")));
         etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         layout.addView(etPass);
 
-        final android.widget.EditText etPath = new android.widget.EditText(getContext());
+        final android.widget.EditText etPath = new android.widget.EditText(ctx);
         etPath.setHint("Path (ex: /tieme)");
         etPath.setText(cfg.optString("path", ""));
         layout.addView(etPath);
 
-        final android.widget.EditText etPayload = new android.widget.EditText(getContext());
+        final android.widget.EditText etPayload = new android.widget.EditText(ctx);
         etPayload.setHint("Payload HTTP (multi-ligne)");
         etPayload.setText(cfg.optString("ssh_payload", ""));
         etPayload.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
@@ -651,29 +652,73 @@ public class HomeFragment extends Fragment {
             String pa = etPath.getText().toString().trim();
             String pl = etPayload.getText().toString().trim();
             try {
-                cfg.put("ssh_user", u);
-                cfg.put("username", u);
-                cfg.put("ssh_pass", p);
-                cfg.put("password", p);
-                cfg.put("path", pa);
-                cfg.put("ssh_payload", pl);
-                // Sauvegarder dans les prefs locales
-                ApiSession.saveConfigs(getContext(), ApiSession.configs(getContext()));
-                Toast.makeText(getContext(), "Config SSH mise à jour", Toast.LENGTH_SHORT).show();
-                // Régénérer kighmu.txt
-                BinaryManager.writeKighmuTxt(getContext(), buildSshKighmuReport(
-                        cfg.optString("mode", "ssh"), cfg.optString("label", "SSH"),
-                        c.optString("address", c.optString("host", "")),
-                        c.optInt("server_port", 22),
-                        u, p, pa, pl, c.optString("sni", ""),
-                        "MODIFIÉ", null));
+                applySshFields(cfg, u, p, pa, pl);
+                org.json.JSONArray cfgs = ApiSession.configs(ctx);
+                JSONObject stored = findStoredConfig(cfgs, cfg);
+                if (stored == null) {
+                    stored = cfg;
+                } else if (stored != cfg) {
+                    applySshFields(stored, u, p, pa, pl);
+                }
+                ApiSession.saveConfigs(ctx, cfgs);
+                Toast.makeText(ctx, "Config SSH mise à jour", Toast.LENGTH_SHORT).show();
+                try {
+                    ApiSession.activate(ctx, stored);
+                } catch (Exception ignored) {
+                }
+                BinaryManager.writeKighmuTxt(ctx, buildSshKighmuReport(
+                        stored.optString("mode", "ssh"), stored.optString("label", "SSH"),
+                        stored.optString("address", stored.optString("server_address", "")),
+                        stored.optInt("port", stored.optInt("server_port", 22)),
+                        u, p, pa, pl, stored.optString("sni", ""),
+                        "MODIFIE", null));
+                populateApiSpinner(ctx);
             } catch (Exception e) {
-                Toast.makeText(getContext(), "Erreur: " + e.getMessage(), Toast.LENGTH_LONG).show();
+                Toast.makeText(ctx, "Erreur: " + e.getMessage(), Toast.LENGTH_LONG).show();
             }
         });
         d.setNegativeButton("Annuler", null);
         d.show();
     }
+
+    private static void applySshFields(JSONObject cfg, String user, String pass,
+                                       String path, String payload) throws Exception {
+        cfg.put("ssh_user", user);
+        cfg.put("username", user);
+        cfg.put("ssh_pass", pass);
+        cfg.put("password", pass);
+        cfg.put("path", path);
+        cfg.put("ssh_payload", payload);
+    }
+
+    private static JSONObject findStoredConfig(org.json.JSONArray cfgs, JSONObject cfg) {
+        if (cfgs == null || cfg == null) {
+            return null;
+        }
+        int id = cfg.optInt("config_id", -1);
+        for (int i = 0; i < cfgs.length(); i++) {
+            JSONObject it = cfgs.optJSONObject(i);
+            if (it != null && id >= 0 && it.optInt("config_id", -1) == id) {
+                return it;
+            }
+        }
+        for (int i = 0; i < cfgs.length(); i++) {
+            JSONObject it = cfgs.optJSONObject(i);
+            if (it != null && it.optString("label", "").equals(cfg.optString("label", ""))) {
+                return it;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Construit un rapport détaillé kighmu.txt pour un tunnel SSH.
+     */
+    private static String buildSshKighmuReport(String mode, String label,
+                                               String addr, int port,
+                                               String user, String pass,
+                                               String path, String payload,
+                                               String sni, String status, String errorMsg) {
         StringBuilder sb = new StringBuilder();
         java.text.SimpleDateFormat sdf =
                 new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",

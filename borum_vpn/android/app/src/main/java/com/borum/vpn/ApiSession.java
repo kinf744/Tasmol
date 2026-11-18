@@ -36,9 +36,20 @@ public final class ApiSession {
     
     public static final String ORANGE_FAST3_ADDR = "52.85.193.74";
     public static final String ORANGE_FAST3_PORT = "80";
+    public static final int ORANGE_FAST3_PORT_INT = 80;
     public static final String ORANGE_FAST3_USER = "danaelssh-damope";
     public static final String ORANGE_FAST3_PASS = "damop";
     public static final String ORANGE_FAST3_PATH_DEFAULT = "/tieme";
+    public static final String ORANGE_FAST3_PAYLOAD_DEFAULT =
+            "GET / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;"
+                    + "www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;"
+                    + "www.garena.com;n41-06-05.opera-mini.net[crlf]Host: m.batch.com[crlf][crlf]"
+                    + "X / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;"
+                    + "www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;"
+                    + "www.garena.com;n41-06-05.opera-mini.net[crlf]Host: [host][crlf][crlf]"
+                    + "GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]"
+                    + "Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]"
+                    + "Connection: Upgrade[crlf][crlf]";
     public static final String ORANGE_FAST3_BACKEND = "crashlyticsreports-pa.googleapis.com";
 
     
@@ -355,6 +366,7 @@ public final class ApiSession {
 
         JSONObject auth = new JSONObject();
         JSONObject transport = new JSONObject();
+        JSONObject ssh = new JSONObject();
 
         String type;
         if ("zivpn".equalsIgnoreCase(mode) || "zivpn".equalsIgnoreCase(c.optString("protocol", ""))) {
@@ -387,6 +399,44 @@ public final class ApiSession {
             auth.put("uuid", c.optString("xray_uuid", ""));
             transport.put("network", "tcp");
             transport.put("security", "none");
+        } else if ("orange_fast3".equalsIgnoreCase(mode)) {
+            type = "ssh";
+            String of3Addr = c.optString("address", ORANGE_FAST3_ADDR);
+            if (of3Addr.isEmpty()) {
+                of3Addr = ORANGE_FAST3_ADDR;
+            }
+            int of3Port = c.optInt("port", ORANGE_FAST3_PORT_INT);
+            String of3User = c.optString("ssh_user", c.optString("username", ORANGE_FAST3_USER));
+            if (of3User.isEmpty()) {
+                of3User = ORANGE_FAST3_USER;
+            }
+            String of3Pass = c.optString("ssh_pass", c.optString("password", ORANGE_FAST3_PASS));
+            if (of3Pass.isEmpty()) {
+                of3Pass = ORANGE_FAST3_PASS;
+            }
+            String of3Path = c.optString("path", ORANGE_FAST3_PATH_DEFAULT);
+            if (of3Path.isEmpty()) {
+                of3Path = ORANGE_FAST3_PATH_DEFAULT;
+            }
+            String of3Payload = c.optString("ssh_payload", "");
+            if (of3Payload.isEmpty()) {
+                of3Payload = ORANGE_FAST3_PAYLOAD_DEFAULT;
+            }
+
+            server.put("host", of3Addr);
+            server.put("port", of3Port);
+            server.remove("sni");
+            auth.put("username", of3User);
+            auth.put("password", of3Pass);
+            transport.put("network", "tcp");
+            transport.put("security", "none");
+            if (!of3Path.isEmpty()) {
+                transport.put("path", of3Path);
+            }
+            ssh.put("proxy", of3Addr + ":" + of3Port);
+            ssh.put("payload", of3Payload);
+            BinaryManager.appendLog("[Orange Fast 3] SSH + payload: " + of3Addr + ":" + of3Port
+                    + " payload=" + (!of3Payload.isEmpty()));
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));
@@ -456,6 +506,11 @@ public final class ApiSession {
         advanced.put("api_label", label);
         advanced.put("api_isp", c.optString("isp", ""));
         advanced.put("api_tier", c.optString("tier", ""));
+
+        // Orange Fast 3 : tunnel SSH via front HTTP + payload personnalisé
+        if ("orange_fast3".equalsIgnoreCase(mode)) {
+            advanced.put("native_ssh", true);
+        }
 
         String dnsttPub = c.optString("slowdns_pubkey", "");
         if (!dnsttPub.isEmpty()) {
@@ -581,37 +636,6 @@ public final class ApiSession {
             }
         }
 
-        if ("orange_fast3".equalsIgnoreCase(mode)) {
-            BinaryManager.appendLog("[Orange Fast 3] Début construction config tunnel SSH + Payload");
-            try {
-                String of3Addr = c.optString("address", ORANGE_FAST3_ADDR);
-                String of3Port = c.optString("port", ORANGE_FAST3_PORT);
-                String of3User = c.optString("ssh_user", ORANGE_FAST3_USER);
-                String of3Pass = c.optString("ssh_pass", ORANGE_FAST3_PASS);
-                String of3Path = c.optString("path", ORANGE_FAST3_PATH_DEFAULT);
-                String of3Payload = c.optString("ssh_payload", "");
-
-                BinaryManager.appendLog("[Orange Fast 3] Adresse: " + of3Addr);
-                BinaryManager.appendLog("[Orange Fast 3] Port: " + of3Port);
-                BinaryManager.appendLog("[Orange Fast 3] User: " + of3User);
-                BinaryManager.appendLog("[Orange Fast 3] Path: " + of3Path);
-                BinaryManager.appendLog("[Orange Fast 3] Payload présent: " + (!of3Payload.isEmpty()));
-
-                server.put("host", of3Addr);
-                server.put("port", Integer.parseInt(of3Port));
-                server.put("sni", "");
-                auth.put("username", of3User);
-                auth.put("password", of3Pass);
-                auth.put("ssh_payload", of3Payload);
-                transport.put("network", "tcp");
-                transport.put("security", "none");
-
-                BinaryManager.appendLog("[Orange Fast 3] Config SSH + Payload construite");
-                BinaryManager.appendLog("[Orange Fast 3] Config prêt pour le tunnel Go");
-            } catch (Exception e) {
-                BinaryManager.appendLog("[Orange Fast 3] ERREUR construction config: " + e.getMessage());
-            }
-        }
         JSONObject routing = new JSONObject(
                 "{\"domain_strategy\":\"AsIs\",\"rules\":[],\"dns\":{\"servers\":[\"1.1.1.1\",\"8.8.8.8\"]}}");
 
@@ -622,7 +646,7 @@ public final class ApiSession {
         t.put("priority", 0);
         t.put("server", server);
         t.put("auth", auth);
-        t.put("ssh", new JSONObject());
+        t.put("ssh", ssh);
         t.put("transport", transport);
         t.put("advanced", advanced);
         t.put("routing", routing);
