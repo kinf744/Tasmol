@@ -538,8 +538,7 @@ public class HomeFragment extends Fragment {
                     ApiSession.activateRoundRobinN(requireContext(), family);
                     Toast.makeText(getContext(),
                             "Round-Robin \u00d7" + Math.min(family.size(), 4) + ": "
-                                    + family.get(0).optString("label", mode),
-                            Toast.LENGTH_SHORT).show();
+                                    + family.get(0).optString("label", kmode),
                     refreshStatus();
                     return;
                 }
@@ -548,10 +547,10 @@ public class HomeFragment extends Fragment {
                         Toast.LENGTH_LONG).show();
             }
             ApiSession.activate(requireContext(), c);
-            Toast.makeText(getContext(),
+            Toast.makeText(requireContext(),
                     "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();
-            // Éditeur SSH pour Orange Fast 3 et tunnels SSH
-            if ("ssh".equalsIgnoreCase(c.optString("mode", ""))
+            // Editeur SSH pour Orange Fast 3 et tunnels SSH
+            if ("ssh".equalsIgnoreCase(c.optString("mode", "")))
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))) {
                 showSshConfigEditor(c);
             }

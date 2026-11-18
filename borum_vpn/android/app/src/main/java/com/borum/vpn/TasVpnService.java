@@ -457,7 +457,7 @@ public class TasVpnService extends VpnService {
                     String params = BinaryManager.buildStartParams(this, tid, fd);
                     Log.i(TAG, "starting data plane, active=" + tid + " attempt=" + attempt);
 
-                    final String tunnelType = UdpSessionLog.typeOfTunnel(this, tid);
+                    tunnelType = UdpSessionLog.typeOfTunnel(this, tid);
                     if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
                         UdpSessionLog.connecting();
                     }
