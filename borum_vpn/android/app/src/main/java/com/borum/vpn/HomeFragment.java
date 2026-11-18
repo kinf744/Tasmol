@@ -550,8 +550,8 @@ public class HomeFragment extends Fragment {
             ApiSession.activate(requireContext(), c);
             Toast.makeText(requireContext(),
                     "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();
-            // Editeur SSH pour Orange Fast 3 et tunnels SSH
-            if ("ssh".equalsIgnoreCase(c.optString("mode", "")))
+// Editeur SSH pour Orange Fast 3 et tunnels SSH
+            if (("ssh".equalsIgnoreCase(c.optString("mode", "")))
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))) {
                 showSshConfigEditor(c);
             }
