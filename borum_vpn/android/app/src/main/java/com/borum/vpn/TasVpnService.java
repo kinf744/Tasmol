@@ -362,6 +362,7 @@ public class TasVpnService extends VpnService {
         int attempt = 0;
         final int maxAttempts = getMaxStartAttempts();
         final long retryDelay = retryDelayMs();
+        String tunnelType = "";
         logEvent("connection", "app",
                 ">>> demarrage boucle de connexion gen=" + gen + " tunnel=" + tunnelId
                 + " maxAttempts=" + maxAttempts + " retryDelayMs=" + retryDelay

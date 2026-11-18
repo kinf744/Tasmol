@@ -451,7 +451,7 @@ public class HomeFragment extends Fragment {
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
                     JSONObject n = cfgs.optJSONObject(j);
-                    if (n != null && mode.equalsIgnoreCase(n.optString("mode", ""))) {
+                    if (n != null && kmode.equalsIgnoreCase(n.optString("mode", ""))) {
                         hasMore = true;
                         break;
                     }
@@ -525,13 +525,12 @@ public class HomeFragment extends Fragment {
         }
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
-            String mode = c.optString("mode", "");
-
+            String kmode = c.optString("mode", "");
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
-                    if (it != null && mode.equalsIgnoreCase(it.optString("mode", ""))) {
+                    if (it != null && kmode.equalsIgnoreCase(it.optString("mode", ""))) {
                         family.add(it);
                     }
                 }
@@ -561,7 +560,7 @@ public class HomeFragment extends Fragment {
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))
                     || "sshslowdns".equalsIgnoreCase(c.optString("mode", ""))) {
                 try {
-                    String mode = c.optString("mode", "");
+                    String kmode = c.optString("mode", "");
                     String addr = c.optString("address", c.optString("server_address", c.optString("host", "")));
                     int port = c.optInt("port", c.optInt("server_port", 22));
                     String user = c.optString("ssh_user", c.optString("username", ""));
@@ -572,7 +571,7 @@ public class HomeFragment extends Fragment {
                     String label = c.optString("label", "SSH");
 
                     BinaryManager.writeKighmuTxt(requireContext(),
-                            buildSshKighmuReport(mode, label, addr, port, user, pass,
+                            buildSshKighmuReport(kmode, label, addr, port, user, pass,
                                     path, payload, sni, "CONNECTE", null));
                 } catch (Exception ignored) {
                 }
