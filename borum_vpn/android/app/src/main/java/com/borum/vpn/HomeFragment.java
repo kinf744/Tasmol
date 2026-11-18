@@ -451,7 +451,7 @@ public class HomeFragment extends Fragment {
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
                     JSONObject n = cfgs.optJSONObject(j);
-                    if (n != null && kmode.equalsIgnoreCase(n.optString("mode", ""))) {
+                    if (n != null &&  mode.equalsIgnoreCase(n.optString("mode", ""))) {
                         hasMore = true;
                         break;
                     }
@@ -526,7 +526,7 @@ public class HomeFragment extends Fragment {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
             String kmode = c.optString("mode", "");
-            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+            if ("sshslowdns".equalsIgnoreCase(kmode) || "v2raydns".equalsIgnoreCase(kmode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
