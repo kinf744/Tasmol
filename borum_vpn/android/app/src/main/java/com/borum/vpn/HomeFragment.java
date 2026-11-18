@@ -560,7 +560,6 @@ public class HomeFragment extends Fragment {
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))
                     || "sshslowdns".equalsIgnoreCase(c.optString("mode", ""))) {
                 try {
-                    String kmode = c.optString("mode", "");
                     String addr = c.optString("address", c.optString("server_address", c.optString("host", "")));
                     int port = c.optInt("port", c.optInt("server_port", 22));
                     String user = c.optString("ssh_user", c.optString("username", ""));
