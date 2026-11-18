@@ -539,6 +539,7 @@ public class HomeFragment extends Fragment {
                     Toast.makeText(getContext(),
                             "Round-Robin \u00d7" + Math.min(family.size(), 4) + ": "
                                     + family.get(0).optString("label", kmode),
+                            Toast.LENGTH_SHORT).show();
                     refreshStatus();
                     return;
                 }
