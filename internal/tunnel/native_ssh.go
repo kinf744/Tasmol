@@ -179,18 +179,20 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 
 		// Envoi du payload HTTP brut sur la connexion TCP (mode SSH + payload direct,
 		// Orange Fast 3 : proxy vide, cible directe). Le serveur attend le payload
-		// HTTP avant de passer en mode SSH ou en mode tunnel HTTP proxy.
+		// HTTP avant de passer en mode SSH.
 		if p := strings.TrimSpace(cfg.SSH.Payload); p != "" {
 			sshStep("step 1.5/3 send HTTP payload directly (%d bytes)", len(p))
 			phost, pport, perr := splitProxyAddr(addr)
-			if perr == nil {
-				rendered := renderPayload(p, phost, pport, "", "")
-				if _, err := io.WriteString(rawConn, rendered); err != nil {
-					sshDiagError("payload send", err,
-						"impossible d'envoyer le payload HTTP sur la connexion TCP")
-					rawConn.Close()
-					return nil, nil, fmt.Errorf("ssh payload send: %w", err)
-				}
+			if perr != nil {
+				sshDiagError("bad proxy addr", perr, "")
+				return nil, nil, fmt.Errorf("bad proxy addr: %w", perr)
+			}
+			rendered := renderPayload(p, phost, pport, "", "")
+			if _, err := io.WriteString(rawConn, rendered); err != nil {
+				sshDiagError("payload send", err,
+					"impossible d'envoyer le payload HTTP sur la connexion TCP")
+				rawConn.Close()
+				return nil, nil, fmt.Errorf("ssh payload send: %w", err)
 			}
 
 			// Lire et rejeter toute reponse HTTP du serveur (301, 200, etc.)
@@ -220,104 +222,112 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 
 			responseStr := headerBuf.String()
 			if strings.HasPrefix(responseStr, "HTTP/") {
-				// Mode HTTP proxy tunnel (Orange Fast 3) : pas de handshake SSH.
-				// Chaque connexion SOCKS5 ouvre sa propre connexion TCP vers le proxy,
-				// envoie le payload et relaie directement les donnees.
-				sshStep("mode HTTP proxy detecte, connexion par destination pour les relais SOCKS5")
-				proxyHost, proxyPort, perr := splitProxyAddr(addr)
-				if perr != nil {
-					sshDiagError("bad proxy addr", perr, "")
-					return nil, nil, fmt.Errorf("bad proxy addr: %w", perr)
-				}
-				dialFn = func(network, target string) (net.Conn, error) {
-					c, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHost, proxyPort), 15*time.Second)
+				// Mode HTTP proxy + SSH (Orange Fast 3) : le proxy repond 301/101,
+				// puis envoie sa banniere SSH. Lire jusqu'a trouver "SSH-2.0-...".
+				sshStep("mode HTTP proxy detecte, lecture de la banniere SSH apres les en-têtes HTTP")
+				_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				reader := bufio.NewReader(rawConn)
+				serverVersion := ""
+				for {
+					line, err := reader.ReadString('\n')
 					if err != nil {
-						return nil, fmt.Errorf("dial proxy %s: %w", addr, err)
+						break
 					}
-					phost, pport, _ := splitProxyAddr(net.JoinHostPort(proxyHost, proxyPort))
-					thost, tport, _ := net.SplitHostPort(target)
-					rendered := renderPayload(p, thost, tport, phost, pport)
-					if _, err := io.WriteString(c, rendered); err != nil {
-						c.Close()
-						return nil, fmt.Errorf("payload send: %w", err)
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "SSH-") {
+						serverVersion = line
+						break
 					}
-					// Lire et rejeter la reponse HTTP du serveur jusqu'au double CRLF.
-					_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-					buf := make([]byte, 4096)
-					var headerBuf strings.Builder
-					done := false
-					for !done {
-						n, err := c.Read(buf)
-						if n > 0 {
-							headerBuf.Write(buf[:n])
-							if strings.Contains(headerBuf.String(), "\r\n\r\n") {
-								done = true
-							}
-						}
-						if err != nil {
-							break
-						}
-						if headerBuf.Len() > 65536 {
-							done = true
-						}
-					}
-					_ = c.SetReadDeadline(time.Time{})
-					Journalf("ssh", "HTTP proxy connection ready for %s", target)
-					return c, nil
 				}
-				Journalf("ssh", "HTTP proxy tunnel ready: %s", addr)
-				return nil, dialFn, nil
+				_ = rawConn.SetReadDeadline(time.Time{})
+
+				if serverVersion == "" {
+					sshDiagError("server version read", fmt.Errorf("no SSH banner found after HTTP response"),
+						"le serveur n'a pas repondu avec une version SSH après le 101")
+					rawConn.Close()
+					return nil, nil, fmt.Errorf("ssh server version read: no SSH banner after HTTP")
+				}
+				Journalf("ssh", "server version: %s", serverVersion)
+
+				// Envoyer la version du client SSH en premier (protocole SSH standard).
+				clientVersion := "SSH-2.0-BorumVPN\r\n"
+				if _, err := io.WriteString(rawConn, clientVersion); err != nil {
+					sshDiagError("client version send", err,
+						"impossible d'envoyer la version SSH au serveur")
+					rawConn.Close()
+					return nil, nil, fmt.Errorf("ssh client version send: %w", err)
+				}
+
+				// Wrapper qui re-joue la version du serveur lue, puis delègue à la
+				// connexion brute. La premiere ecriture (version client) est ignoree
+				// car elle a deja ete envoyee manuellement ci-dessus.
+				conn = &sshVersionConn{
+					Conn:          rawConn,
+					serverVersion: []byte(serverVersion + "\r\n"),
+				}
+			} else {
+				// Mode SSH direct classique (pas de proxy HTTP).
+				clientVersion := "SSH-2.0-BorumVPN\r\n"
+				if _, err := io.WriteString(rawConn, clientVersion); err != nil {
+					sshDiagError("client version send", err,
+						"impossible d'envoyer la version SSH au serveur")
+					rawConn.Close()
+					return nil, nil, fmt.Errorf("ssh client version send: %w", err)
+				}
+
+				_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				reader := bufio.NewReader(rawConn)
+				serverVersion, err := reader.ReadString('\n')
+				_ = rawConn.SetReadDeadline(time.Time{})
+				if err != nil {
+					sshDiagError("server version read", err,
+						"le serveur n'a pas repondu avec une version SSH")
+					rawConn.Close()
+					return nil, nil, fmt.Errorf("ssh server version read: %w", err)
+				}
+				Journalf("ssh", "server version: %s", strings.TrimSpace(serverVersion))
+
+				conn = &sshVersionConn{
+					Conn:          rawConn,
+					serverVersion: []byte(serverVersion),
+				}
 			}
 
-			// Envoyer la version du client SSH en premier (protocole SSH standard).
-			clientVersion := "SSH-2.0-BorumVPN\r\n"
-			if _, err := io.WriteString(rawConn, clientVersion); err != nil {
-				sshDiagError("client version send", err,
-					"impossible d'envoyer la version SSH au serveur")
-				rawConn.Close()
-				return nil, nil, fmt.Errorf("ssh client version send: %w", err)
-			}
-
-			// Lire la version du serveur SSH (ligne se terminant par \n).
-			_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-			reader := bufio.NewReader(rawConn)
-			serverVersion, err := reader.ReadString('\n')
-			_ = rawConn.SetReadDeadline(time.Time{})
+			conn, err = wrapSSHConn(cfg, conn, addr)
 			if err != nil {
-				sshDiagError("server version read", err,
-					"le serveur n'a pas repondu avec une version SSH")
-				rawConn.Close()
-				return nil, nil, fmt.Errorf("ssh server version read: %w", err)
+				sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
+				return nil, nil, err
 			}
-			Journalf("ssh", "server version: %s", strings.TrimSpace(serverVersion))
-
-			// Wrapper qui re-joue la version du serveur lue, puis delègue à la
-			// connexion brute. La premiere ecriture (version client) est ignoree
-			// car elle a deja ete envoyee manuellement ci-dessus.
-			conn = &sshVersionConn{
-				Conn:          rawConn,
-				serverVersion: []byte(serverVersion),
+			sshStep("step 2/3 ssh handshake")
+			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
+			if err != nil {
+				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
+				conn.Close()
+				return nil, nil, err
 			}
+			Tracef("[ssh] handshake OK")
+			sshStep("step 3/3 ssh session established")
+			client = ssh.NewClient(c, chans, reqs)
 		} else {
-			conn = rawConn
+			// Pas de payload : connexion SSH directe classique.
+			conn, err = wrapSSHConn(cfg, rawConn, addr)
+			if err != nil {
+				sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
+				return nil, nil, err
+			}
+			sshStep("step 2/3 ssh handshake")
+			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
+			if err != nil {
+				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
+				conn.Close()
+				return nil, nil, err
+			}
+			Tracef("[ssh] handshake OK")
+			sshStep("step 3/3 ssh session established")
+			client = ssh.NewClient(c, chans, reqs)
 		}
-
-		conn, err = wrapSSHConn(cfg, conn, addr)
-		if err != nil {
-			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
-			return nil, nil, err
-		}
-		sshStep("step 2/3 ssh handshake")
-		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
-		if err != nil {
-			sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
-			conn.Close()
-			return nil, nil, err
-		}
-		Tracef("[ssh] handshake OK")
-		sshStep("step 3/3 ssh session established")
-		client = ssh.NewClient(c, chans, reqs)
 	}
+
 	if client != nil {
 		if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
 			if !advBool(cfg.Advanced, "remove_banner", false) {
