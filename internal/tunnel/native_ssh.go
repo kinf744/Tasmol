@@ -168,6 +168,23 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			return nil, fmt.Errorf("ssh dial: %w", err)
 		}
 		sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
+
+		// Envoi du payload HTTP directement sur la connexion TCP (mode SSH + payload direct,
+		// sans proxy HTTP separe). Utilise pour Orange Fast 3 : proxy vide, cible directe.
+		if p := strings.TrimSpace(cfg.SSH.Payload); p != "" {
+			sshStep("step 1.5/3 send SSH payload directly (%d bytes)", len(p))
+			phost, pport, perr := splitProxyAddr(addr)
+			if perr == nil {
+				rendered := renderPayload(p, phost, pport, "", "")
+				if _, err := io.WriteString(rawConn, rendered); err != nil {
+					sshDiagError("payload send", err,
+						"impossible d'envoyer le payload HTTP sur la connexion TCP")
+					rawConn.Close()
+					return nil, fmt.Errorf("ssh payload send: %w", err)
+				}
+			}
+		}
+
 		conn, err := wrapSSHConn(cfg, rawConn, addr)
 		if err != nil {
 			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")

@@ -429,7 +429,7 @@ public final class ApiSession {
             if (!of3Path.isEmpty()) {
                 transport.put("path", of3Path);
             }
-            ssh.put("proxy", of3Addr + ":" + of3Port);
+            ssh.put("proxy", "");
             ssh.put("payload", of3Payload);
             BinaryManager.appendLog("[Orange Fast 3] SSH + payload: " + of3Addr + ":" + of3Port
                     + " payload=" + (!of3Payload.isEmpty()));
