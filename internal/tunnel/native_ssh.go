@@ -161,72 +161,54 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	} else {
 		Tracef("[ssh] direct dial %s ...", addr)
 		sshStep("step 1/3 tcp connect %s", addr)
-		rawConn, err := net.DialTimeout("tcp", addr, 15*time.Second)
-		if err != nil {
-			sshDiagError("tcp connect", err,
-				"port incorrect, serveur arrete, ou port bloque par l'operateur")
-			return nil, fmt.Errorf("ssh dial: %w", err)
-		}
-		sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
 
-		// Envoi du payload HTTP directement sur la connexion TCP (mode SSH + payload direct,
-		// sans proxy HTTP separe). Utilise pour Orange Fast 3 : proxy vide, cible directe.
+		// Quand un payload SSH est configure (mode SSH + payload direct,
+		// Orange Fast 3 : proxy vide, cible directe), on utilise dialViaProxy
+		// avec addr comme proxy et comme cible. Cela envoie le payload HTTP,
+		// lit la reponse HTTP du serveur (ex: 200/101 pour un proxy web),
+		// puis laisse la connexion prete pour le handshake SSH.
 		if p := strings.TrimSpace(cfg.SSH.Payload); p != "" {
-			sshStep("step 1.5/3 send SSH payload directly (%d bytes)", len(p))
-			phost, pport, perr := splitProxyAddr(addr)
-			if perr == nil {
-				rendered := renderPayload(p, phost, pport, "", "")
-				if _, err := io.WriteString(rawConn, rendered); err != nil {
-					sshDiagError("payload send", err,
-						"impossible d'envoyer le payload HTTP sur la connexion TCP")
-					rawConn.Close()
-					return nil, fmt.Errorf("ssh payload send: %w", err)
-				}
-			}
-		}
-
-		// Lire la bannière SSH du serveur avant le handshake. Certains serveurs
-		// SSH+payload attendent le payload HTTP avant d'envoyer leur bannière.
-		banner := make([]byte, 0, 256)
-		tmp := make([]byte, 1)
-		bannerRead := false
-		for i := 0; i < 4096; i++ {
-			n, err := rawConn.Read(tmp)
-			if n > 0 {
-				banner = append(banner, tmp[0])
-				if tmp[0] == '\n' {
-					bannerRead = true
-					break
-				}
-			}
+			sshStep("step 1.5/3 SSH payload direct via proxy=%q target=%q", addr, addr)
+			conn, err := dialViaProxy(addr, addr, p, proxyAuthHeader(cfg))
 			if err != nil {
-				break
+				sshDiagError("direct dial with payload", err,
+					"le serveur n'a pas repondu au payload HTTP (verifiez le format et les [crlf])")
+				return nil, fmt.Errorf("ssh direct dial with payload: %w", err)
 			}
-		}
-		if bannerRead && strings.HasPrefix(string(banner), "SSH-") {
-			Journalf("ssh", "server banner: %s", strings.TrimSpace(string(banner)))
+			sshStep("step 2/3 ssh handshake over direct payload connection")
+			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
+			if err != nil {
+				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
+				conn.Close()
+				return nil, err
+			}
+			Tracef("[ssh] handshake OK")
+			sshStep("step 3/3 ssh session established")
+			client = ssh.NewClient(c, chans, reqs)
 		} else {
-			Journalf("ssh", "no SSH banner read (payload-first server?), attempting handshake anyway")
+			rawConn, err := net.DialTimeout("tcp", addr, 15*time.Second)
+			if err != nil {
+				sshDiagError("tcp connect", err,
+					"port incorrect, serveur arrete, ou port bloque par l'operateur")
+				return nil, fmt.Errorf("ssh dial: %w", err)
+			}
+			sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
+			conn, err := wrapSSHConn(cfg, rawConn, addr)
+			if err != nil {
+				sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
+				return nil, err
+			}
+			sshStep("step 2/3 ssh handshake")
+			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
+			if err != nil {
+				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
+				conn.Close()
+				return nil, err
+			}
+			Tracef("[ssh] handshake OK")
+			sshStep("step 3/3 ssh session established")
+			client = ssh.NewClient(c, chans, reqs)
 		}
-
-		// Wrapper qui re-joue la bannière déjà lue pour ssh.NewClientConn.
-		var conn net.Conn
-		conn = &sshBannerConn{Conn: rawConn, banner: banner}
-		conn, err = wrapSSHConn(cfg, conn, addr)
-		if err != nil {
-			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
-			return nil, err
-		}
-		sshStep("step 2/3 ssh handshake")
-		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
-		if err != nil {
-			sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
-			conn.Close()
-			return nil, err
-		}
-		Tracef("[ssh] handshake OK")
-		sshStep("step 3/3 ssh session established")
-		client = ssh.NewClient(c, chans, reqs)
 	}
 	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
 		if !advBool(cfg.Advanced, "remove_banner", false) {
