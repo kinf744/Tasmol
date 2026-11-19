@@ -221,10 +221,48 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 			responseStr := headerBuf.String()
 			if strings.HasPrefix(responseStr, "HTTP/") {
 				// Mode HTTP proxy tunnel (Orange Fast 3) : pas de handshake SSH.
-				// Chaque connexion SOCKS5 utilisera dialViaProxy vers le proxy.
-				sshStep("mode HTTP proxy detecte, utilisation de dialViaProxy pour les relais SOCKS5")
+				// Chaque connexion SOCKS5 ouvre sa propre connexion TCP vers le proxy,
+				// envoie le payload et relaie directement les donnees.
+				sshStep("mode HTTP proxy detecte, connexion directe pour les relais SOCKS5")
+				proxyHost, proxyPort, perr := splitProxyAddr(addr)
+				if perr != nil {
+					sshDiagError("bad proxy addr", perr, "")
+					return nil, nil, fmt.Errorf("bad proxy addr: %w", perr)
+				}
 				dialFn = func(network, target string) (net.Conn, error) {
-					return dialViaProxy(addr, target, p, proxyAuthHeader(cfg))
+					c, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHost, proxyPort), 15*time.Second)
+					if err != nil {
+						return nil, fmt.Errorf("dial proxy %s: %w", addr, err)
+					}
+					phost, pport, _ := splitProxyAddr(net.JoinHostPort(proxyHost, proxyPort))
+					rendered := renderPayload(p, phost, pport, phost, pport)
+					if _, err := io.WriteString(c, rendered); err != nil {
+						c.Close()
+						return nil, fmt.Errorf("payload send: %w", err)
+					}
+					// Lire et rejeter la reponse HTTP du serveur jusqu'au double CRLF.
+					_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
+					buf := make([]byte, 4096)
+					var headerBuf strings.Builder
+					done := false
+					for !done {
+						n, err := c.Read(buf)
+						if n > 0 {
+							headerBuf.Write(buf[:n])
+							if strings.Contains(headerBuf.String(), "\r\n\r\n") {
+								done = true
+							}
+						}
+						if err != nil {
+							break
+						}
+						if headerBuf.Len() > 65536 {
+							done = true
+						}
+					}
+					_ = c.SetReadDeadline(time.Time{})
+					Journalf("ssh", "HTTP proxy connection ready for %s", target)
+					return c, nil
 				}
 				Journalf("ssh", "HTTP proxy tunnel ready: %s", addr)
 				return nil, dialFn, nil
@@ -910,15 +948,21 @@ func (t *NativeSSHTunnel) Restart(ctx context.Context) error {
 }
 
 func (t *NativeSSHTunnel) monitor() {
-	t.client.Wait()
-	Tracef("[ssh] connection closed (monitor)")
+	if t.client != nil {
+		t.client.Wait()
+		Tracef("[ssh] connection closed (monitor)")
+	} else {
+		// Mode HTTP proxy (Orange Fast 3) : pas de ssh.Client, attendre l'annulation du contexte.
+		<-t.ctx.Done()
+		Tracef("[ssh] HTTP proxy tunnel closed (monitor)")
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.status == StatusRunning {
 		t.status = StatusError
-		t.setError("ssh connection closed")
+		t.setError("tunnel connection closed")
 
-		Warnf("ssh", "session SSH perdue (connexion fermee par le serveur ou le reseau) pour %q ;"+
+		Warnf("ssh", "session perdue (connexion fermee par le serveur ou le reseau) pour %q ;"+
 			" les kept-alives ne sont pas configures, l'app tente un reconnexion via auto-follow",
 			t.config.Name)
 	} else {
