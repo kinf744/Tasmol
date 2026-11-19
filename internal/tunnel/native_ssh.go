@@ -221,50 +221,77 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 			responseStr := headerBuf.String()
 			if strings.HasPrefix(responseStr, "HTTP/") {
 				// Mode HTTP proxy tunnel (Orange Fast 3) : pas de handshake SSH.
-				// Chaque connexion SOCKS5 ouvre sa propre connexion TCP vers le proxy,
-				// envoie le payload et relaie directement les donnees.
-				sshStep("mode HTTP proxy detecte, connexion directe pour les relais SOCKS5")
+				// On garde une connexion TCP persistante vers le proxy pour reduire
+				// les reconnexions excessives et ajouter un keep-alive.
+				sshStep("mode HTTP proxy detecte, connexion persistante pour les relais SOCKS5")
 				proxyHost, proxyPort, perr := splitProxyAddr(addr)
 				if perr != nil {
 					sshDiagError("bad proxy addr", perr, "")
 					return nil, nil, fmt.Errorf("bad proxy addr: %w", perr)
 				}
-				dialFn = func(network, target string) (net.Conn, error) {
-					c, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHost, proxyPort), 15*time.Second)
-					if err != nil {
-						return nil, fmt.Errorf("dial proxy %s: %w", addr, err)
-					}
-					phost, pport, _ := splitProxyAddr(net.JoinHostPort(proxyHost, proxyPort))
-					rendered := renderPayload(p, phost, pport, phost, pport)
-					if _, err := io.WriteString(c, rendered); err != nil {
-						c.Close()
-						return nil, fmt.Errorf("payload send: %w", err)
-					}
-					// Lire et rejeter la reponse HTTP du serveur jusqu'au double CRLF.
-					_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-					buf := make([]byte, 4096)
-					var headerBuf strings.Builder
-					done := false
-					for !done {
-						n, err := c.Read(buf)
-						if n > 0 {
-							headerBuf.Write(buf[:n])
-							if strings.Contains(headerBuf.String(), "\r\n\r\n") {
-								done = true
-							}
-						}
-						if err != nil {
-							break
-						}
-						if headerBuf.Len() > 65536 {
+
+				// Connexion principale persistante vers le proxy.
+				mainConn, err := net.DialTimeout("tcp", net.JoinHostPort(proxyHost, proxyPort), 15*time.Second)
+				if err != nil {
+					return nil, nil, fmt.Errorf("dial proxy %s: %w", addr, err)
+				}
+				phost, pport, _ := splitProxyAddr(net.JoinHostPort(proxyHost, proxyPort))
+				rendered := renderPayload(p, phost, pport, phost, pport)
+				if _, err := io.WriteString(mainConn, rendered); err != nil {
+					mainConn.Close()
+					return nil, nil, fmt.Errorf("payload send: %w", err)
+				}
+				// Lire et rejeter la reponse HTTP du serveur jusqu'au double CRLF.
+				_ = mainConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				buf := make([]byte, 4096)
+				var headerBuf strings.Builder
+				done := false
+				for !done {
+					n, err := mainConn.Read(buf)
+					if n > 0 {
+						headerBuf.Write(buf[:n])
+						if strings.Contains(headerBuf.String(), "\r\n\r\n") {
 							done = true
 						}
 					}
-					_ = c.SetReadDeadline(time.Time{})
-					Journalf("ssh", "HTTP proxy connection ready for %s", target)
-					return c, nil
+					if err != nil {
+						break
+					}
+					if headerBuf.Len() > 65536 {
+						done = true
+					}
 				}
+				_ = mainConn.SetReadDeadline(time.Time{})
 				Journalf("ssh", "HTTP proxy tunnel ready: %s", addr)
+
+				// Keep-alive : envoyer une requete HTTP legere toutes les 30s pour
+				// maintenir la connexion ouverte.
+				var mu sync.Mutex
+				go func() {
+					ticker := time.NewTicker(30 * time.Second)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ticker.C:
+							mu.Lock()
+							_, err := io.WriteString(mainConn, "HEAD / HTTP/1.1\r\nHost: "+proxyHost+"\r\nConnection: keep-alive\r\n\r\n")
+							mu.Unlock()
+							if err != nil {
+								Journalf("ssh", "keep-alive failed: %v", err)
+								return
+							}
+						}
+					}
+				}()
+
+				dialFn = func(network, target string) (net.Conn, error) {
+					// Reutiliser la connexion principale pour le relay SOCKS5.
+					mu.Lock()
+					defer mu.Unlock()
+					Journalf("ssh", "HTTP proxy persistent tunnel ready for %s", target)
+					return mainConn, nil
+				}
+				Journalf("ssh", "HTTP proxy persistent tunnel ready: %s", addr)
 				return nil, dialFn, nil
 			}
 
