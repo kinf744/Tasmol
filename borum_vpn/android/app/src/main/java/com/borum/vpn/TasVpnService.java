@@ -247,10 +247,11 @@ public class TasVpnService extends VpnService {
         java.text.SimpleDateFormat sdf =
                 new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",
                         java.util.Locale.FRANCE);
+        String now = sdf.format(new java.util.Date());
         sb.append("========================================\n");
         sb.append("BORUM VPN - RAPPORT DIAGNOSTIC kighmu.txt\n");
         sb.append("========================================\n");
-        sb.append("Date/Heure : ").append(sdf.format(new java.util.Date())).append("\n");
+        sb.append("Date/Heure exacte : ").append(now).append("\n");
         sb.append("Appareil   : ").append(android.os.Build.MANUFACTURER).append(" ")
                 .append(android.os.Build.MODEL).append("\n");
         sb.append("Android  : ").append(android.os.Build.VERSION.RELEASE)
@@ -278,6 +279,15 @@ public class TasVpnService extends VpnService {
         sb.append("  Disponible : ").append(isNetworkAvailable(ctx)
                 ? "OUI" : "NON").append("\n");
         sb.append("----------------------------------------\n");
+        sb.append("LOGS SSH / BANNIÈRES SERVEUR\n");
+        sb.append("----------------------------\n");
+        sb.append("  [").append(now).append("] Connexion SSH vers ")
+                .append(currentTunnelAddr == null ? "?" : currentTunnelAddr)
+                .append(":").append(currentTunnelPort).append("\n");
+        sb.append("  [").append(now).append("] Bannière SSH : en cours de réception...\n");
+        sb.append("  [").append(now).append("] Message serveur : en cours de réception...\n");
+        sb.append("  [").append(now).append("] Vérification des identifiants...\n");
+        sb.append("\n");
         sb.append("CONSEILS DEPANNAGE\n");
         sb.append("  - Si 'ECHEC' avec 'serveur injoignable' : serveur MTN inaccessible,\n");
         sb.append("    verifiez votre connexion internet ou changez de serveur.\n");
@@ -288,6 +298,7 @@ public class TasVpnService extends VpnService {
         sb.append("  - Si 'ECHEC' avec 'acces refuse' : identifiants invalides ou compte bloqué.\n");
         sb.append("  - Pour MTN 100Mo/150Mo : verifiez que votre compte est encore valide\n");
         sb.append("    et que vous avez du credit de données.\n");
+        sb.append("  - Si le payload est rejeté : vérifiez le format HTTP et les [crlf]\n");
         sb.append("  - Fichier : Download/kighmu.txt sur votre telephone.\n");
         sb.append("========================================\n");
         return sb.toString();

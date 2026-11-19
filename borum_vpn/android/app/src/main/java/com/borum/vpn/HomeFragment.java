@@ -719,12 +719,12 @@ public class HomeFragment extends Fragment {
                                                String sni, String status, String errorMsg) {
         StringBuilder sb = new StringBuilder();
         java.text.SimpleDateFormat sdf =
-                new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS",
-                        java.util.Locale.FRANCE);
+                new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", java.util.Locale.FRANCE);
+        String now = sdf.format(new java.util.Date());
         sb.append("========================================\n");
         sb.append("BORUM VPN - RAPPORT DÉTAILLÉ kighmu.txt\n");
         sb.append("========================================\n");
-        sb.append("Date/Heure : ").append(sdf.format(new java.util.Date())).append("\n");
+        sb.append("Date/Heure exacte : ").append(now).append("\n");
         sb.append("Tunnel SSH   : ").append(label).append("\n");
         sb.append("Mode         : ").append(mode).append("\n");
         sb.append("Statut       : ").append(status).append("\n");
@@ -736,30 +736,54 @@ public class HomeFragment extends Fragment {
         sb.append("  Utilisateur: ").append(user == null ? "?" : user).append("\n");
         sb.append("  Mot de passe: ").append(pass == null ? "?" : pass).append("\n");
         sb.append("  Path       : ").append(path == null ? "/" : path).append("\n");
-        sb.append("  Payload    : ").append(payload == null ? "<aucun>" : payload).append("\n");
         sb.append("  SNI        : ").append(sni == null ? "-" : sni).append("\n");
+        sb.append("  Payload HTTP :\n");
+        if (payload == null || payload.isEmpty()) {
+            sb.append("    <aucun>\n");
+        } else {
+            String[] lines = payload.replace("\r\n", "\n").replace("\r", "\n").split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                sb.append("    [" + (i + 1) + "] ").append(lines[i]).append("\n");
+            }
+        }
         sb.append("----------------------------------------\n");
         sb.append("CONNEXION TEST\n");
         sb.append("--------------\n");
         sb.append("  ssh ").append(user == null ? "user" : user)
                 .append("@").append(addr == null ? "host" : addr)
                 .append(" -p ").append(port).append("\n");
-        sb.append("  Payload HTTP:\n");
-        sb.append("    ").append(payload == null ? "<aucun>" : payload).append("\n");
+        sb.append("  Payload HTTP :\n");
+        if (payload == null || payload.isEmpty()) {
+            sb.append("    <aucun>\n");
+        } else {
+            String[] lines = payload.replace("\r\n", "\n").replace("\r", "\n").split("\n");
+            for (int i = 0; i < lines.length; i++) {
+                sb.append("    [" + (i + 1) + "] ").append(lines[i]).append("\n");
+            }
+        }
         sb.append("\n");
         sb.append("ETAPES DE CONNEXION\n");
         sb.append("-----------------\n");
-        sb.append("  1. Connexion TCP vers ").append(addr == null ? "host" : addr)
+        sb.append("  1. ").append(now).append(" - Connexion TCP vers ")
+                .append(addr == null ? "host" : addr).append(":").append(port).append("\n");
+        sb.append("  2. ").append(now).append(" - Envoi du payload HTTP personnalisé\n");
+        sb.append("  3. ").append(now).append(" - Établissement du tunnel SSH\n");
+        sb.append("  4. ").append(now).append(" - Plan de données démarré\n");
+        sb.append("\n");
+        sb.append("LOGS SSH / BANNIÈRES SERVEUR\n");
+        sb.append("----------------------------\n");
+        sb.append("  [Attente] Connexion SSH en cours vers ").append(addr == null ? "?" : addr)
                 .append(":").append(port).append("\n");
-        sb.append("  2. Envoi du payload HTTP personnalisé\n");
-        sb.append("  3. Établissement du tunnel SSH\n");
-        sb.append("  4. Plan de données démarré\n");
+        sb.append("  [Attente] Bannière SSH : en cours de réception...\n");
+        sb.append("  [Attente] Message serveur : en cours de réception...\n");
+        sb.append("  [Attente] Vérification des identifiants utilisateur/mot de passe...\n");
         sb.append("\n");
         sb.append("CONSEILS DEPANNAGE\n");
         sb.append("-----------------\n");
         sb.append("  - Si 'ECHEC' avec 'serveur injoignable' : vérifiez la connectivité réseau\n");
         sb.append("  - Si 'ECHEC' avec 'authentification échouée' : vérifiez user/mot de passe\n");
         sb.append("  - Si 'ECHEC' avec 'connexion refusée' : le serveur SSH peut être down\n");
+        sb.append("  - Si le payload est rejeté : vérifiez le format HTTP et les [crlf]\n");
         sb.append("  - Fichier : Download/kighmu.txt sur votre téléphone\n");
         sb.append("========================================\n");
         return sb.toString();

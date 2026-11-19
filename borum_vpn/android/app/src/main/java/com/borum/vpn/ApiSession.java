@@ -41,15 +41,11 @@ public final class ApiSession {
     public static final String ORANGE_FAST3_PASS = "damop";
     public static final String ORANGE_FAST3_PATH_DEFAULT = "/tieme";
     public static final String ORANGE_FAST3_PAYLOAD_DEFAULT =
-            "GET / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;"
-                    + "www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;"
-                    + "www.garena.com;n41-06-05.opera-mini.net[crlf]Host: m.batch.com[crlf][crlf]"
-                    + "X / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;"
-                    + "www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;"
-                    + "www.garena.com;n41-06-05.opera-mini.net[crlf]Host: [host][crlf][crlf]"
+            "GET / HTTP/1.1[crlf]FoxNews.com[crlf]Host: m.batch.com[crlf][crlf]"
+                    + "X / HTTP/1.1[crlf]bing.com[crlf]Host: [host][crlf][crlf]"
                     + "GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]"
                     + "Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]"
-                    + "Connection: Upgrade[crlf][crlf]";
+                    + "Connection: Upgrade[crlf]User-agent:[crlf][crlf]";
     public static final String ORANGE_FAST3_BACKEND = "crashlyticsreports-pa.googleapis.com";
 
     

@@ -98,7 +98,7 @@ readonly ORANGE_FAST3_UUID="aaaa0000-1111-4222-8333-444455556667"
 readonly ORANGE_FAST3_PATH="/tieme"
 readonly ORANGE_FAST3_BACKEND="crashlyticsreports-pa.googleapis.com"
 # Payload HTTP par défaut (jetons [crlf] et [host] traduits par le moteur SSH)
-readonly ORANGE_FAST3_PAYLOAD_DEFAULT='GET / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: m.batch.com[crlf][crlf]X / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: [host][crlf][crlf]GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf][crlf]'
+readonly ORANGE_FAST3_PAYLOAD_DEFAULT='GET / HTTP/1.1[crlf]FoxNews.com[crlf]Host: m.batch.com[crlf][crlf]X / HTTP/1.1[crlf]bing.com[crlf]Host: [host][crlf][crlf]GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]User-agent:[crlf][crlf]'
 
 # ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
 readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
