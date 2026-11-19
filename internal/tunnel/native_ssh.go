@@ -185,7 +185,34 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 			}
 		}
 
-		conn, err := wrapSSHConn(cfg, rawConn, addr)
+		// Lire la bannière SSH du serveur avant le handshake. Certains serveurs
+		// SSH+payload attendent le payload HTTP avant d'envoyer leur bannière.
+		banner := make([]byte, 0, 256)
+		tmp := make([]byte, 1)
+		bannerRead := false
+		for i := 0; i < 4096; i++ {
+			n, err := rawConn.Read(tmp)
+			if n > 0 {
+				banner = append(banner, tmp[0])
+				if tmp[0] == '\n' {
+					bannerRead = true
+					break
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		if bannerRead && strings.HasPrefix(string(banner), "SSH-") {
+			Journalf("ssh", "server banner: %s", strings.TrimSpace(string(banner)))
+		} else {
+			Journalf("ssh", "no SSH banner read (payload-first server?), attempting handshake anyway")
+		}
+
+		// Wrapper qui re-joue la bannière déjà lue pour ssh.NewClientConn.
+		var conn net.Conn
+		conn = &sshBannerConn{Conn: rawConn, banner: banner}
+		conn, err = wrapSSHConn(cfg, conn, addr)
 		if err != nil {
 			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
 			return nil, err
@@ -1058,4 +1085,22 @@ func (t *NativeSSHSlowDNSTunnel) monitor() {
 func (t *NativeSSHSlowDNSTunnel) setError(msg string) {
 	t.stats.LastError = msg
 	t.stats.UpdatedAt = time.Now()
+}
+
+// sshBannerConn re-joue une bannière SSH déjà lue sur la connexion brute,
+// puis délègue les lectures/écritures à la connexion sous-jacente. Utile quand
+// le payload HTTP a été envoyé avant le handshake SSH et que la bannière du
+// serveur a déjà été consommée.
+type sshBannerConn struct {
+	net.Conn
+	banner []byte
+}
+
+func (c *sshBannerConn) Read(b []byte) (int, error) {
+	if len(c.banner) > 0 {
+		n := copy(b, c.banner)
+		c.banner = c.banner[n:]
+		return n, nil
+	}
+	return c.Conn.Read(b)
 }
