@@ -21,11 +21,6 @@ import (
 	"vpn-app/internal/config"
 )
 
-// dialFunc est le type de fonction utilisé pour etablir une connexion de
-// relais SOCKS5. En mode SSH, elle enveloppe ssh.Client.Dial. En mode HTTP
-// proxy (Orange Fast 3), elle appelle dialViaProxy pour chaque connexion.
-type dialFunc func(network, addr string) (net.Conn, error)
-
 func sshTLSRequested(cfg *config.TunnelConfig) bool {
 	if advBool(cfg.Advanced, "ssh_tls", false) {
 		return true
@@ -75,13 +70,13 @@ func wrapSSHConn(cfg *config.TunnelConfig, conn net.Conn, addr string) (net.Conn
 const defaultPayloadUA = "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 " +
 	"(KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
-func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, error) {
+func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 	hasPass := cfg.Auth.Password != ""
 	hasKey := strings.TrimSpace(cfg.Auth.PrivateKey) != ""
 	hasPhrase := cfg.Auth.Passphrase != ""
 	user := cfg.Auth.Username
 	if advBool(cfg.Advanced, "hide_upass", false) {
-		user = "\u2022\u2022\u2022\u2022"
+		user = "••••"
 	}
 	Tracef("[ssh] dial begin addr=%s user=%q passwordSet=%v keySet=%v passphraseSet=%v proxy=%q payloadLen=%d",
 		addr, user, hasPass, hasKey, hasPhrase,
@@ -117,7 +112,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 	if len(auth) == 0 {
 		sshDiagError("auth", fmt.Errorf("no auth method (need auth.password or auth.private_key)"),
 			"renseignez le mot de passe ou collez une cle privee dans Authentication")
-		return nil, nil, fmt.Errorf("ssh: no auth method (need auth.password or auth.private_key)")
+		return nil, fmt.Errorf("ssh: no auth method (need auth.password or auth.private_key)")
 	}
 	sshStep("auth methods: password=%v private_key=%v", hasPass, hasKey)
 
@@ -139,7 +134,6 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 	}
 
 	var client *ssh.Client
-	var dialFn dialFunc
 	if strings.TrimSpace(cfg.SSH.Proxy) != "" {
 		Journalf("ssh", "hop via HTTP proxy %s", cfg.SSH.Proxy)
 		sshStep("step 1/3 proxy CONNECT via %s", cfg.SSH.Proxy)
@@ -147,19 +141,19 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 		if err != nil {
 			sshDiagError("proxy CONNECT", err,
 				"le proxy doit repondre 200/101 ; verifiez ip:port, identifiants et payload")
-			return nil, nil, fmt.Errorf("ssh proxy hop: %w", err)
+			return nil, fmt.Errorf("ssh proxy hop: %w", err)
 		}
 		sshStep("proxy CONNECT established, wrapping transport")
 		if conn, err = wrapSSHConn(cfg, conn, addr); err != nil {
 			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
-			return nil, nil, err
+			return nil, err
 		}
 		sshStep("step 2/3 ssh handshake over proxy")
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
 			sshDiagError("ssh handshake via proxy", err, sshDialHints(cfg, err))
 			conn.Close()
-			return nil, nil, err
+			return nil, err
 		}
 		Tracef("[ssh] handshake OK via proxy")
 		sshStep("step 3/3 ssh session established (via proxy)")
@@ -171,7 +165,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 		if err != nil {
 			sshDiagError("tcp connect", err,
 				"port incorrect, serveur arrete, ou port bloque par l'operateur")
-			return nil, nil, fmt.Errorf("ssh dial: %w", err)
+			return nil, fmt.Errorf("ssh dial: %w", err)
 		}
 		sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
 
@@ -179,9 +173,9 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 
 		// Envoi du payload HTTP brut sur la connexion TCP (mode SSH + payload direct,
 		// Orange Fast 3 : proxy vide, cible directe). Le serveur attend le payload
-		// HTTP avant de passer en mode SSH ou en mode tunnel HTTP proxy.
+		// HTTP avant de passer en mode SSH.
 		if p := strings.TrimSpace(cfg.SSH.Payload); p != "" {
-			sshStep("step 1.5/3 send HTTP payload directly (%d bytes)", len(p))
+			sshStep("step 1.5/3 send SSH payload directly (%d bytes)", len(p))
 			phost, pport, perr := splitProxyAddr(addr)
 			if perr == nil {
 				rendered := renderPayload(p, phost, pport, "", "")
@@ -189,13 +183,13 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 					sshDiagError("payload send", err,
 						"impossible d'envoyer le payload HTTP sur la connexion TCP")
 					rawConn.Close()
-					return nil, nil, fmt.Errorf("ssh payload send: %w", err)
+					return nil, fmt.Errorf("ssh payload send: %w", err)
 				}
 			}
 
 			// Lire et rejeter toute reponse HTTP du serveur (301, 200, etc.)
-			// jusqu'a un double CRLF (fin des headers) ou timeout.
-			_ = rawConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			// jusqu'à un double CRLF (fin des headers) ou timeout.
+			_ = rawConn.SetReadDeadline(time.Now().Add(2 * time.Second))
 			buf := make([]byte, 4096)
 			var headerBuf strings.Builder
 			done := false
@@ -218,25 +212,13 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 			_ = rawConn.SetReadDeadline(time.Time{})
 			Journalf("ssh", "payload HTTP response headers discarded (%d bytes)", headerBuf.Len())
 
-			responseStr := headerBuf.String()
-			if strings.HasPrefix(responseStr, "HTTP/") {
-				// Mode HTTP proxy tunnel (Orange Fast 3) : pas de handshake SSH.
-				// Chaque connexion SOCKS5 utilisera dialViaProxy vers le proxy.
-				sshStep("mode HTTP proxy detecte, utilisation de dialViaProxy pour les relais SOCKS5")
-				dialFn = func(network, target string) (net.Conn, error) {
-					return dialViaProxy(addr, target, p, proxyAuthHeader(cfg))
-				}
-				Journalf("ssh", "HTTP proxy tunnel ready: %s", addr)
-				return nil, dialFn, nil
-			}
-
 			// Envoyer la version du client SSH en premier (protocole SSH standard).
 			clientVersion := "SSH-2.0-BorumVPN\r\n"
 			if _, err := io.WriteString(rawConn, clientVersion); err != nil {
 				sshDiagError("client version send", err,
 					"impossible d'envoyer la version SSH au serveur")
 				rawConn.Close()
-				return nil, nil, fmt.Errorf("ssh client version send: %w", err)
+				return nil, fmt.Errorf("ssh client version send: %w", err)
 			}
 
 			// Lire la version du serveur SSH (ligne se terminant par \n).
@@ -248,7 +230,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				sshDiagError("server version read", err,
 					"le serveur n'a pas repondu avec une version SSH")
 				rawConn.Close()
-				return nil, nil, fmt.Errorf("ssh server version read: %w", err)
+				return nil, fmt.Errorf("ssh server version read: %w", err)
 			}
 			Journalf("ssh", "server version: %s", strings.TrimSpace(serverVersion))
 
@@ -266,33 +248,30 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 		conn, err = wrapSSHConn(cfg, conn, addr)
 		if err != nil {
 			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
-			return nil, nil, err
+			return nil, err
 		}
 		sshStep("step 2/3 ssh handshake")
 		c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 		if err != nil {
 			sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
 			conn.Close()
-			return nil, nil, err
+			return nil, err
 		}
 		Tracef("[ssh] handshake OK")
 		sshStep("step 3/3 ssh session established")
 		client = ssh.NewClient(c, chans, reqs)
 	}
-	if client != nil {
-		if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
-			if !advBool(cfg.Advanced, "remove_banner", false) {
-				Journalf("ssh-banner", "server version: %s", v)
-			}
+	if v := strings.TrimSpace(string(client.ServerVersion())); v != "" {
+		if !advBool(cfg.Advanced, "remove_banner", false) {
+			Journalf("ssh-banner", "server version: %s", v)
 		}
 	}
 
-	if client != nil && !advBool(cfg.Advanced, "remove_banner", false) {
+	if !advBool(cfg.Advanced, "remove_banner", false) {
 		logServerMessage(client)
 	}
-	return client, dialFn, nil
+	return client, nil
 }
-
 
 var ansiRe = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
 
@@ -655,7 +634,7 @@ func hideUser(cfg *config.TunnelConfig, user string) string {
 	return user
 }
 
-func serveSocks5(ctx context.Context, ln net.Listener, dial dialFunc) {
+func serveSocks5(ctx context.Context, ln net.Listener, sshClient *ssh.Client) {
 	go func() {
 		<-ctx.Done()
 		ln.Close()
@@ -670,11 +649,11 @@ func serveSocks5(ctx context.Context, ln net.Listener, dial dialFunc) {
 				continue
 			}
 		}
-		go handleSocks5(conn, dial)
+		go handleSocks5(conn, sshClient)
 	}
 }
 
-func handleSocks5(conn net.Conn, dial dialFunc) {
+func handleSocks5(conn net.Conn, sshClient *ssh.Client) {
 	defer conn.Close()
 
 	hdr := make([]byte, 2)
@@ -737,7 +716,7 @@ func handleSocks5(conn net.Conn, dial dialFunc) {
 
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
-	remote, err := dial("tcp", target)
+	remote, err := sshClient.Dial("tcp", target)
 	if err != nil {
 		conn.Write([]byte{0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
 
@@ -761,7 +740,6 @@ type NativeSSHTunnel struct {
 	status    Status
 	stats     Stats
 	client    *ssh.Client
-	dialFn    dialFunc
 	ln        net.Listener
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -817,7 +795,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	if port == 0 {
 		port = 22
 	}
-	client, dialFn, err := sshDial(t.config, net.JoinHostPort(t.config.Server.Host, strconv.Itoa(port)))
+	client, err := sshDial(t.config, net.JoinHostPort(t.config.Server.Host, strconv.Itoa(port)))
 	if err != nil {
 		Errorf("ssh", "sshDial: %v", err)
 		t.status = StatusError
@@ -829,9 +807,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	socksAddr, _, err := PickLiveSocksAddr(t.config)
 	if err != nil {
 		Errorf("ssh", "socks port: %v", err)
-		if client != nil {
-			client.Close()
-		}
+		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
 		return err
@@ -841,9 +817,7 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 	if err != nil {
 		Errorf("ssh", "socks listen %s: %v", socksAddr, err)
 		ClearLiveSocksAddr(t.config.ID)
-		if client != nil {
-			client.Close()
-		}
+		client.Close()
 		t.status = StatusError
 		t.setError(err.Error())
 		return fmt.Errorf("socks listen failed: %w", err)
@@ -853,21 +827,9 @@ func (t *NativeSSHTunnel) Start(ctx context.Context) error {
 
 	t.ctx, t.cancel = context.WithCancel(ctx)
 	t.client = client
-	t.dialFn = dialFn
 	t.ln = ln
 
-	var serveDial dialFunc
-	if dialFn != nil {
-		serveDial = dialFn
-	} else if client != nil {
-		serveDial = client.Dial
-	} else {
-		Errorf("ssh", "no dial function available")
-		t.status = StatusError
-		t.setError("no dial function available")
-		return fmt.Errorf("ssh: no dial function available")
-	}
-	go serveSocks5(t.ctx, ln, serveDial)
+	go serveSocks5(t.ctx, ln, client)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
@@ -937,7 +899,6 @@ type NativeSSHSlowDNSTunnel struct {
 	status     Status
 	stats      Stats
 	client     *ssh.Client
-	dialFn     dialFunc
 	ln         net.Listener
 	slowdnscmd *exec.Cmd
 	ctx        context.Context
@@ -1045,7 +1006,7 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 	t.slowdnscmd = dnsttCmd
 	Tracef("[ssh-slowdns] phase 2/2: ssh dial through 127.0.0.1:%d", fwdPort)
 	Connf("ssh", "SlowDNS phase 2/2 : handshake SSH via le forward DNS")
-	sshClient, _, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
+	sshClient, dialErr := sshDial(t.config, fmt.Sprintf("127.0.0.1:%d", fwdPort))
 	if dialErr != nil {
 		sshDiagError("ssh over SlowDNS", dialErr, sshDialHints(t.config, dialErr))
 		t.slowdnscmd.Process.Kill()
@@ -1080,14 +1041,9 @@ func (t *NativeSSHSlowDNSTunnel) Start(ctx context.Context) error {
 
 	t.ctx = ctx
 	t.client = sshClient
-	t.dialFn = nil
 	t.ln = ln
 
-	var serveDial dialFunc
-	if sshClient != nil {
-		serveDial = sshClient.Dial
-	}
-	go serveSocks5(t.ctx, ln, serveDial)
+	go serveSocks5(t.ctx, ln, sshClient)
 
 	t.startTime = time.Now()
 	t.status = StatusRunning
