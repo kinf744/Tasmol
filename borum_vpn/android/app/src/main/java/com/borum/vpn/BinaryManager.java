@@ -499,7 +499,25 @@ public class BinaryManager {
      */
     public static void writeKighmuTxt(Context ctx, String report) {
         try {
-            byte[] bytes = report.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            StringBuilder sb = new StringBuilder();
+            sb.append(report);
+
+            // Inclure les vrais logs du tunnel Go (banniere SSH, messages serveur, erreurs)
+            File golog = logFile();
+            if (golog != null && golog.exists()) {
+                sb.append("\n========================================\n");
+                sb.append("LOGS DU TUNNEL GO (en direct)\n");
+                sb.append("========================================\n");
+                try (java.io.BufferedReader br =
+                             new java.io.BufferedReader(new java.io.FileReader(golog))) {
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        sb.append(line).append("\n");
+                    }
+                }
+            }
+
+            byte[] bytes = sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
             if (ctx == null) {
                 return;
             }
