@@ -223,11 +223,39 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 		responseStr := headerBuf.String()
 			if strings.HasPrefix(responseStr, "HTTP/") {
 				// Mode HTTP proxy + SSH (Orange Fast 3) : le proxy repond 301/101,
-				// puis le serveur envoie sa banniere SSH. Laisser ssh.NewClientConn
-				// gerer tout le handshake SSH (lecture version serveur, envoi version
-				// client, echange de cles, authentification).
-				sshStep("mode HTTP proxy detecte, handshake SSH via ssh.NewClientConn")
-				conn = rawConn
+				// puis envoie sa banniere SSH. Lire jusqu'a trouver "SSH-2.0-...".
+				sshStep("mode HTTP proxy detecte, lecture de la banniere SSH apres les en-têtes HTTP")
+				_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+				reader := bufio.NewReader(rawConn)
+				serverVersion := ""
+				for {
+					line, err := reader.ReadString('\n')
+					if err != nil {
+						break
+					}
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "SSH-") {
+						serverVersion = line
+						break
+					}
+				}
+				_ = rawConn.SetReadDeadline(time.Time{})
+
+				if serverVersion == "" {
+					sshDiagError("server version read", fmt.Errorf("no SSH banner found after HTTP response"),
+						"le serveur n'a pas repondu avec une version SSH après le 101")
+					rawConn.Close()
+					return nil, nil, fmt.Errorf("ssh server version read: no SSH banner after HTTP")
+				}
+				Journalf("ssh", "server version: %s", serverVersion)
+
+				// Wrapper qui re-joue la version du serveur lue, puis delègue à la
+				// connexion brute. La premiere ecriture (version client) est ignoree
+				// car ssh.NewClientConn l'envoie elle-même.
+				conn = &sshVersionConn{
+					Conn:          rawConn,
+					serverVersion: []byte(serverVersion + "\r\n"),
+				}
 			} else {
 				// Mode SSH direct classique (pas de proxy HTTP).
 				conn = rawConn
