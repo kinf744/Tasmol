@@ -169,6 +169,8 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 		}
 		sshStep("tcp connected (%s -> %s)", rawConn.LocalAddr(), rawConn.RemoteAddr())
 
+		var conn net.Conn
+
 		// Envoi du payload HTTP brut sur la connexion TCP (mode SSH + payload direct,
 		// Orange Fast 3 : proxy vide, cible directe). Le serveur attend le payload
 		// HTTP avant de passer en mode SSH.
@@ -184,23 +186,66 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, error) {
 					return nil, fmt.Errorf("ssh payload send: %w", err)
 				}
 			}
-			// Vider le buffer : jeter toute reponse HTTP du serveur avant le
-			// handshake SSH (le client envoie sa version SSH en premier).
-			_ = rawConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
-			discard := make([]byte, 4096)
-			for {
-				n, err := rawConn.Read(discard)
+
+			// Lire et rejeter toute reponse HTTP du serveur (301, 200, etc.)
+			// jusqu'à un double CRLF (fin des headers) ou timeout.
+			_ = rawConn.SetReadDeadline(time.Now().Add(2 * time.Second))
+			buf := make([]byte, 4096)
+			var headerBuf strings.Builder
+			done := false
+			for !done {
+				n, err := rawConn.Read(buf)
 				if n > 0 {
-					Journalf("ssh", "payload response discarded (%d bytes)", n)
+					headerBuf.Write(buf[:n])
+					s := headerBuf.String()
+					if strings.Contains(s, "\r\n\r\n") {
+						done = true
+					}
 				}
 				if err != nil {
 					break
 				}
+				if headerBuf.Len() > 65536 {
+					done = true
+				}
 			}
 			_ = rawConn.SetReadDeadline(time.Time{})
+			Journalf("ssh", "payload HTTP response headers discarded (%d bytes)", headerBuf.Len())
+
+			// Envoyer la version du client SSH en premier (protocole SSH standard).
+			clientVersion := "SSH-2.0-BorumVPN\r\n"
+			if _, err := io.WriteString(rawConn, clientVersion); err != nil {
+				sshDiagError("client version send", err,
+					"impossible d'envoyer la version SSH au serveur")
+				rawConn.Close()
+				return nil, fmt.Errorf("ssh client version send: %w", err)
+			}
+
+			// Lire la version du serveur SSH (ligne se terminant par \n).
+			_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+			reader := bufio.NewReader(rawConn)
+			serverVersion, err := reader.ReadString('\n')
+			_ = rawConn.SetReadDeadline(time.Time{})
+			if err != nil {
+				sshDiagError("server version read", err,
+					"le serveur n'a pas repondu avec une version SSH")
+				rawConn.Close()
+				return nil, fmt.Errorf("ssh server version read: %w", err)
+			}
+			Journalf("ssh", "server version: %s", strings.TrimSpace(serverVersion))
+
+			// Wrapper qui re-joue la version du serveur lue, puis delègue à la
+			// connexion brute. La premiere ecriture (version client) est ignoree
+			// car elle a deja ete envoyee manuellement ci-dessus.
+			conn = &sshVersionConn{
+				Conn:          rawConn,
+				serverVersion: []byte(serverVersion),
+			}
+		} else {
+			conn = rawConn
 		}
 
-		conn, err := wrapSSHConn(cfg, rawConn, addr)
+		conn, err = wrapSSHConn(cfg, conn, addr)
 		if err != nil {
 			sshDiagError("tls wrap", err, "mode SSH-TLS : la cible doit parler TLS sur ce port")
 			return nil, err
@@ -1091,4 +1136,30 @@ func (c *sshBannerConn) Read(b []byte) (int, error) {
 		return n, nil
 	}
 	return c.Conn.Read(b)
+}
+
+// sshVersionConn est utilise pour le mode SSH + payload direct (Orange Fast 3).
+// Il re-joue la version du serveur lue manuellement avant le handshake, et ignore
+// la premiere ecriture (version du client) car elle a deja ete envoyee manuellement.
+type sshVersionConn struct {
+	net.Conn
+	serverVersion []byte
+	versionSent   bool
+}
+
+func (c *sshVersionConn) Read(b []byte) (int, error) {
+	if len(c.serverVersion) > 0 {
+		n := copy(b, c.serverVersion)
+		c.serverVersion = c.serverVersion[n:]
+		return n, nil
+	}
+	return c.Conn.Read(b)
+}
+
+func (c *sshVersionConn) Write(b []byte) (int, error) {
+	if !c.versionSent {
+		c.versionSent = true
+		return len(b), nil
+	}
+	return c.Conn.Write(b)
 }
