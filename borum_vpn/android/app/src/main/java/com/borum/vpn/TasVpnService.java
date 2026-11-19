@@ -239,7 +239,7 @@ public class TasVpnService extends VpnService {
     /**
      * Construit un rapport de diagnostic detaille pour le fichier kighmu.txt.
      * Inclut les infos appareil, tunnel et statut pour aider a diagnostiquer
-     * les problemes de connexion (notamment MTN 100Mo/150Mo).
+     * les problemes de connexion (notamment MTN 100Mo/150Mo et Orange Fast 3).
      */
     private static String buildKighmuReport(Context ctx, String tunnelId, String tunnelType,
                                             String status, String errorMsg) {
@@ -279,24 +279,39 @@ public class TasVpnService extends VpnService {
         sb.append("  Disponible : ").append(isNetworkAvailable(ctx)
                 ? "OUI" : "NON").append("\n");
         sb.append("----------------------------------------\n");
-        sb.append("LOGS SSH / BANNIÈRES SERVEUR\n");
-        sb.append("----------------------------\n");
+        sb.append("ETAPES DE CONNEXION (Orange Fast 3 / SSH Payload)\n");
+        sb.append("------------------------------------------------\n");
+        sb.append("  [").append(now).append("] 1. Connexion TCP vers ")
+                .append(currentTunnelAddr == null ? "?" : currentTunnelAddr)
+                .append(":").append(currentTunnelPort).append("\n");
+        sb.append("  [").append(now).append("] 2. Envoi du payload HTTP personnalisé\n");
+        sb.append("  [").append(now).append("] 3. Rejet des réponses HTTP du serveur (301/200/autres)\n");
+        sb.append("  [").append(now).append("] 4. Envoi de la version client SSH (SSH-2.0-BorumVPN)\n");
+        sb.append("  [").append(now).append("] 5. Lecture de la version serveur SSH\n");
+        sb.append("  [").append(now).append("] 6. Handshake SSH (authentification utilisateur/mot de passe)\n");
+        sb.append("  [").append(now).append("] 7. Établissement du tunnel SOCKS5\n");
+        sb.append("  [").append(now).append("] 8. Plan de données démarré\n");
+        sb.append("\n");
+        sb.append("LOGS SSH / BANNIÈRES SERVEUR (bruts)\n");
+        sb.append("------------------------------------\n");
         sb.append("  [").append(now).append("] Connexion SSH vers ")
                 .append(currentTunnelAddr == null ? "?" : currentTunnelAddr)
                 .append(":").append(currentTunnelPort).append("\n");
-        sb.append("  [").append(now).append("] Bannière SSH : en cours de réception...\n");
-        sb.append("  [").append(now).append("] Message serveur : en cours de réception...\n");
-        sb.append("  [").append(now).append("] Vérification des identifiants...\n");
+        sb.append("  [").append(now).append("] Statut actuel : ").append(status).append("\n");
+        sb.append("  [").append(now).append("] Bannière SSH : en attente de réception...\n");
+        sb.append("  [").append(now).append("] Message serveur : en attente de réception...\n");
+        sb.append("  [").append(now).append("] Vérification des identifiants (user/pass)...\n");
+        sb.append("  [").append(now).append("] Erreur détectée : ").append(errorMsg == null ? "aucune" : errorMsg).append("\n");
         sb.append("\n");
         sb.append("CONSEILS DEPANNAGE\n");
-        sb.append("  - Si 'ECHEC' avec 'serveur injoignable' : serveur MTN inaccessible,\n");
-        sb.append("    verifiez votre connexion internet ou changez de serveur.\n");
-        sb.append("  - Si 'ECHEC' avec 'connexion securisee echee' : certificat TLS invalide,\n");
-        sb.append("    le serveur peut utiliser un certificat self-signed ou expiré.\n");
-        sb.append("  - Si 'ECHEC' avec 'delai depasse' : le serveur ne repond pas,\n");
-        sb.append("    probleme de routage ou firewall.\n");
-        sb.append("  - Si 'ECHEC' avec 'acces refuse' : identifiants invalides ou compte bloqué.\n");
-        sb.append("  - Pour MTN 100Mo/150Mo : verifiez que votre compte est encore valide\n");
+        sb.append("  - Si 'overflow reading version string' : le serveur renvoie du HTTP au lieu d'une bannière SSH,\n");
+        sb.append("    vérifiez le format du payload (jetons [crlf] corrects, pas d'enveloppe CONNECT HTTP).\n");
+        sb.append("  - Si 'serveur injoignable' : vérifiez la connectivité réseau vers l'adresse et le port.\n");
+        sb.append("  - Si 'connexion sécurisée échouée' : certificat TLS invalide ou serveur ne parle pas TLS.\n");
+        sb.append("  - Si 'délai dépassé' : le serveur ne répond pas, problème de routage ou firewall.\n");
+        sb.append("  - Si 'accès refusé' : identifiants invalides ou compte bloqué.\n");
+        sb.append("  - Si le payload est rejeté : vérifiez le format HTTP et les [crlf].\n");
+        sb.append("  - Pour MTN 100Mo/150Mo : vérifiez que votre compte est encore valide\n");
         sb.append("    et que vous avez du credit de données.\n");
         sb.append("  - Si le payload est rejeté : vérifiez le format HTTP et les [crlf]\n");
         sb.append("  - Fichier : Download/kighmu.txt sur votre telephone.\n");
