@@ -260,7 +260,16 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             configs = get_stivaros_configs()
             users = get_stivaros_users()
-            active_users = len([u for u in users if u.get("expires_at") and datetime.strptime(u["expires_at"], "%Y-%m-%d") > datetime.now()])
+            def parse_expires(exp):
+                if not exp:
+                    return None
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        return datetime.strptime(exp, fmt)
+                    except ValueError:
+                        continue
+                return None
+            active_users = len([u for u in users if parse_expires(u.get("expires_at")) and parse_expires(u.get("expires_at")) > datetime.now()])
             expired_users = len(users) - active_users
             send_json(self, {
                 "total_configs": len(configs),

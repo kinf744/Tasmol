@@ -17,16 +17,21 @@
         .badge-yellow { background: #fef3c7; color: #a16207; }
         .badge-red { background: #fee2e2; color: #991b1b; }
         .badge-slate { background: #f1f5f9; color: #475569; }
+        .badge-blue { background: #dbeafe; color: #1e40af; }
         .mobile-menu-open { transform: translateX(0); }
         .mobile-menu-closed { transform: translateX(-100%); }
         .overlay-bg { background: rgba(0, 0, 0, 0.5); }
+        .btn-gradient { background: linear-gradient(to right, #1e293b, #334155); }
+        .btn-danger { background: #fee2e2; color: #991b1b; }
+        .btn-danger:hover { background: #fecaca; }
+        .form-input { width: 100%; padding: 0.75rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; }
+        .form-input:focus { outline: none; ring: 2px; ring-color: #94a3b8; }
+        .modal-overlay { background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(4px); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden">
-    <!-- Overlay Mobile -->
-    <div id="mobile-overlay" class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm hidden" onclick="closeMobileMenu()"></div>
+    <div id="mobile-overlay" class="fixed inset-0 z-40 modal-overlay hidden" onclick="closeMobileMenu()"></div>
 
-    <!-- Sidebar Desktop -->
     <aside class="w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 z-30">
         <div class="p-6">
             <div class="flex items-center gap-3 mb-8">
@@ -39,17 +44,26 @@
                 <button onclick="showSection('dashboard')" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-dashboard">
                     <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
                 </button>
-                <button onclick="showSection('resellers')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-resellers">
-                    <i class="fa-solid fa-users w-5"></i> Revendeurs
-                </button>
-                <button onclick="showSection('configs')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-configs">
-                    <i class="fa-solid fa-server w-5"></i> Configs VPN
-                </a>
                 <button onclick="showSection('users')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-users">
                     <i class="fa-solid fa-user w-5"></i> Utilisateurs
                 </button>
+                <button onclick="showSection('configs')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-configs">
+                    <i class="fa-solid fa-server w-5"></i> Configs VPN
+                </button>
+                <button onclick="showSection('resellers')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-resellers">
+                    <i class="fa-solid fa-users w-5"></i> Revendeurs
+                </button>
+                <button onclick="showSection('hosts')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-hosts">
+                    <i class="fa-solid fa-globe w-5"></i> Hosts Orange
+                </button>
                 <button onclick="showSection('tunnels')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-tunnels">
                     <i class="fa-solid fa-layer-group w-5"></i> Tunnels
+                </button>
+                <button onclick="showSection('quota')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-quota">
+                    <i class="fa-solid fa-gauge w-5"></i> Quotas
+                </button>
+                <button onclick="showSection('logs')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-logs">
+                    <i class="fa-solid fa-file-lines w-5"></i> Logs
                 </button>
                 <div class="mt-8 pt-6 border-t border-slate-200">
                     <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
@@ -60,8 +74,7 @@
         </div>
     </aside>
 
-    <!-- Mobile Sidebar -->
-    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform translate-x-0 transition-transform duration-300" id="mobile-sidebar">
+    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform -translate-x-full transition-transform duration-300" id="mobile-sidebar">
         <div class="p-6">
             <div class="flex items-center justify-between mb-8">
                 <div class="flex items-center gap-3">
@@ -78,17 +91,26 @@
                 <button onclick="showSection('dashboard'); closeMobileMenu();" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
                     <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
                 </button>
-                <button onclick="showSection('resellers'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
-                    <i class="fa-solid fa-users w-5"></i> Revendeurs
+                <button onclick="showSection('users'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-user w-5"></i> Utilisateurs
                 </button>
                 <button onclick="showSection('configs'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
                     <i class="fa-solid fa-server w-5"></i> Configs VPN
                 </button>
-                <button onclick="showSection('users'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
-                    <i class="fa-solid fa-user w-5"></i> Utilisateurs
+                <button onclick="showSection('resellers'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-users w-5"></i> Revendeurs
+                </button>
+                <button onclick="showSection('hosts'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-globe w-5"></i> Hosts Orange
                 </button>
                 <button onclick="showSection('tunnels'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
                     <i class="fa-solid fa-layer-group w-5"></i> Tunnels
+                </button>
+                <button onclick="showSection('quota'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-gauge w-5"></i> Quotas
+                </button>
+                <button onclick="showSection('logs'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-file-lines w-5"></i> Logs
                 </button>
                 <div class="mt-8 pt-6 border-t border-slate-200">
                     <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
@@ -99,13 +121,12 @@
         </div>
     </aside>
 
-    <!-- Main Content -->
     <div class="ml-0 md:ml-64 h-screen overflow-y-auto bg-slate-50">
         <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
             <div class="flex items-center gap-3">
                 <button onclick="toggleMobileMenu()" class="text-slate-600 hover:text-slate-900 lg:hidden">
                     <i class="fa-solid fa-bars text-xl"></i>
-                </div>
+                </button>
                 <div class="flex items-center gap-4">
                     <h1 class="text-lg font-bold text-slate-800" id="page-title">Tableau de bord</h1>
                     <div class="flex items-center gap-2 text-xs text-slate-500">
@@ -121,7 +142,6 @@
         </header>
 
         <main class="p-6">
-            <!-- Dashboard View -->
             <div id="view-dashboard">
                 <div class="mb-6">
                     <h2 class="text-xl font-bold text-slate-800">Vue d'ensemble</h2>
@@ -131,8 +151,8 @@
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Comptes VPN actifs</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-active">-</h3>
+                                <p class="text-sm text-slate-500">Utilisateurs actifs</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-active-users">-</h3>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
                                 <i class="fa-solid fa-user-group"></i>
@@ -142,21 +162,21 @@
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Serveurs configurés</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-servers">-</h3>
+                                <p class="text-sm text-slate-500">Utilisateurs expirés</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-expired-users">-</h3>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
-                                <i class="fa-solid fa-server"></i>
+                            <div class="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-yellow-600">
+                                <i class="fa-solid fa-clock"></i>
                             </div>
                         </div>
                     </div>
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Configs créées</p>
+                                <p class="text-sm text-slate-500">Configs Orange Fast 3</p>
                                 <h3 class="text-2xl font-bold text-slate-800" id="stat-configs">-</h3>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
                                 <i class="fa-solid fa-layer-group"></i>
                             </div>
                         </div>
@@ -164,16 +184,15 @@
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Payload total</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-payload">-</h3>
+                                <p class="text-sm text-slate-500">Serveurs uniques</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-servers">-</h3>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                                <i class="fa-solid fa-code"></i>
+                                <i class="fa-solid fa-server"></i>
                             </div>
                         </div>
                     </div>
                 </div>
-
                 <div class="glass-card p-6 rounded-xl shadow-sm">
                     <h3 class="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-list text-slate-400"></i> Configs Orange Fast 3 récentes
@@ -186,10 +205,11 @@
                                     <th class="px-4 py-3 font-medium">Utilisateur</th>
                                     <th class="px-4 py-3 font-medium">Serveur</th>
                                     <th class="px-4 py-3 font-medium">Port</th>
+                                    <th class="px-4 py-3 font-medium">Path</th>
                                     <th class="px-4 py-3 font-medium">Statut</th>
                                 </tr>
                             </thead>
-                            <tbody id="configs-table-body" class="divide-y divide-slate-100">
+                            <tbody id="dashboard-configs-body" class="divide-y divide-slate-100">
                                 <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
                             </tbody>
                         </table>
@@ -197,41 +217,51 @@
                 </div>
             </div>
 
-            <!-- Resellers View -->
-            <div id="view-resellers" class="hidden">
-                <div class="mb-6 flex items-center justify-between">
-                    <h2 class="text-xl font-bold text-slate-800">Gestion des Revendeurs</h2>
-                    <button class="btn-gradient text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all" onclick="openAddResellerModal()">
-                        <i class="fa-solid fa-plus mr-2"></i> Nouveau revendeur
-                    </button>
+            <div id="view-users" class="hidden">
+                <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800">Gestion des Utilisateurs</h2>
+                        <p class="text-slate-600 text-sm mt-1">Créer, modifier et supprimer les comptes VPN</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="openCreateUserModal()" class="btn-gradient text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all">
+                            <i class="fa-solid fa-plus mr-2"></i> Créer compte (jours)
+                        </button>
+                        <button onclick="openCreateTestUserModal()" class="bg-orange-600 text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all">
+                            <i class="fa-solid fa-clock mr-2"></i> Compte TEST (heures)
+                        </button>
+                    </div>
                 </div>
                 <div class="glass-card p-6 rounded-xl shadow-sm">
                     <div class="overflow-x-auto">
                         <table class="w-full text-sm text-left">
                             <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
                                 <tr>
+                                    <th class="px-4 py-3 font-medium">ID</th>
+                                    <th class="px-4 py-3 font-medium">Téléphone</th>
                                     <th class="px-4 py-3 font-medium">Nom</th>
-                                    <th class="px-4 py-3 font-medium">Quota Data</th>
-                                    <th class="px-4 py-3 font-medium">Configs Max</th>
-                                    <th class="px-4 py-3 font-medium">Créées</th>
-                                    <th class="px-4 py-3 font-medium">Statut</th>
+                                    <th class="px-4 py-3 font-medium">Code</th>
+                                    <th class="px-4 py-3 font-medium">Expiration</th>
+                                    <th class="px-4 py-3 font-medium">Quota</th>
+                                    <th class="px-4 py-3 font-medium">Multi-dev</th>
+                                    <th class="px-4 py-3 font-medium">Configs</th>
+                                    <th class="px-4 py-3 font-medium">Modes</th>
                                     <th class="px-4 py-3 font-medium">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="resellers-table-body" class="divide-y divide-slate-100">
-                                <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            <tbody id="users-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- Configs View -->
             <div id="view-configs" class="hidden">
                 <div class="mb-6 flex items-center justify-between">
                     <h2 class="text-xl font-bold text-slate-800">Configurations VPN</h2>
-                    <button class="btn-gradient text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all">
-                        <i class="fa-solid fa-download mr-2"></i> Exporter configs
+                    <button onclick="openAddConfigModal()" class="btn-gradient text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all">
+                        <i class="fa-solid fa-plus mr-2"></i> Ajouter config à un user
                     </button>
                 </div>
                 <div class="glass-card p-6 rounded-xl shadow-sm">
@@ -240,80 +270,377 @@
                             <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
                                 <tr>
                                     <th class="px-4 py-3 font-medium">ID</th>
-                                    <th class="px-4 py-3 font-medium">Utilisateur</th>
+                                    <th class="px-4 py-3 font-medium">User ID</th>
+                                    <th class="px-4 py-3 font-medium">Mode</th>
                                     <th class="px-4 py-3 font-medium">Serveur</th>
                                     <th class="px-4 py-3 font-medium">Port</th>
-                                    <th class="px-4 py-3 font-medium">Mode</th>
-                                    <th class="px-4 py-3 font-medium">Statut</th>
+                                    <th class="px-4 py-3 font-medium">SNI/Host</th>
+                                    <th class="px-4 py-3 font-medium">UUID</th>
+                                    <th class="px-4 py-3 font-medium">SSH User</th>
+                                    <th class="px-4 py-3 font-medium">Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="configs-table-body-2" class="divide-y divide-slate-100">
-                                <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            <tbody id="configs-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
             </div>
 
-            <!-- Users View -->
-            <div id="view-users" class="hidden">
-                <div class="mb-6">
-                    <h2 class="text-xl font-bold text-slate-800">Gestion des Utilisateurs</h2>
-                    <p class="text-slate-600 text-sm mt-1">Gérer les comptes utilisateurs du panel</p>
+            <div id="view-resellers" class="hidden">
+                <div class="mb-6 flex items-center justify-between">
+                    <h2 class="text-xl font-bold text-slate-800">Gestion des Revendeurs</h2>
+                    <button onclick="openAddResellerModal()" class="btn-gradient text-white font-semibold py-2 px-4 rounded-lg text-sm hover:shadow-lg transition-all">
+                        <i class="fa-solid fa-plus mr-2"></i> Nouveau revendeur
+                    </button>
                 </div>
                 <div class="glass-card p-6 rounded-xl shadow-sm">
-                    <p class="text-slate-500 text-sm">Gestion des utilisateurs du panel web (à venir)</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3 font-medium">ID</th>
+                                    <th class="px-4 py-3 font-medium">Nom</th>
+                                    <th class="px-4 py-3 font-medium">Quota Data</th>
+                                    <th class="px-4 py-3 font-medium">Configs Max</th>
+                                    <th class="px-4 py-3 font-medium">Créées</th>
+                                    <th class="px-4 py-3 font-medium">Expiration</th>
+                                    <th class="px-4 py-3 font-medium">Statut</th>
+                                    <th class="px-4 py-3 font-medium">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="resellers-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
-            <!-- Tunnels View -->
+            <div id="view-hosts" class="hidden">
+                <div class="mb-6">
+                    <h2 class="text-xl font-bold text-slate-800">Hosts Orange (XHTTP / WS TLS)</h2>
+                    <p class="text-slate-600 text-sm mt-1">Configurer les hosts SNI pour les tunnels VLESS</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-orange-500"></i> Orange
+                        </h3>
+                        <div class="space-y-3" id="host-orange-form"></div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-orange-500"></i> Orange Fast
+                        </h3>
+                        <div class="space-y-3" id="host-orange_fast-form"></div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-bolt text-orange-500"></i> Orange Fast 2
+                        </h3>
+                        <div class="space-y-3" id="host-orange_fast2-form"></div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <h3 class="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-sim-card text-blue-500"></i> MTN Unlimited
+                        </h3>
+                        <div class="space-y-3" id="host-mtn_unlimited-form"></div>
+                    </div>
+                </div>
+            </div>
+
             <div id="view-tunnels" class="hidden">
                 <div class="mb-6">
                     <h2 class="text-xl font-bold text-slate-800">Gestion des Tunnels</h2>
-                    <p class="text-slate-600 text-sm mt-1">Surveiller et gérer les tunnels SSH et VPN</p>
+                    <p class="text-slate-600 text-sm mt-1">Installer, réparer et surveiller les tunnels</p>
                 </div>
                 <div class="glass-card p-6 rounded-xl shadow-sm">
-                    <p class="text-slate-500 text-sm">Gestion des tunnels (à venir)</p>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3 font-medium">Tunnel</th>
+                                    <th class="px-4 py-3 font-medium">Port</th>
+                                    <th class="px-4 py-3 font-medium">Protocole</th>
+                                    <th class="px-4 py-3 font-medium">Statut</th>
+                                    <th class="px-4 py-3 font-medium">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tunnels-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-quota" class="hidden">
+                <div class="mb-6">
+                    <h2 class="text-xl font-bold text-slate-800">Gestion des Quotas</h2>
+                    <p class="text-slate-600 text-sm mt-1">Définir les limites de data par utilisateur</p>
+                </div>
+                <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3 font-medium">ID</th>
+                                    <th class="px-4 py-3 font-medium">Téléphone</th>
+                                    <th class="px-4 py-3 font-medium">Nom</th>
+                                    <th class="px-4 py-3 font-medium">Quota (Mo)</th>
+                                    <th class="px-4 py-3 font-medium">Utilisé (Mo)</th>
+                                    <th class="px-4 py-3 font-medium">% Utilisé</th>
+                                    <th class="px-4 py-3 font-medium">Expiration</th>
+                                    <th class="px-4 py-3 font-medium">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="quota-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-logs" class="hidden">
+                <div class="mb-6 flex items-center justify-between">
+                    <h2 class="text-xl font-bold text-slate-800">Logs d'administration</h2>
+                    <button onclick="loadLogs()" class="text-slate-500 hover:text-slate-700 text-sm">
+                        <i class="fa-solid fa-rotate mr-1"></i> Actualiser
+                    </button>
+                </div>
+                <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left font-mono">
+                            <thead class="text-slate-500 uppercase text-xs border-b border-slate-200">
+                                <tr>
+                                    <th class="px-4 py-3 font-medium">ID</th>
+                                    <th class="px-4 py-3 font-medium">Date</th>
+                                    <th class="px-4 py-3 font-medium">Action</th>
+                                    <th class="px-4 py-3 font-medium">Cible</th>
+                                    <th class="px-4 py-3 font-medium">Détails</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logs-table-body" class="divide-y divide-slate-100">
+                                <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Chargement...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </main>
     </div>
 
-    <!-- Modal Ajouter Revendeur -->
+    <div id="createUserModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeCreateUserModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Créer Compte (Jours)</h3>
+                    <button onclick="closeCreateUserModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="createUserForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Téléphone (ex: 699123456)</label>
+                        <input type="text" id="cu-phone" class="form-input" required pattern="[0-9]{8,15}" placeholder="699123456">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Nom</label>
+                        <input type="text" id="cu-name" class="form-input" placeholder="Client Name">
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Durée (jours)</label>
+                            <input type="number" id="cu-days" class="form-input" value="30" min="1" max="365">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Quota (Mo)</label>
+                            <input type="number" id="cu-quota" class="form-input" value="0" placeholder="0 = illimité">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="flex items-center gap-2 text-sm text-slate-700">
+                            <input type="checkbox" id="cu-multi" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                            Multi-appareil
+                        </label>
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeCreateUserModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="createTestUserModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeCreateTestUserModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Créer Compte TEST (Heures)</h3>
+                    <button onclick="closeCreateTestUserModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="createTestUserForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Téléphone (ex: 699123456)</label>
+                        <input type="text" id="ctu-phone" class="form-input" required pattern="[0-9]{8,15}" placeholder="699123456">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Durée (heures)</label>
+                        <input type="number" id="ctu-hours" class="form-input" value="1" min="1" max="24">
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeCreateTestUserModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 bg-orange-600 text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="addConfigModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeAddConfigModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-lg p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Ajouter Configuration à un Utilisateur</h3>
+                    <button onclick="closeAddConfigModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="addConfigForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">User ID</label>
+                        <input type="number" id="ac-user-id" class="form-input" required min="1">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Mode</label>
+                        <select id="ac-mode" class="form-input">
+                            <option value="orange">Orange (XHTTP)</option>
+                            <option value="orange_fast">Orange Fast (WS TLS)</option>
+                            <option value="orange_fast2">Orange Fast 2 (WS TLS)</option>
+                            <option value="mtn_unlimited">MTN Unlimited (WS TLS)</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeAddConfigModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Ajouter</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div id="addResellerModal" class="fixed inset-0 z-50 hidden">
-        <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" onclick="closeAddResellerModal()"></div>
+        <div class="absolute inset-0 modal-overlay" onclick="closeAddResellerModal()"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
             <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="text-lg font-bold text-slate-800">Nouveau Revendeur</h3>
-                    <button onclick="closeAddResellerModal()" class="text-slate-400 hover:text-slate-600">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
+                    <button onclick="closeAddResellerModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
                 </div>
                 <form id="addResellerForm" class="space-y-4">
-                    <div class="form-group">
+                    <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Nom du revendeur</label>
-                        <input type="text" id="reseller-username" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:outline-none" required>
+                        <input type="text" id="reseller-username" class="form-input" required>
                     </div>
-                    <div class="form-group">
+                    <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
-                        <input type="password" id="reseller-password" value="admin123" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:outline-none">
+                        <input type="password" id="reseller-password" value="admin123" class="form-input">
                     </div>
-                    <div class="form-group">
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Quota Data (Go)</label>
-                        <input type="number" id="reseller-quota" value="0" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:outline-none" placeholder="0 = illimité">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Quota Data (Go)</label>
+                            <input type="number" id="reseller-quota" value="0" class="form-input" placeholder="0 = illimité">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Configs Max</label>
+                            <input type="number" id="reseller-max-cfgs" value="0" class="form-input" placeholder="0 = illimité">
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Configs Max</label>
-                        <input type="number" id="reseller-max-cfgs" value="0" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:outline-none" placeholder="0 = illimité">
-                    </div>
-                    <div class="form-group">
+                    <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Durée (jours)</label>
-                        <input type="number" id="reseller-days" value="30" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-slate-400 focus:outline-none">
+                        <input type="number" id="reseller-days" value="30" class="form-input" min="1">
                     </div>
                     <div class="flex gap-3 pt-4">
-                        <button type="button" onclick="closeAddResellerModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200 transition-all">Annuler</button>
-                        <button type="submit" class="flex-1 px-4 py-3 bg-gradient-to-r from-slate-800 to-slate-900 text-white font-semibold rounded-lg hover:shadow-lg transition-all">Créer</button>
+                        <button type="button" onclick="closeAddResellerModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="deviceModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeDeviceModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800" id="deviceModalTitle">Gérer Appareil / UUID</h3>
+                    <button onclick="closeDeviceModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="deviceForm" class="space-y-4">
+                    <input type="hidden" id="device-action" value="set">
+                    <input type="hidden" id="device-phone" value="">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Device Install ID</label>
+                        <input type="text" id="device-id" class="form-input" placeholder="UUID appareil (laisser vide pour ne pas changer)">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Allowed UUIDs (séparés par virgule)</label>
+                        <input type="text" id="device-uuids" class="form-input" placeholder="uuid1,uuid2,uuid3">
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeDeviceModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Appliquer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="quotaModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeQuotaModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Modifier Quota</h3>
+                    <button onclick="closeQuotaModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="quotaForm" class="space-y-4">
+                    <input type="hidden" id="quota-user-id" value="">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Quota (Mo)</label>
+                        <input type="number" id="quota-mb" class="form-input" required min="0" placeholder="0 = illimité">
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeQuotaModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Enregistrer</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div id="hostModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeHostModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800" id="hostModalTitle">Configurer Host</h3>
+                    <button onclick="closeHostModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <form id="hostForm" class="space-y-4">
+                    <input type="hidden" id="host-mode" value="">
+                    <div>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Host / Domaine</label>
+                        <input type="text" id="host-value" class="form-input" placeholder="ex: mon-domaine.example.com">
+                    </div>
+                    <div class="flex gap-3 pt-4">
+                        <button type="button" onclick="closeHostModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
+                        <button type="button" onclick="deleteHost()" class="flex-1 px-4 py-3 bg-red-100 text-red-700 rounded-lg font-medium hover:bg-red-200">Supprimer</button>
+                        <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Enregistrer</button>
                     </div>
                 </form>
             </div>
@@ -321,7 +648,6 @@
     </div>
 
     <script>
-        // Mobile menu toggle
         function toggleMobileMenu() {
             const sidebar = document.getElementById('mobile-sidebar');
             const overlay = document.getElementById('mobile-overlay');
@@ -329,7 +655,6 @@
             sidebar.classList.toggle('-translate-x-full');
             overlay.classList.toggle('hidden');
         }
-
         function closeMobileMenu() {
             const sidebar = document.getElementById('mobile-sidebar');
             const overlay = document.getElementById('mobile-overlay');
@@ -338,7 +663,6 @@
             overlay.classList.add('hidden');
         }
 
-        // Navigation
         function showSection(sectionId) {
             document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById('view-' + sectionId).classList.remove('hidden');
@@ -350,7 +674,17 @@
             
             const items = document.querySelectorAll('.sidebar-item');
             items.forEach(item => {
-                if (item.textContent.trim().toLowerCase().includes(sectionId === 'dashboard' ? 'tableau' : sectionId === 'resellers' ? 'revendeurs' : sectionId === 'configs' ? 'configs' : sectionId === 'users' ? 'utilisateurs' : 'tunnels')) {
+                const keywords = {
+                    dashboard: 'tableau',
+                    users: 'utilisateurs',
+                    configs: 'configs',
+                    resellers: 'revendeurs',
+                    hosts: 'hosts',
+                    tunnels: 'tunnels',
+                    quota: 'quotas',
+                    logs: 'logs'
+                };
+                if (item.textContent.trim().toLowerCase().includes(keywords[sectionId])) {
                     item.classList.remove('text-slate-600');
                     item.classList.add('active', 'text-slate-900', 'bg-slate-100');
                 }
@@ -358,63 +692,109 @@
             
             document.getElementById('page-title').textContent = 
                 sectionId === 'dashboard' ? 'Tableau de bord' :
-                sectionId === 'resellers' ? 'Gestion des Revendeurs' :
-                sectionId === 'configs' ? 'Configurations VPN' :
                 sectionId === 'users' ? 'Gestion des Utilisateurs' :
-                'Gestion des Tunnels';
+                sectionId === 'configs' ? 'Configurations VPN' :
+                sectionId === 'resellers' ? 'Gestion des Revendeurs' :
+                sectionId === 'hosts' ? 'Hosts Orange' :
+                sectionId === 'tunnels' ? 'Gestion des Tunnels' :
+                sectionId === 'quota' ? 'Gestion des Quotas' :
+                'Logs d\'administration';
             
-            if (sectionId === 'dashboard') loadDashboard();
-            if (sectionId === 'resellers') loadResellers();
+            if (sectionId === 'dashboard') { loadDashboard(); loadDashboardConfigs(); }
+            if (sectionId === 'users') loadUsers();
             if (sectionId === 'configs') loadConfigs();
+            if (sectionId === 'resellers') loadResellers();
+            if (sectionId === 'hosts') loadHosts();
+            if (sectionId === 'tunnels') loadTunnels();
+            if (sectionId === 'quota') loadQuota();
+            if (sectionId === 'logs') loadLogs();
         }
 
         async function loadDashboard() {
             try {
                 const res = await fetch('/admin/api/stats');
                 const data = await res.json();
-                document.getElementById('stat-active').textContent = data.active_configs || 0;
-                document.getElementById('stat-servers').textContent = data.servers || 0;
+                document.getElementById('stat-active-users').textContent = data.active_users || 0;
+                document.getElementById('stat-expired-users').textContent = data.expired_users || 0;
                 document.getElementById('stat-configs').textContent = data.total_configs || 0;
-                document.getElementById('stat-payload').textContent = Math.round(data.total_payload_bytes / 1024) + ' KB';
-            } catch (e) {
-                console.error(e);
-            }
-            loadConfigsTable();
+                document.getElementById('stat-servers').textContent = data.servers || 0;
+            } catch (e) { console.error(e); }
         }
 
-        async function loadConfigsTable() {
+        async function loadDashboardConfigs() {
             try {
                 const res = await fetch('/api/vpn_configs');
                 const data = await res.json();
                 const configs = data.configs || [];
-                
-                const tbody = document.getElementById('configs-table-body');
-                const tbody2 = document.getElementById('configs-table-body-2');
-                
+                const tbody = document.getElementById('dashboard-configs-body');
                 if (configs.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Aucune configuration Orange Fast 3</td></tr>';
-                    tbody2.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Aucune configuration</td></tr>';
                     return;
                 }
-                
                 let html = '';
-                configs.forEach(c => {
-                    html += `
-                        <tr class="hover:bg-slate-50/50">
-                            <td class="px-4 py-3 font-mono text-xs text-slate-500">#${c.id}</td>
-                            <td class="px-4 py-3 font-medium text-slate-700">${c.ssh_user || 'N/A'}</td>
-                            <td class="px-4 py-3 font-medium text-slate-700">${c.server_address || 'N/A'}</td>
-                            <td class="px-4 py-3 font-mono text-sm text-slate-600">${c.server_port || '80'}</td>
-                            <td class="px-4 py-3 font-medium text-slate-600">${c.path || '/tieme'}</td>
-                            <td class="px-4 py-3"><span class="badge badge-green">Actif</span></td>
-                        </tr>
-                    `;
+                configs.slice(0, 10).forEach(c => {
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs text-slate-500">#${c.id}</td><td class="px-4 py-3 font-medium text-slate-700">${c.ssh_user || 'N/A'}</td><td class="px-4 py-3 font-medium text-slate-700">${c.server_address || 'N/A'}</td><td class="px-4 py-3 font-mono text-sm text-slate-600">${c.server_port || '80'}</td><td class="px-4 py-3 font-medium text-slate-600">${c.path || '/tieme'}</td><td class="px-4 py-3"><span class="badge badge-green">Actif</span></td></tr>`;
                 });
                 tbody.innerHTML = html;
-                tbody2.innerHTML = html;
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadUsers() {
+            try {
+                const res = await fetch('/admin/api/users');
+                const data = await res.json();
+                const users = data.users || [];
+                const tbody = document.getElementById('users-table-body');
+                if (users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="10" class="px-4 py-8 text-center text-slate-400">Aucun utilisateur</td></tr>';
+                    return;
+                }
+                let html = '';
+                users.forEach(u => {
+                    const expired = u.expires_at && new Date(u.expires_at) < new Date();
+                    const quotaText = u.quota_mb > 0 ? `${Math.round(u.quota_mb/1024)} Go` : 'Illimité';
+                    const usedText = u.bytes_used > 0 ? `${Math.round(u.bytes_used/1024/1024)} Mo` : '0';
+                    html += `
+                        <tr class="hover:bg-slate-50/50 ${expired ? 'opacity-60' : ''}">
+                            <td class="px-4 py-3 font-mono text-xs text-slate-500">#${u.id}</td>
+                            <td class="px-4 py-3 font-medium text-slate-700">${u.phone}</td>
+                            <td class="px-4 py-3 text-slate-600">${u.name || '-'}</td>
+                            <td class="px-4 py-3 font-mono text-xs text-slate-500">${u.activation_code}</td>
+                            <td class="px-4 py-3 ${expired ? 'text-red-600' : 'text-slate-600'}">${u.expires_at || '-'}</td>
+                            <td class="px-4 py-3 text-slate-600">${quotaText}</td>
+                            <td class="px-4 py-3"><span class="badge ${u.multi_device ? 'badge-green' : 'badge-slate'}">${u.multi_device ? 'Oui' : 'Non'}</span></td>
+                            <td class="px-4 py-3 font-mono text-xs text-slate-600">${u.config_count}</td>
+                            <td class="px-4 py-3 text-slate-500 text-xs">${u.modes || '-'}</td>
+                            <td class="px-4 py-3">
+                                <div class="flex gap-1">
+                                    <button onclick="openAddConfigModal(${u.id})" class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50">Config</button>
+                                    <button onclick="openDeviceModal('${u.phone}')" class="text-purple-600 hover:text-purple-800 text-xs px-2 py-1 rounded bg-purple-50">Device</button>
+                                    <button onclick="openQuotaModal(${u.id})" class="text-indigo-600 hover:text-indigo-800 text-xs px-2 py-1 rounded bg-indigo-50">Quota</button>
+                                    <button onclick="deleteUser(${u.id}, '${u.phone}')" class="text-red-600 hover:text-red-800 text-xs px-2 py-1 rounded bg-red-50">Suppr</button>
+                                </div>
+                            </td>
+                        </tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadConfigs() {
+            try {
+                const res = await fetch('/api/admin/configs');
+                const data = await res.json();
+                const configs = data.configs || [];
+                const tbody = document.getElementById('configs-table-body');
+                if (configs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-8 text-center text-slate-400">Aucune configuration</td></tr>';
+                    return;
+                }
+                let html = '';
+                configs.forEach(c => {
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs text-slate-500">#${c.id}</td><td class="px-4 py-3 text-slate-600">${c.user_id}</td><td class="px-4 py-3"><span class="badge badge-slate">${c.mode}</span></td><td class="px-4 py-3 font-medium text-slate-700">${c.server_address}</td><td class="px-4 py-3 font-mono text-sm">${c.server_port}</td><td class="px-4 py-3 text-slate-500 text-xs">${c.sni || c.host || '-'}</td><td class="px-4 py-3 font-mono text-xs text-slate-500">${c.xray_uuid?.substring(0,8) || '-'}</td><td class="px-4 py-3 font-mono text-xs text-slate-600">${c.ssh_user || '-'}</td><td class="px-4 py-3"><button onclick="deleteConfig(${c.id})" class="text-red-600 hover:text-red-800 text-xs px-2 py-1 rounded bg-red-50">Supprimer</button></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) { console.error(e); }
         }
 
         async function loadResellers() {
@@ -423,64 +803,256 @@
                 const data = await res.json();
                 const resellers = data.resellers || [];
                 const tbody = document.getElementById('resellers-table-body');
-                
                 if (resellers.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Aucun revendeur</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Aucun revendeur</td></tr>';
                     return;
                 }
-                
                 let html = '';
                 resellers.forEach(r => {
-                    html += `
-                        <tr class="hover:bg-slate-50/50">
-                            <td class="px-4 py-3 font-medium text-slate-700">${r.username}</td>
-                            <td class="px-4 py-3 font-mono text-sm text-slate-600">${r.quota_data_gb || 0} Go</td>
-                            <td class="px-4 py-3 font-mono text-sm text-slate-600">${r.max_configs || 0}</td>
-                            <td class="px-4 py-3 font-mono text-sm text-slate-600">${r.configs_created || 0}</td>
-                            <td class="px-4 py-3"><span class="badge ${r.is_active ? 'badge-green' : 'badge-red'}">${r.is_active ? 'Actif' : 'Inactif'}</span></td>
-                            <td class="px-4 py-3"><button class="btn-danger text-xs px-2 py-1">Supprimer</button></td>
-                        </tr>
-                    `;
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs">#${r.id}</td><td class="px-4 py-3 font-medium">${r.username}</td><td class="px-4 py-3 font-mono text-sm">${r.quota_data_gb || 0} Go</td><td class="px-4 py-3 font-mono text-sm">${r.max_configs || 0}</td><td class="px-4 py-3 font-mono text-sm">${r.configs_created || 0}</td><td class="px-4 py-3 text-slate-600">${r.expires_at || '-'}</td><td class="px-4 py-3"><span class="badge ${r.is_active ? 'badge-green' : 'badge-red'}">${r.is_active ? 'Actif' : 'Inactif'}</span></td><td class="px-4 py-3"><button onclick="deleteReseller(${r.id})" class="text-red-600 hover:text-red-800 text-xs px-2 py-1 rounded bg-red-50">Supprimer</button></td></tr>`;
                 });
                 tbody.innerHTML = html;
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
         }
 
-        function openAddResellerModal() {
-            document.getElementById('addResellerModal').classList.remove('hidden');
+        async function loadHosts() {
+            try {
+                const res = await fetch('/admin/api/hosts');
+                const data = await res.json();
+                const hosts = data.hosts || {};
+                const modes = ['orange', 'orange_fast', 'orange_fast2', 'mtn_unlimited'];
+                const labels = {orange: 'Orange (XHTTP)', orange_fast: 'Orange Fast (WS TLS)', orange_fast2: 'Orange Fast 2 (WS TLS)', mtn_unlimited: 'MTN Unlimited (WS TLS)'};
+                const icons = {orange: 'fa-bolt', orange_fast: 'fa-bolt', orange_fast2: 'fa-bolt', mtn_unlimited: 'fa-sim-card'};
+                const colors = {orange: 'orange-500', orange_fast: 'orange-500', orange_fast2: 'orange-500', mtn_unlimited: 'blue-500'};
+                modes.forEach(mode => {
+                    const container = document.getElementById(`host-${mode}-form`);
+                    const current = hosts[mode] || '';
+                    container.innerHTML = `
+                        <div class="flex gap-2">
+                            <input type="text" id="host-input-${mode}" value="${current}" placeholder="${current || 'Aucun host défini'}" class="form-input flex-1" ${!current ? 'style="color:#94a3b8"' : ''}>
+                            <button onclick="saveHost('${mode}')" class="px-4 py-2 btn-gradient text-white rounded-lg text-sm hover:shadow">Enregistrer</button>
+                            ${current ? `<button onclick="deleteHost('${mode}')" class="px-4 py-2 bg-red-100 text-red-700 rounded-lg text-sm hover:bg-red-200">Supprimer</button>` : ''}
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">Host SNI pour ${labels[mode]}</p>`;
+                });
+            } catch (e) { console.error(e); }
         }
-        function closeAddResellerModal() {
-            document.getElementById('addResellerModal').classList.add('hidden');
+
+        async function loadTunnels() {
+            try {
+                const res = await fetch('/admin/api/tunnels');
+                const data = await res.json();
+                const tunnels = data.tunnels || {};
+                const TUNNELS_INFO = {
+                    xray: {name: 'Xray (VLESS/XHTTP)', port: 443, proto: 'VLESS'},
+                    zivpn: {name: 'ZIVPN', port: 5667, proto: 'ZIVPN'},
+                    slowdns: {name: 'SlowDNS', port: 53, proto: 'DNSTT'},
+                    sshslowdns: {name: 'SSH+SlowDNS', port: 22, proto: 'SSH+DNSTT'},
+                    v2raydns: {name: 'V2Ray+DNS', port: 443, proto: 'VMess'}
+                };
+                const tbody = document.getElementById('tunnels-table-body');
+                let html = '';
+                Object.entries(TUNNELS_INFO).forEach(([key, info]) => {
+                    const status = tunnels[key] || 'unknown';
+                    const badgeClass = status === 'active' ? 'badge-green' : status === 'inactive' ? 'badge-red' : 'badge-slate';
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-medium">${info.name}</td><td class="px-4 py-3 font-mono text-sm">${info.port}</td><td class="px-4 py-3"><span class="badge badge-blue">${info.proto}</span></td><td class="px-4 py-3"><span class="badge ${badgeClass}">${status}</span></td><td class="px-4 py-3"><div class="flex gap-1"><button onclick="tunnelAction('${key}', 'install')" class="text-blue-600 hover:text-blue-800 text-xs px-2 py-1 rounded bg-blue-50">Install</button><button onclick="tunnelAction('${key}', 'repair')" class="text-purple-600 hover:text-purple-800 text-xs px-2 py-1 rounded bg-purple-50">Repair</button><button onclick="tunnelAction('${key}', 'restart')" class="text-indigo-600 hover:text-indigo-800 text-xs px-2 py-1 rounded bg-indigo-50">Restart</button></div></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) { console.error(e); }
         }
+
+        async function loadQuota() {
+            try {
+                const res = await fetch('/admin/api/quota/stats');
+                const data = await res.json();
+                const users = data.users || [];
+                const tbody = document.getElementById('quota-table-body');
+                if (users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" class="px-4 py-8 text-center text-slate-400">Aucun quota défini</td></tr>';
+                    return;
+                }
+                let html = '';
+                users.forEach(u => {
+                    const pct = u.quota_mb > 0 ? Math.round((u.bytes_used / 1024 / 1024) / (u.quota_mb / 1024) * 100) : 0;
+                    const pctClass = pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-yellow-600' : 'text-green-600';
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs">#${u.id}</td><td class="px-4 py-3">${u.phone}</td><td class="px-4 py-3">${u.name}</td><td class="px-4 py-3 font-mono">${Math.round(u.quota_mb / 1024)} Go</td><td class="px-4 py-3 font-mono">${Math.round(u.bytes_used / 1024 / 1024)} Mo</td><td class="px-4 py-3 ${pctClass} font-semibold">${pct}%</td><td class="px-4 py-3">${u.expires_at}</td><td class="px-4 py-3"><button onclick="openQuotaModal(${u.id})" class="text-indigo-600 hover:text-indigo-800 text-xs px-2 py-1 rounded bg-indigo-50">Modifier</button></td></tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        async function loadLogs() {
+            try {
+                const res = await fetch('/admin/api/logs');
+                const data = await res.json();
+                const logs = data.logs || [];
+                const tbody = document.getElementById('logs-table-body');
+                if (logs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Aucun log</td></tr>';
+                    return;
+                }
+                let html = '';
+                logs.forEach(l => {
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs">#${l.id}</td><td class="px-4 py-3 text-slate-600">${l.created_at}</td><td class="px-4 py-3 font-medium">${l.action}</td><td class="px-4 py-3">${l.target}</td><td class="px-4 py-3 text-slate-500 text-xs">${l.details || '-'}</td></tr>`;
+                });
+                tbody.innerHTML = html;
+            } catch (e) { console.error(e); }
+        }
+
+        // Modals
+        function openCreateUserModal() { document.getElementById('createUserModal').classList.remove('hidden'); }
+        function closeCreateUserModal() { document.getElementById('createUserModal').classList.add('hidden'); document.getElementById('createUserForm').reset(); }
+        function openCreateTestUserModal() { document.getElementById('createTestUserModal').classList.remove('hidden'); }
+        function closeCreateTestUserModal() { document.getElementById('createTestUserModal').classList.add('hidden'); document.getElementById('createTestUserForm').reset(); }
+        function openAddConfigModal(userId=0) { if(userId) document.getElementById('ac-user-id').value = userId; else document.getElementById('ac-user-id').value = ''; document.getElementById('addConfigModal').classList.remove('hidden'); }
+        function closeAddConfigModal() { document.getElementById('addConfigModal').classList.add('hidden'); document.getElementById('addConfigForm').reset(); }
+        function openAddResellerModal() { document.getElementById('addResellerModal').classList.remove('hidden'); }
+        function closeAddResellerModal() { document.getElementById('addResellerModal').classList.add('hidden'); document.getElementById('addResellerForm').reset(); }
+        function openDeviceModal(phone) { document.getElementById('device-phone').value = phone; document.getElementById('device-id').value = ''; document.getElementById('device-uuids').value = ''; document.getElementById('deviceModal').classList.remove('hidden'); }
+        function closeDeviceModal() { document.getElementById('deviceModal').classList.add('hidden'); document.getElementById('deviceForm').reset(); }
+        function openQuotaModal(userId) { document.getElementById('quota-user-id').value = userId; document.getElementById('quota-mb').value = ''; document.getElementById('quotaModal').classList.remove('hidden'); }
+        function closeQuotaModal() { document.getElementById('quotaModal').classList.add('hidden'); document.getElementById('quotaForm').reset(); }
+        function openHostModal(mode) { document.getElementById('host-mode').value = mode; document.getElementById('host-value').value = document.getElementById(`host-input-${mode}`).value; document.getElementById('hostModal').classList.remove('hidden'); }
+        function closeHostModal() { document.getElementById('hostModal').classList.add('hidden'); document.getElementById('hostForm').reset(); }
+
+        // Form submissions
+        document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = { phone: document.getElementById('cu-phone').value, name: document.getElementById('cu-name').value, days: parseInt(document.getElementById('cu-days').value), quota_mb: parseInt(document.getElementById('cu-quota').value), multi_device: document.getElementById('cu-multi').checked ? 1 : 0 };
+            try {
+                const res = await fetch('/api/admin/create-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.ok) { closeCreateUserModal(); loadUsers(); alert('Utilisateur créé: ' + result.code); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
+
+        document.getElementById('createTestUserForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = { phone: document.getElementById('ctu-phone').value, hours: parseInt(document.getElementById('ctu-hours').value) };
+            try {
+                const res = await fetch('/api/admin/create-test-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.ok) { closeCreateTestUserModal(); loadUsers(); alert('Compte TEST créé: ' + result.code + ' (expire: ' + result.expires + ')'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
+
+        document.getElementById('addConfigForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = { user_id: parseInt(document.getElementById('ac-user-id').value), mode: document.getElementById('ac-mode').value };
+            try {
+                const res = await fetch('/api/admin/add-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.ok) { closeAddConfigModal(); loadConfigs(); alert('Config ajoutée: ' + result.xray_uuid); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
 
         document.getElementById('addResellerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = {
-                username: document.getElementById('reseller-username').value,
-                password: document.getElementById('reseller-password').value,
-                quota_gb: parseInt(document.getElementById('reseller-quota').value) || 0,
-                max_configs: parseInt(document.getElementById('reseller-max-cfgs').value) || 0,
-                days: parseInt(document.getElementById('reseller-days').value) || 30
-            };
+            const data = { username: document.getElementById('reseller-username').value, password: document.getElementById('reseller-password').value, quota_gb: parseInt(document.getElementById('reseller-quota').value), max_configs: parseInt(document.getElementById('reseller-max-cfgs').value), days: parseInt(document.getElementById('reseller-days').value) };
             try {
-                const res = await fetch('/api/admin/resellers', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(data)
-                });
+                const res = await fetch('/api/admin/create-reseller', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
                 const result = await res.json();
-                if (result.ok) {
-                    closeAddResellerModal();
-                    loadResellers();
-                } else {
-                    alert(result.error || 'Erreur');
-                }
-            } catch (err) {
-                alert('Erreur de connexion');
-            }
+                if (result.ok) { closeAddResellerModal(); loadResellers(); alert('Revendeur créé (ID: ' + result.reseller_id + ')'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
         });
+
+        document.getElementById('deviceForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const phone = document.getElementById('device-phone').value;
+            const data = { action: document.getElementById('device-action').value, phone: phone, device_id: document.getElementById('device-id').value, allowed_uuids: document.getElementById('device-uuids').value };
+            try {
+                const res = await fetch('/api/admin/devices', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.ok) { closeDeviceModal(); loadUsers(); alert('Appareil/UUID mis à jour'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
+
+        document.getElementById('quotaForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = { user_id: parseInt(document.getElementById('quota-user-id').value), quota_mb: parseInt(document.getElementById('quota-mb').value) };
+            try {
+                const res = await fetch('/api/admin/quota', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
+                const result = await res.json();
+                if (result.ok) { closeQuotaModal(); loadQuota(); loadUsers(); alert('Quota mis à jour'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
+
+        document.getElementById('hostForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const mode = document.getElementById('host-mode').value;
+            const host = document.getElementById('host-value').value;
+            try {
+                const res = await fetch('/api/admin/host', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, host, action: 'set'}) });
+                const result = await res.json();
+                if (result.ok) { closeHostModal(); loadHosts(); alert('Host enregistré'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        });
+
+        async function deleteHost(mode) {
+            if (!confirm('Supprimer le host pour ' + mode + ' ?')) return;
+            try {
+                const res = await fetch('/api/admin/host', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, action: 'delete'}) });
+                const result = await res.json();
+                if (result.ok) { loadHosts(); alert('Host supprimé'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        async function deleteUser(id, phone) {
+            if (!confirm('Supprimer l\'utilisateur ' + phone + ' (ID: ' + id + ') ?')) return;
+            try {
+                const res = await fetch('/api/admin/delete-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({user_id: id}) });
+                const result = await res.json();
+                if (result.ok) { loadUsers(); loadDashboard(); alert('Utilisateur supprimé'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        async function deleteConfig(id) {
+            if (!confirm('Supprimer la configuration #' + id + ' ?')) return;
+            try {
+                const res = await fetch('/api/admin/delete-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({config_id: id}) });
+                const result = await res.json();
+                if (result.ok) { loadConfigs(); alert('Config supprimée'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        async function deleteReseller(id) {
+            if (!confirm('Supprimer le revendeur #' + id + ' ?')) return;
+            try {
+                const res = await fetch('/api/admin/delete-reseller', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({reseller_id: id}) });
+                const result = await res.json();
+                if (result.ok) { loadResellers(); alert('Revendeur supprimé'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        async function tunnelAction(tunnel, action) {
+            try {
+                const res = await fetch('/api/admin/tunnel-action', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tunnel, action}) });
+                const result = await res.json();
+                if (result.ok) { loadTunnels(); alert(action + ' ' + tunnel + ' OK'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        async function saveHost(mode) {
+            const host = document.getElementById(`host-input-${mode}`).value;
+            try {
+                const res = await fetch('/api/admin/host', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({mode, host, action: 'set'}) });
+                const result = await res.json();
+                if (result.ok) { loadHosts(); alert('Host enregistré'); }
+                else alert(result.error || 'Erreur');
+            } catch (err) { alert('Erreur de connexion'); }
+        }
 
         loadDashboard();
     </script>
