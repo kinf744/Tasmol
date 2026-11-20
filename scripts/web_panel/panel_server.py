@@ -25,6 +25,19 @@ RESELLER_DIR = os.path.join(BASE_DIR, "reseller")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 STIVAROS_DB = "/opt/stivaros/stivaros.db"
 
+def load_config():
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"mode": "plain", "port": 8985, "admin_user": "admin"}
+
+def save_config(cfg):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(cfg, f, indent=2)
+
 # Utilisateurs par défaut du panel (admin et revendeur de démo)
 USERS = {
     "admin": {
@@ -105,16 +118,16 @@ def get_stivaros_configs():
     return rows
 
 def add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, user_id=None, label=None, mode='orange_fast3'):
-    """Ajoute une config Orange Fast 3 dans la base stivaros"""
+    """Ajoute une config Orange Fast 3 dans la base stivaros (matching stivaros.sh)"""
     if not os.path.exists(STIVAROS_DB):
         return False
     conn = sqlite3.connect(STIVAROS_DB)
     c = conn.cursor()
     try:
         c.execute("""
-            INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload, label)
-            VALUES (?, ?, ?, 'ssh', 'tcp', 0, '', '', 'orange_fast3', ?, '0', '', ?, ?, ?, ?, ?)
-        """, (user_id or 1, server_address, server_port, mode, path, ssh_user, ssh_pass, ssh_payload, label or ssh_user))
+            INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+            VALUES (?, ?, ?, 'ssh', 'tcp', 0, ?, ?, 'orange_fast3', 'orange_fast3', '', '0', 'aaaa0000-1111-4222-8333-444455556667', ?, ?, ?, ?)
+        """, (user_id or 1, server_address, server_port, server_address, server_address, path, ssh_user, ssh_pass, ssh_payload))
         conn.commit()
         conn.close()
         return True
@@ -372,6 +385,8 @@ class PanelHandler(BaseHTTPRequestHandler):
             ssh_pass = data.get("ssh_pass", "")
             ssh_payload = data.get("ssh_payload", "")
             path = data.get("path", "/tieme")
+            server_address = data.get("server_address", "99.86.91.72")
+            server_port = int(data.get("server_port", 80))
             if not ssh_user or not ssh_pass:
                 send_json(self, {"ok": False, "error": "ssh_user et ssh_pass requis"}, 400)
                 return
@@ -386,16 +401,16 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             reseller_id = row[0]
             # Créer la config dans stivaros
-            ok = add_stivaros_config("99.86.91.72", 80, ssh_user, ssh_pass, ssh_payload, path, label=username or ssh_user)
+            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, label=username or ssh_user)
             if ok:
                 # Récupérer l'id de la config créée
-                c.execute("SELECT id FROM vpn_configs WHERE ssh_user=? AND server_address='99.86.91.72' ORDER BY id DESC LIMIT 1", (ssh_user,))
+                c.execute("SELECT id FROM vpn_configs WHERE ssh_user=? AND server_address=? ORDER BY id DESC LIMIT 1", (ssh_user, server_address))
                 cfg_row = c.fetchone()
                 config_id = cfg_row[0] if cfg_row else None
                 c.execute("""
-                    INSERT INTO reseller_clients (reseller_id, client_name, config_id, server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, mode, path, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'orange_fast3', ?, 'active')
-                """, (reseller_id, username or ssh_user, config_id, "99.86.91.72", 80, ssh_user, ssh_pass, ssh_payload, path, path))
+                    INSERT INTO reseller_clients (reseller_id, client_name, config_id, server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, mode, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'orange_fast3', 'active')
+                """, (reseller_id, username or ssh_user, config_id, server_address, server_port, ssh_user, ssh_pass, ssh_payload, path))
                 conn.commit()
                 conn.close()
                 send_json(self, {"ok": True, "message": "Compte client créé avec succès"})
