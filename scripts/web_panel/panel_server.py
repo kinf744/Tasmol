@@ -503,7 +503,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
                 return
             expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-            code = generate_secret()[:8]
+            code = generate_activation_code()
             user_uuid = str(uuid.uuid4())
             conn = get_stivaros_conn()
             if not conn:
@@ -542,7 +542,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
                 return
             expires = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
-            code = generate_secret()[:8]
+            code = generate_activation_code()
             user_uuid = str(uuid.uuid4())
             conn = get_stivaros_conn()
             if not conn:
@@ -995,6 +995,11 @@ class PanelHandler(BaseHTTPRequestHandler):
 def generate_secret():
     import secrets
     return secrets.token_hex(16)
+
+def generate_activation_code():
+    """Génère un code d'activation à 6 chiffres (ex: 684462)"""
+    import random
+    return str(random.randint(100000, 999999))
 
 def get_domain():
     """Get server domain or fallback to public IP"""
