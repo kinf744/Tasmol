@@ -563,7 +563,7 @@
                 </div>
                 <div class="flex gap-3 pt-4">
                     <button onclick="closeSuccessModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Fermer</button>
-                    <button onclick="copySuccessDetails()" class="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:shadow-lg">
+                    <button onclick="copySuccessDetails(this)" class="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:shadow-lg">
                         <i class="fa-solid fa-copy mr-2"></i> Copier tout
                     </button>
                 </div>
@@ -1004,7 +1004,7 @@
         function closeSuccessModal() {
             document.getElementById('successModal').classList.add('hidden');
         }
-        function copySuccessDetails() {
+        function copySuccessDetails(btn) {
             const items = document.querySelectorAll('#successDetails .flex');
             const text = Array.from(items).map(el => {
                 const label = el.querySelector('.text-slate-500').textContent;
@@ -1012,7 +1012,6 @@
                 return `${label}: ${value}`;
             }).join('\n');
             navigator.clipboard.writeText(text).then(() => {
-                const btn = event.target.closest('button');
                 const original = btn.innerHTML;
                 btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
                 btn.classList.remove('bg-green-600');
@@ -1022,6 +1021,9 @@
                     btn.classList.remove('bg-green-700');
                     btn.classList.add('bg-green-600');
                 }, 2000);
+            }).catch(err => {
+                console.error('Erreur copie:', err);
+                alert('Erreur lors de la copie');
             });
         }
 
