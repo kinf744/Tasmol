@@ -606,11 +606,14 @@ if __name__ == "__main__":
     print(f"[stivaros-api] HTTP on 0.0.0.0:{port}")
 
     if os.path.exists(cert) and os.path.exists(key):
-        tlsd = ThreadingHTTPServer(("127.0.0.1", tls_port), APIHandler)
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ctx.load_cert_chain(cert, key)
-        tlsd.socket = ctx.wrap_socket(tlsd.socket, server_side=True)
-        threading.Thread(target=tlsd.serve_forever, daemon=True).start()
-        print(f"[stivaros-api] HTTPS on 127.0.0.1:{tls_port} (HAProxy SNI backend)")
+        try:
+            tlsd = ThreadingHTTPServer(("127.0.0.1", tls_port), APIHandler)
+            ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ctx.load_cert_chain(cert, key)
+            tlsd.socket = ctx.wrap_socket(tlsd.socket, server_side=True)
+            threading.Thread(target=tlsd.serve_forever, daemon=True).start()
+            print(f"[stivaros-api] HTTPS on 127.0.0.1:{tls_port} (HAProxy SNI backend)")
+        except OSError as e:
+            print(f"[stivaros-api] WARNING: Could not start HTTPS on {tls_port}: {e}")
 
     httpd.serve_forever()
