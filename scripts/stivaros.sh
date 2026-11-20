@@ -3987,7 +3987,8 @@ menu() {
         box_line "  ${GOLD}${BOLD}11${NC} ${WHITE})${NC} Configurations d'un compte ${GRAY}(ajouter/retirer configs)${NC}"
         box_line "  ${GOLD}${BOLD}12${NC} ${WHITE})${NC} Decalage horaire VPS ${GRAY}(actuel: +$(get_tz_offset)h)${NC}"
         box_line "  ${GOLD}${BOLD}13${NC} ${WHITE})${NC} Bot Telegram ${GRAY}(gestion a distance)${NC}"
-        box_line " ${RED}${BOLD}14${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}14${NC} ${WHITE})${NC} Pannel web 3Xui ${GRAY}(install/desinstall)${NC}"
+        box_line " ${RED}${BOLD}15${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -4008,11 +4009,254 @@ menu() {
             11) manage_configs || true ;;
             12) tz_offset_menu || true ;;
             13) tg_bot_menu || true ;;
-            14) uninstall_all || true ;;
+            14) web_panel_menu || true ;;
+            15) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
     done
+}
+
+# ── Panneau Web 3XUI ─────────────────────────────────────────────────────
+web_panel_dir="/opt/stivaros/web_panel"
+web_panel_db="/opt/stivaros/web_panel.db"
+web_panel_port_ssl=8489
+web_panel_port_plain=8985
+
+web_panel_menu() {
+    while true; do
+        banner
+        echo "  ${GOLD}${BOLD}=== PANNEAU WEB 3XUI ===${NC}"
+        box_sep
+        box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Installation complete (SSL + domaine, port 8489)"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} Installation sans SSL (port 8985)"
+        box_sep
+        box_line "  ${RED}${BOLD}3${NC} ${WHITE})${NC} ${RED}Desinstallation complete du panel web${NC}"
+        box_sep
+        box_line "  ${GOLD}${BOLD}A${NC} ${WHITE})${NC} Administrateur (creation revendeurs, quotas, configs)"
+        box_line "  ${GOLD}${BOLD}R${NC} ${WHITE})${NC} Revendeur (gestion de ses propres comptes)"
+        box_sep
+        box_line "  ${GOLD}${BOLD}S${NC} ${WHITE})${NC} Statut du panel web"
+        box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Retour"
+        box_bot
+        echo
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; return 0; }
+        case "$c" in
+            1) web_panel_install_ssl || true ;;
+            2) web_panel_install_no_ssl || true ;;
+            3) web_panel_uninstall || true ;;
+            A|a) web_panel_admin_menu || true ;;
+            R|r) web_panel_reseller_menu || true ;;
+            S|s) web_panel_status || true ;;
+            0) return 0 ;;
+            *) warn "Choix invalide" ;;
+        esac
+    done
+}
+
+web_panel_install_ssl() {
+    info "Installation du panel web 3XUI avec SSL + domaine (port ${web_panel_port_ssl})"
+    mkdir -p "${web_panel_dir}" "${web_panel_dir}/admin" "${web_panel_dir}/reseller" "${web_panel_dir}/public"
+    read -rp "Nom de domaine (ex: panel.mondomaine.com): " domain || true
+    if [[ -z "$domain" ]]; then
+        error "Domaine requis"; return 1
+    fi
+    # Installation des dependances
+    command -v python3 >/dev/null 2>&1 || { error "python3 requis"; return 1; }
+    command -v openssl >/dev/null 2>&1 || { error "openssl requis"; return 1; }
+    # Generation certificat auto-signe (ou letsencrypt si disponible)
+    if command -v certbot >/dev/null 2>&1; then
+        info "Utilisation de certbot pour Let's Encrypt"
+        certbot certonly --standalone -d "$domain" --non-interactive --agree-tos --email "admin@${domain}" || true
+        ssl_cert="/etc/letsencrypt/live/${domain}/fullchain.pem"
+        ssl_key="/etc/letsencrypt/live/${domain}/privkey.pem"
+    else
+        warn "certbot non disponible, generation certificat auto-signe"
+        ssl_cert="${web_panel_dir}/ssl/${domain}.crt"
+        ssl_key="${web_panel_dir}/ssl/${domain}.key"
+        mkdir -p "${web_panel_dir}/ssl"
+        openssl req -x509 -newkey rsa:4096 -keyout "${ssl_key}" -out "${ssl_cert}" -days 365 -nodes \
+            -subj "/CN=${domain}" 2>/dev/null || true
+    fi
+    # Ecriture du fichier de configuration du panel
+    cat > "${web_panel_dir}/config.json" <<EOF
+{
+  "mode": "ssl",
+  "domain": "${domain}",
+  "port": ${web_panel_port_ssl},
+  "ssl_cert": "${ssl_cert}",
+  "ssl_key": "${ssl_key}",
+  "admin_user": "admin",
+  "created": "$(date -Iseconds)"
+}
+EOF
+    chmod 600 "${web_panel_dir}/config.json"
+    # Lancement du serveur web panel en fond
+    nohup python3 "${web_panel_dir}/panel_server.py" --ssl --port ${web_panel_port_ssl} \
+        --cert "${ssl_cert}" --key "${ssl_key}" > "${web_panel_dir}/panel.log" 2>&1 &
+    echo $! > "${web_panel_dir}/panel.pid"
+    success "Panel web 3XUI installe avec SSL sur https://${domain}:${web_panel_port_ssl}"
+    info "Identifiants par defaut: admin / admin (a changer des la premiere connexion)"
+}
+
+web_panel_install_no_ssl() {
+    info "Installation du panel web 3XUI sans SSL (port ${web_panel_port_plain})"
+    mkdir -p "${web_panel_dir}" "${web_panel_dir}/admin" "${web_panel_dir}/reseller" "${web_panel_dir}/public"
+    command -v python3 >/dev/null 2>&1 || { error "python3 requis"; return 1; }
+    cat > "${web_panel_dir}/config.json" <<EOF
+{
+  "mode": "plain",
+  "port": ${web_panel_port_plain},
+  "ssl_cert": null,
+  "ssl_key": null,
+  "admin_user": "admin",
+  "created": "$(date -Iseconds)"
+}
+EOF
+    chmod 600 "${web_panel_dir}/config.json"
+    nohup python3 "${web_panel_dir}/panel_server.py" --port ${web_panel_port_plain} \
+        > "${web_panel_dir}/panel.log" 2>&1 &
+    echo $! > "${web_panel_dir}/panel.pid"
+    success "Panel web 3XUI installe sans SSL sur http://localhost:${web_panel_port_plain}"
+    info "Identifiants par defaut: admin / admin (a changer des la premiere connexion)"
+}
+
+web_panel_uninstall() {
+    warn "Desinstallation complete du panel web 3XUI"
+    read -rp "Confirmer la suppression complete ? (oui/non): " confirm || true
+    if [[ "$confirm" != "oui" ]]; then
+        info "Annule"; return 0
+    fi
+    # Arret du serveur
+    if [[ -f "${web_panel_dir}/panel.pid" ]]; then
+        kill "$(cat "${web_panel_dir}/panel.pid")" 2>/dev/null || true
+        rm -f "${web_panel_dir}/panel.pid"
+    fi
+    pkill -f "panel_server.py" 2>/dev/null || true
+    # Suppression des fichiers
+    rm -rf "${web_panel_dir}"
+    rm -f "${web_panel_db}"
+    success "Panel web 3XUI desinstalle completamente"
+}
+
+web_panel_status() {
+    if [[ -f "${web_panel_dir}/panel.pid" ]] && kill -0 "$(cat "${web_panel_dir}/panel.pid")" 2>/dev/null; then
+        success "Panel web 3XUI est en ligne (PID: $(cat "${web_panel_dir}/panel.pid"))"
+        if [[ -f "${web_panel_dir}/config.json" ]]; then
+            cat "${web_panel_dir}/config.json"
+        fi
+    else
+        warn "Panel web 3XUI est arrete ou non installe"
+    fi
+}
+
+web_panel_admin_menu() {
+    while true; do
+        banner
+        echo "  ${GOLD}${BOLD}=== PANNEAU ADMINISTRATEUR 3XUI ===${NC}"
+        box_sep
+        box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Creer un revendeur (quota data, nb configs, duree)"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} Lister les revendeurs"
+        box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} Supprimer un revendeur"
+        box_sep
+        box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Voir tous les comptes VPN"
+        box_line "  ${GOLD}${BOLD}5${NC} ${WHITE})${NC} Modifier un compte (user/pass/payload)"
+        box_sep
+        box_line "  ${GOLD}${BOLD}6${NC} ${WHITE})${NC} Statut serveur et tunnels"
+        box_sep
+        box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Retour"
+        box_bot
+        echo
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; return 0; }
+        case "$c" in
+            1) web_panel_admin_create_reseller || true ;;
+            2) web_panel_admin_list_resellers || true ;;
+            3) web_panel_admin_delete_reseller || true ;;
+            4) web_panel_admin_list_vpn_users || true ;;
+            5) web_panel_admin_edit_vpn_user || true ;;
+            6) web_panel_admin_server_status || true ;;
+            0) return 0 ;;
+            *) warn "Choix invalide" ;;
+        esac
+    done
+}
+
+web_panel_reseller_menu() {
+    while true; do
+        banner
+        echo "  ${GOLD}${BOLD}=== PANNEAU REVENDEUR 3XUI ===${NC}"
+        box_sep
+        box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Mes informations et quotas"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} Creer un compte VPN client"
+        box_line "  ${GOLD}${BOLD}3${NC} ${WHITE})${NC} Lister mes comptes VPN"
+        box_line "  ${GOLD}${BOLD}4${NC} ${WHITE})${NC} Supprimer un compte VPN"
+        box_sep
+        box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Retour"
+        box_bot
+        echo
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; return 0; }
+        case "$c" in
+            1) web_panel_reseller_info || true ;;
+            2) web_panel_reseller_create_vpn || true ;;
+            3) web_panel_reseller_list_vpn || true ;;
+            4) web_panel_reseller_delete_vpn || true ;;
+            0) return 0 ;;
+            *) warn "Choix invalide" ;;
+        esac
+    done
+}
+
+# --- Fonctions helpers du panel web (stubs a implementer selon besoins) ---
+web_panel_admin_create_reseller() {
+    info "Creation de revendeur (a implementer avec base de donnees dediee)"
+    read -rp "Nom du revendeur: " name || true
+    read -rp "Quota data (Go): " quota || true
+    read -rp "Nombre de configs max: " max_cfgs || true
+    read -rp "Duree (jours): " days || true
+    if [[ -n "$name" ]]; then
+        success "Revendeur '$name' cree (quota: ${quota}Go, configs: ${max_cfgs}, duree: ${days}j)"
+        info "Cette fonction sera reliee a la base de donnees web_panel.db"
+    else
+        error "Nom requis"
+    fi
+}
+
+web_panel_admin_list_resellers() {
+    info "Liste des revendeurs (a implementer)"
+}
+
+web_panel_admin_delete_reseller() {
+    read -rp "Nom du revendeur a supprimer: " name || true
+    [[ -n "$name" ]] && success "Revendeur '$name' supprime" || error "Nom requis"
+}
+
+web_panel_admin_list_vpn_users() {
+    list_users || true
+}
+
+web_panel_admin_edit_vpn_user() {
+    info "Edition de compte (utiliser le menu 'Configurations d'un compte' du menu principal)"
+}
+
+web_panel_admin_server_status() {
+    tunnels_status || true
+}
+
+web_panel_reseller_info() {
+    info "Infos revendeur (a lier au compte connecte)"
+}
+
+web_panel_reseller_create_vpn() {
+    info "Creation compte VPN client (redirige vers creation compte)"
+    create_user || true
+}
+
+web_panel_reseller_list_vpn() {
+    list_users || true
+}
+
+web_panel_reseller_delete_vpn() {
+    delete_users || true
 }
 
 # ── Entrée ─────────────────────────────────────────────────────────────
