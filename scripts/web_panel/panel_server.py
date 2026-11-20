@@ -299,8 +299,6 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not session:
                 return
             # Vérifier état tunnels via systemd
-            import subprocess
-            import os
             tunnel_status = {}
             for key, t in TUNNELS.items():
                 service_file = f"/etc/systemd/system/stivaros-{key}.service"
@@ -850,7 +848,6 @@ class PanelHandler(BaseHTTPRequestHandler):
             if tunnel not in TUNNELS or action not in ["install", "repair", "restart", "status"]:
                 send_json(self, {"ok": False, "error": "Paramètres invalides"}, 400)
                 return
-            import subprocess
             try:
                 if action == "install":
                     subprocess.run(["/opt/stivaros/stivaros.sh", "install-tunnel", tunnel], check=True, capture_output=True, text=True, timeout=120)
