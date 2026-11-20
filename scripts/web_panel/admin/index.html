@@ -585,13 +585,42 @@
                         <input type="number" id="ac-user-id" class="form-input" required min="1">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Mode</label>
-                        <select id="ac-mode" class="form-input">
-                            <option value="orange">Orange (XHTTP)</option>
-                            <option value="orange_fast">Orange Fast (WS TLS)</option>
-                            <option value="orange_fast2">Orange Fast 2 (WS TLS)</option>
-                            <option value="mtn_unlimited">MTN Unlimited (WS TLS)</option>
-                        </select>
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Modes à ajouter (cochez plusieurs)</label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="orange" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange (XHTTP)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="orange_fast" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange Fast (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="orange_fast2" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange Fast 2 (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="orange_fast3" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-terminal text-green-500 mr-2"></i>Orange Fast 3 (SSH + Payload)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="mtn_unlimited" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-sim-card text-blue-500 mr-2"></i>MTN Illimité (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="zivpn" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-wave-square text-purple-500 mr-2"></i>ZIVPN — Camtel UDP</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="sshslowdns" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-key text-amber-500 mr-2"></i>SSH + SlowDNS</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="ac-modes" value="v2raydns" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-cloud-arrow-up text-cyan-500 mr-2"></i>V2Ray + SlowDNS</span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">Cochez une ou plusieurs configurations à ajouter</p>
                     </div>
                     <div class="flex gap-3 pt-4">
                         <button type="button" onclick="closeAddConfigModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
@@ -1115,12 +1144,16 @@
 
         document.getElementById('addConfigForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = { user_id: parseInt(document.getElementById('ac-user-id').value), mode: document.getElementById('ac-mode').value };
+            const modes = Array.from(document.querySelectorAll('input[name="ac-modes"]:checked')).map(cb => cb.value);
+            if (modes.length === 0) { alert('Sélectionnez au moins un mode'); return; }
+            const userId = parseInt(document.getElementById('ac-user-id').value);
             try {
-                const res = await fetch('/api/admin/add-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
-                const result = await res.json();
-                if (result.ok) { closeAddConfigModal(); loadConfigs(); alert('Config ajoutée: ' + result.xray_uuid); }
-                else alert(result.error || 'Erreur');
+                for (const mode of modes) {
+                    const res = await fetch('/api/admin/add-config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ user_id: userId, mode }) });
+                    const result = await res.json();
+                    if (!result.ok) { alert('Erreur pour ' + mode + ': ' + result.error); return; }
+                }
+                closeAddConfigModal(); loadConfigs(); alert(modes.length + ' config(s) ajoutée(s)');
             } catch (err) { alert('Erreur de connexion'); }
         });
 
