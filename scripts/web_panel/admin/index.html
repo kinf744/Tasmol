@@ -7,21 +7,257 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-        body { font-family: 'Inter', sans-serif; }
-        .sidebar-item:hover { background: rgba(59, 130, 246, 0.1); }
-        .sidebar-item.active { background: rgba(59, 130, 246, 0.2); color: #2563eb; border-left: 3px solid #2563eb; }
-        .glass-card { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.3); }
-        .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; font-size: 12px; font-weight: 600; }
-        .badge-green { background: #dcfce7; color: #15803d; }
-        .badge-yellow { background: #fef3c7; color: #a16207; }
-        .badge-red { background: #fee2e2; color: #991b1b; }
-        .badge-slate { background: #f1f5f9; color: #475569; }
-        .badge-blue { background: #dbeafe; color: #1e40af; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+        
+        :root {
+            --bg-primary: #f8fafc;
+            --bg-secondary: #f1f5f9;
+            --bg-card: rgba(255, 255, 255, 0.85);
+            --bg-glass: rgba(255, 255, 255, 0.7);
+            --border-glass: rgba(255, 255, 255, 0.4);
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-emerald: #10b981;
+            --accent-amber: #f59e0b;
+            --accent-rose: #f43f5e;
+            --accent-violet: #8b5cf6;
+            --accent-teal: #14b8a6;
+            --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05);
+            --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+            --shadow-lg: 0 12px 24px rgba(15, 23, 42, 0.12);
+            --shadow-xl: 0 20px 40px rgba(15, 23, 42, 0.15);
+        }
+
+        * {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        body { 
+            background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 50%, #fafafa 100%);
+            min-height: 100vh;
+        }
+        
+        .glass-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid var(--border-glass);
+            border-radius: 16px;
+            box-shadow: var(--shadow-md);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .glass-card:hover {
+            box-shadow: var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+        
+        .glass-card-strong {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(30px) saturate(200%);
+            -webkit-backdrop-filter: blur(30px) saturate(200%);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .sidebar-item {
+            transition: all 0.2s ease;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: transparent;
+            transition: background 0.2s ease;
+        }
+        
+        .sidebar-item:hover {
+            background: rgba(59, 130, 246, 0.08);
+            transform: translateX(4px);
+        }
+        
+        .sidebar-item:hover::before {
+            background: var(--accent-blue);
+        }
+        
+        .sidebar-item.active {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+            color: var(--accent-blue);
+        }
+        
+        .sidebar-item.active::before {
+            background: var(--accent-blue);
+        }
+        
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.025em;
+        }
+        
+        .badge-green { background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%); color: #15803d; }
+        .badge-yellow { background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); color: #a16207; }
+        .badge-red { background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #991b1b; }
+        .badge-slate { background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); color: #475569; }
+        .badge-blue { background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%); color: #1e40af; }
+        .badge-purple { background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%); color: #7c3aed; }
+        .badge-emerald { background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%); color: #065f46; }
+        
         .mobile-menu-open { transform: translateX(0); }
         .mobile-menu-closed { transform: translateX(-100%); }
-        .overlay-bg { background: rgba(0, 0, 0, 0.5); }
-        .btn-gradient { background: linear-gradient(to right, #1e293b, #334155); }
+        .overlay-bg { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        
+        .btn-gradient { 
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%); 
+            box-shadow: 0 4px 14px rgba(30, 41, 59, 0.3);
+            transition: all 0.2s ease;
+        }
+        .btn-gradient:hover { 
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(30, 41, 59, 0.4);
+        }
+        .btn-gradient:active { transform: translateY(0); }
+        
+        .btn-ghost {
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+        }
+        .btn-ghost:hover {
+            background: rgba(15, 23, 42, 0.05);
+            color: var(--text-primary);
+        }
+        
+        .form-input { 
+            width: 100%; 
+            padding: 0.875rem 1rem; 
+            background: rgba(255, 255, 255, 0.9); 
+            border: 1px solid rgba(148, 163, 184, 0.3); 
+            border-radius: 12px; 
+            transition: all 0.2s ease;
+        }
+        .form-input:focus { 
+            outline: none; 
+            border-color: var(--accent-blue); 
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15); 
+        }
+        
+        .modal-overlay { 
+            background: rgba(15, 23, 42, 0.55); 
+            backdrop-filter: blur(8px); 
+        }
+        
+        /* Circular progress animations */
+        .circular-progress {
+            transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        /* Pulse animation for active status */
+        @keyframes pulse-ring {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.15); opacity: 0.4; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
+        
+        .pulse-ring { animation: pulse-ring 2s ease-out infinite; }
+        
+        /* Fade in animation */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .animate-fade-in-up {
+            animation: fadeInUp 0.5s ease-out forwards;
+        }
+        
+        /* Staggered animation delays */
+        .delay-1 { animation-delay: 0.05s; }
+        .delay-2 { animation-delay: 0.1s; }
+        .delay-3 { animation-delay: 0.15s; }
+        .delay-4 { animation-delay: 0.2s; }
+        .delay-5 { animation-delay: 0.25s; }
+        .delay-6 { animation-delay: 0.3s; }
+        .delay-7 { animation-delay: 0.35s; }
+        .delay-8 { animation-delay: 0.4s; }
+        
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.6); }
+        
+        /* Focus visible for accessibility */
+        :focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+        }
+        
+        /* Reduce motion */
+        @media (prefers-reduced-motion: reduce) {
+            *, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+        }
+        
+        .sidebar-item {
+            transition: all 0.2s ease;
+            border-radius: 12px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: transparent;
+            transition: background 0.2s ease;
+        }
+        
+        .sidebar-item:hover {
+            background: rgba(59, 130, 246, 0.08);
+            transform: translateX(4px);
+        }
+        
+        .sidebar-item:hover::before {
+            background: var(--accent-blue);
+        }
+        
+        .sidebar-item.active {
+            background: linear-gradient(135deg, rgba(59, 130, 246, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%);
+            color: var(--accent-blue);
+        }
+        
+        .sidebar-item.active::before {
+            background: var(--accent-blue);
+        }
+        
+        .mobile-menu-open { transform: translateX(0); }
+        .mobile-menu-closed { transform: translateX(-100%); }
+        .overlay-bg { background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
+        .btn-gradient { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); }
         .btn-danger { background: #fee2e2; color: #991b1b; }
         .btn-danger:hover { background: #fecaca; }
         .form-input { width: 100%; padding: 0.75rem 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.5rem; }
@@ -150,122 +386,166 @@
 
                 <!-- System Resources Row - Circular Progress Indicators -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-1">
                         <div class="flex items-center justify-between">
                             <div class="flex-1">
-                                <p class="text-sm text-slate-500">CPU</p>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center">
+                                        <i class="fa-solid fa-microchip text-white text-sm"></i>
+                                    </div>
+                                    <span class="text-sm font-medium text-slate-500">CPU</span>
+                                </div>
                                 <div class="flex items-center gap-4 mt-2">
-                                    <div class="relative w-20 h-20">
+                                    <div class="relative w-22 h-22">
                                         <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
-                                            <circle id="cpu-progress" cx="50" cy="50" r="45" fill="none" stroke="#f97316" stroke-width="8" stroke-linecap="round"
-                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                            <defs>
+                                                <linearGradient id="cpu-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#f97316"/>
+                                                    <stop offset="100%" stop-color="#fbbf24"/>
+                                                </linearGradient>
+                                            </defs>
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+                                            <circle id="cpu-progress" class="circular-progress" cx="50" cy="50" r="45" fill="none" stroke="url(#cpu-gradient)" stroke-width="10" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);"></svg>
                                         <div class="absolute inset-0 flex items-center justify-center">
                                             <div class="text-center">
-                                                <h3 id="cpu-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <h3 id="cpu-used-percent" class="text-2xl font-bold text-slate-800">-</h3>
                                                 <p class="text-xs text-slate-500">Utilisé</p>
                                             </div>
                                         </div>
                                     </div>
-                                    <div>
-                                        <p class="text-sm text-slate-500">Cœurs</p>
-                                        <h3 id="cpu-cores" class="font-bold text-slate-800">-</h3>
+                                    <div class="pl-2">
+                                        <p class="text-xs text-slate-500 uppercase tracking-wider">Cœurs</p>
+                                        <h3 id="cpu-cores" class="font-bold text-slate-800 text-lg">-</h3>
                                         <p class="text-xs text-slate-400" id="cpu-frequency">-</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-orange-600">
-                                <i class="fa-solid fa-microchip"></i>
+                            <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 flex items-center justify-center text-white">
+                                <i class="fa-solid fa-microchip text-lg"></i>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-2">
                         <div class="flex items-center justify-between">
                             <div class="flex-1">
-                                <p class="text-sm text-slate-500">Mémoire</p>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center">
+                                        <i class="fa-solid fa-memory text-white text-sm"></i>
+                                    </div>
+                                    <span class="text-sm font-medium text-slate-500">Mémoire</span>
+                                </div>
                                 <div class="flex items-center gap-4 mt-2">
-                                    <div class="relative w-20 h-20">
+                                    <div class="relative w-22 h-22">
                                         <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
-                                            <circle id="mem-progress" cx="50" cy="50" r="45" fill="none" stroke="#ec4899" stroke-width="8" stroke-linecap="round"
-                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                            <defs>
+                                                <linearGradient id="mem-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#ec4899"/>
+                                                    <stop offset="100%" stop-color="#f472b6"/>
+                                                </linearGradient>
+                                            </defs>
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+                                            <circle id="mem-progress" class="circular-progress" cx="50" cy="50" r="45" fill="none" stroke="url(#mem-gradient)" stroke-width="10" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);"></svg>
                                         <div class="absolute inset-0 flex items-center justify-center">
                                             <div class="text-center">
-                                                <h3 id="mem-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <h3 id="mem-used-percent" class="text-2xl font-bold text-slate-800">-</h3>
                                                 <p class="text-xs text-slate-500">Utilisé</p>
                                             </div>
                                         </div>
                                     </svg>
-                                    <div>
-                                        <p class="text-sm text-slate-500">Total / Dispo</p>
-                                        <h3 id="mem-total" class="font-bold text-slate-800">-</h3>
+                                    <div class="pl-2">
+                                        <p class="text-xs text-slate-500 uppercase tracking-wider">Total / Dispo</p>
+                                        <h3 id="mem-total" class="font-bold text-slate-800 text-lg">-</h3>
                                         <p class="text-xs text-slate-400" id="mem-available">-</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
-                                <i class="fa-solid fa-memory"></i>
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center text-white">
+                                <i class="fa-solid fa-memory text-lg"></i>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-3">
                         <div class="flex items-center justify-between">
                             <div class="flex-1">
-                                <p class="text-sm text-slate-500">Swap</p>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center">
+                                        <i class="fa-solid fa-exchange-alt text-white text-sm"></i>
+                                    </div>
+                                    <span class="text-sm font-medium text-slate-500">Swap</span>
+                                </div>
                                 <div class="flex items-center gap-4 mt-2">
-                                    <div class="relative w-20 h-20">
+                                    <div class="relative w-22 h-22">
                                         <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
-                                            <circle id="swap-progress" cx="50" cy="50" r="45" fill="none" stroke="#8b5cf6" stroke-width="8" stroke-linecap="round"
-                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                            <defs>
+                                                <linearGradient id="swap-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#8b5cf6"/>
+                                                    <stop offset="100%" stop-color="#a855f7"/>
+                                                </linearGradient>
+                                            </defs>
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+                                            <circle id="swap-progress" class="circular-progress" cx="50" cy="50" r="45" fill="none" stroke="url(#swap-gradient)" stroke-width="10" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);"></svg>
                                         <div class="absolute inset-0 flex items-center justify-center">
                                             <div class="text-center">
-                                                <h3 id="swap-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <h3 id="swap-used-percent" class="text-2xl font-bold text-slate-800">-</h3>
                                                 <p class="text-xs text-slate-500">Utilisé</p>
                                             </div>
                                         </div>
                                     </svg>
-                                    <div>
-                                        <p class="text-sm text-slate-500">Total / Libre</p>
-                                        <h3 id="swap-total" class="font-bold text-slate-800">-</h3>
+                                    <div class="pl-2">
+                                        <p class="text-xs text-slate-500 uppercase tracking-wider">Total / Libre</p>
+                                        <h3 id="swap-total" class="font-bold text-slate-800 text-lg">-</h3>
                                         <p class="text-xs text-slate-400" id="swap-free">-</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
-                                <i class="fa-solid fa-exchange-alt"></i>
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-500 flex items-center justify-center text-white">
+                                <i class="fa-solid fa-exchange-alt text-lg"></i>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-4">
                         <div class="flex items-center justify-between">
                             <div class="flex-1">
-                                <p class="text-sm text-slate-500">Disque</p>
+                                <div class="flex items-center gap-2 mb-3">
+                                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                                        <i class="fa-solid fa-hard-drive text-white text-sm"></i>
+                                    </div>
+                                    <span class="text-sm font-medium text-slate-500">Disque</span>
+                                </div>
                                 <div class="flex items-center gap-4 mt-2">
-                                    <div class="relative w-20 h-20">
+                                    <div class="relative w-22 h-22">
                                         <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
-                                            <circle id="disk-progress" cx="50" cy="50" r="45" fill="none" stroke="#14b8a6" stroke-width="8" stroke-linecap="round"
-                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                            <defs>
+                                                <linearGradient id="disk-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" stop-color="#14b8a6"/>
+                                                    <stop offset="100%" stop-color="#06b6d4"/>
+                                                </linearGradient>
+                                            </defs>
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="10"/>
+                                            <circle id="disk-progress" class="circular-progress" cx="50" cy="50" r="45" fill="none" stroke="url(#disk-gradient)" stroke-width="10" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1);"></svg>
                                         <div class="absolute inset-0 flex items-center justify-center">
                                             <div class="text-center">
-                                                <h3 id="disk-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <h3 id="disk-used-percent" class="text-2xl font-bold text-slate-800">-</h3>
                                                 <p class="text-xs text-slate-500">Utilisé</p>
                                             </div>
                                         </div>
                                     </svg>
-                                    <div>
-                                        <p class="text-sm text-slate-500">Total / Libre</p>
-                                        <h3 id="disk-total" class="font-bold text-slate-800">-</h3>
+                                    <div class="pl-2">
+                                        <p class="text-xs text-slate-500 uppercase tracking-wider">Total / Libre</p>
+                                        <h3 id="disk-total" class="font-bold text-slate-800 text-lg">-</h3>
                                         <p class="text-xs text-slate-400" id="disk-free">-</p>
                                     </div>
                                 </div>
                             </div>
-                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600">
-                                <i class="fa-solid fa-hard-drive"></i>
+                            <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center text-white">
+                                <i class="fa-solid fa-hard-drive text-lg"></i>
                             </div>
                         </div>
                     </div>
@@ -273,90 +553,94 @@
 
                 <!-- Network & System Stats Row -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-arrow-up text-green-500"></i> Upload
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-5">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center">
+                                <i class="fa-solid fa-arrow-up text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Upload</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Vitesse actuelle</span>
-                                <span class="font-bold text-green-600" id="net-up-speed">-</span>
+                                <span class="font-bold text-green-600 text-lg" id="net-up-speed">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Total envoyé</span>
                                 <span class="font-bold text-slate-800" id="net-total-sent">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Paquets envoyés</span>
                                 <span class="font-mono text-slate-600" id="net-packets-sent">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-arrow-down text-rose-500"></i> Download
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-6">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-rose-500 to-pink-500 flex items-center justify-center">
+                                <i class="fa-solid fa-arrow-down text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Download</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Vitesse actuelle</span>
-                                <span class="font-bold text-rose-600" id="net-down-speed">-</span>
+                                <span class="font-bold text-rose-600 text-lg" id="net-down-speed">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Total reçu</span>
                                 <span class="font-bold text-slate-800" id="net-total-recv">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Paquets reçus</span>
                                 <span class="font-mono text-slate-600" id="net-packets-recv">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-swap text-blue-500"></i> Connexions
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-7">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                                <i class="fa-solid fa-swap text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Connexions</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">TCP établies</span>
-                                <span class="font-bold text-blue-600" id="conn-tcp">-</span>
+                                <span class="font-bold text-blue-600 text-lg" id="conn-tcp">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">UDP</span>
-                                <span class="font-bold text-blue-600" id="conn-udp">-</span>
+                                <span class="font-bold text-blue-600 text-lg" id="conn-udp">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Total trafic</span>
                                 <span class="font-bold text-slate-800" id="total-traffic">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-gauge text-indigo-500"></i> Charge Système
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-8">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center">
+                                <i class="fa-solid fa-gauge text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Charge Système</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Load 1min</span>
-                                <span class="font-bold text-slate-800" id="load-1m">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="load-1m">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Load 5min</span>
-                                <span class="font-bold text-slate-800" id="load-5m">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="load-5m">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Load 15min</span>
-                                <span class="font-bold text-slate-800" id="load-15m">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="load-15m">-</span>
                             </div>
                         </div>
                     </div>
@@ -364,102 +648,106 @@
 
                 <!-- Tunnel Status & Xray Info Row -->
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-server text-blue-500"></i> Statut Xray
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-5">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center">
+                                <i class="fa-solid fa-server text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Statut Xray</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Statut</span>
-                                <span id="xray-status" class="px-2 py-1 rounded-full text-xs font-medium">-</span>
+                                <span id="xray-status" class="px-3 py-1 rounded-full text-xs font-medium">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Version</span>
                                 <span class="font-mono text-slate-800" id="xray-version">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Uptime Xray</span>
                                 <span class="font-mono text-slate-600" id="xray-uptime">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Uptime Système</span>
                                 <span class="font-mono text-slate-600" id="system-uptime">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-database text-emerald-500"></i> Quota & Utilisateurs
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-6">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-500 flex items-center justify-center">
+                                <i class="fa-solid fa-database text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">Quota & Utilisateurs</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Quota Total</span>
-                                <span class="font-bold text-emerald-600" id="total-quota-gb">-</span>
+                                <span class="font-bold text-emerald-600 text-lg" id="total-quota-gb">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Utilisateurs Actifs</span>
-                                <span class="font-bold text-blue-600" id="active-users">-</span>
+                                <span class="font-bold text-blue-600 text-lg" id="active-users">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Configs Actives</span>
-                                <span class="font-bold text-purple-600" id="active-configs">-</span>
+                                <span class="font-bold text-purple-600 text-lg" id="active-configs">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Serveurs</span>
-                                <span class="font-bold text-indigo-600" id="servers-count">-</span>
+                                <span class="font-bold text-indigo-600 text-lg" id="servers-count">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-chart-bar text-purple-500"></i> CPU Détail
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-7">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 to-violet-500 flex items-center justify-center">
+                                <i class="fa-solid fa-chart-bar text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">CPU Détail</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Cœurs physiques</span>
-                                <span class="font-bold text-slate-800" id="cpu-physical">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="cpu-physical">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Cœurs logiques</span>
-                                <span class="font-bold text-slate-800" id="cpu-logical">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="cpu-logical">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Fréquence</span>
-                                <span class="font-bold text-slate-800" id="cpu-freq">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="cpu-freq">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Charge (1/5/15)</span>
-                                <span class="font-mono text-slate-600" id="cpu-load">-</span>
+                                <span class="font-mono text-slate-600 text-lg" id="cpu-load">-</span>
                             </div>
                         </div>
                     </div>
 
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                                <i class="fa-solid fa-globe text-teal-500"></i> IP & Réseau
-                            </h3>
+                    <div class="glass-card p-6 rounded-2xl shadow-sm animate-fade-in-up delay-8">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-500 flex items-center justify-center">
+                                <i class="fa-solid fa-globe text-white text-sm"></i>
+                            </div>
+                            <h3 class="text-sm font-semibold text-slate-700">IP & Réseau</h3>
                         </div>
-                        <div class="space-y-2">
+                        <div class="space-y-3">
                             <div class="flex justify-between text-sm">
                                 <span class="text-slate-500">Trafic Total</span>
-                                <span class="font-bold text-slate-800" id="total-traffic">-</span>
+                                <span class="font-bold text-slate-800 text-lg" id="total-traffic">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Envoyé / Reçu</span>
-                                <span class="font-mono text-slate-600" id="net-sent-recv">-</span>
+                                <span class="font-mono text-slate-600 text-lg" id="net-sent-recv">-</span>
                             </div>
-                            <div class="flex justify-between text-sm">
+                            <div class="pt-2 border-t border-slate-100 flex justify-between text-sm">
                                 <span class="text-slate-500">Connexions TCP/UDP</span>
-                                <span class="font-bold text-blue-600" id="conn-summary">-</span>
+                                <span class="font-bold text-blue-600 text-lg" id="conn-summary">-</span>
                             </div>
                         </div>
                     </div>
