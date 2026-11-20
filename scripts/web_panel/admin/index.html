@@ -147,7 +147,7 @@
                     <h2 class="text-xl font-bold text-slate-800">Vue d'ensemble</h2>
                     <p class="text-slate-600 text-sm mt-1">Surveillance de votre infrastructure VPN</p>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-6 mb-8">
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
@@ -173,7 +173,7 @@
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Configs Orange Fast 3</p>
+                                <p class="text-sm text-slate-500">Configs</p>
                                 <h3 class="text-2xl font-bold text-slate-800" id="stat-configs">-</h3>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
@@ -184,11 +184,55 @@
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-sm text-slate-500">Serveurs uniques</p>
+                                <p class="text-sm text-slate-500">Serveurs</p>
                                 <h3 class="text-2xl font-bold text-slate-800" id="stat-servers">-</h3>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
                                 <i class="fa-solid fa-server"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-slate-500">Quota Total</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-total-quota">-</h3>
+                            </div>
+                            <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
+                                <i class="fa-solid fa-database"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-slate-500">CPU Libre</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-cpu-free">-</h3>
+                            </div>
+                            <div class="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-orange-600">
+                                <i class="fa-solid fa-microchip"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-slate-500">RAM Libre</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-ram-free">-</h3>
+                            </div>
+                            <div class="w-10 h-10 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
+                                <i class="fa-solid fa-memory"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <p class="text-sm text-slate-500">Disque Libre</p>
+                                <h3 class="text-2xl font-bold text-slate-800" id="stat-disk-free">-</h3>
+                            </div>
+                            <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600">
+                                <i class="fa-solid fa-hard-drive"></i>
                             </div>
                         </div>
                     </div>
@@ -878,6 +922,12 @@
                 document.getElementById('stat-expired-users').textContent = data.expired_users || 0;
                 document.getElementById('stat-configs').textContent = data.total_configs || 0;
                 document.getElementById('stat-servers').textContent = data.servers || 0;
+                if (data.system) {
+                    document.getElementById('stat-total-quota').textContent = data.system.total_quota_gb + ' Go';
+                    document.getElementById('stat-cpu-free').textContent = data.system.cpu_free_percent + '%';
+                    document.getElementById('stat-ram-free').textContent = data.system.ram_free_percent + '%';
+                    document.getElementById('stat-disk-free').textContent = data.system.disk_free_percent + '%';
+                }
             } catch (e) { console.error(e); }
         }
 
