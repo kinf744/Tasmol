@@ -1096,20 +1096,46 @@
                 const value = el.querySelector('.font-mono').textContent;
                 return `${label}: ${value}`;
             }).join('\n');
-            navigator.clipboard.writeText(text).then(() => {
-                const original = btn.innerHTML;
-                btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
-                btn.classList.remove('bg-green-600');
-                btn.classList.add('bg-green-700');
-                setTimeout(() => {
-                    btn.innerHTML = original;
-                    btn.classList.remove('bg-green-700');
-                    btn.classList.add('bg-green-600');
-                }, 2000);
-            }).catch(err => {
-                console.error('Erreur copie:', err);
+            
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopiedFeedback(btn);
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy(text, btn);
+                });
+            } else {
+                fallbackCopy(text, btn);
+            }
+        }
+        
+        function fallbackCopy(text, btn) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showCopiedFeedback(btn);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
                 alert('Erreur lors de la copie');
-            });
+            }
+            document.body.removeChild(textarea);
+        }
+        
+        function showCopiedFeedback(btn) {
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
+            btn.classList.remove('bg-green-600');
+            btn.classList.add('bg-green-700');
+            setTimeout(() => {
+                btn.innerHTML = original;
+                btn.classList.remove('bg-green-700');
+                btn.classList.add('bg-green-600');
+            }, 2000);
         }
 
         // Reseller Success Modal
@@ -1133,20 +1159,48 @@
                 const value = el.querySelector('.font-mono').textContent;
                 return `${label}: ${value}`;
             }).join('\n');
-            navigator.clipboard.writeText(text).then(() => {
-                const original = btn.innerHTML;
-                btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
-                btn.classList.remove('bg-green-600');
-                btn.classList.add('bg-green-700');
-                setTimeout(() => {
-                    btn.innerHTML = original;
-                    btn.classList.remove('bg-green-700');
-                    btn.classList.add('bg-green-600');
-                }, 2000);
-            }).catch(err => {
-                console.error('Erreur copie:', err);
+            
+            // Try modern Clipboard API first (requires HTTPS or localhost)
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showCopiedFeedback(btn);
+                }).catch(err => {
+                    console.error('Clipboard API failed:', err);
+                    fallbackCopy(text, btn);
+                });
+            } else {
+                // Fallback for HTTP/non-secure contexts
+                fallbackCopy(text, btn);
+            }
+        }
+        
+        function fallbackCopy(text, btn) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                showCopiedFeedback(btn);
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
                 alert('Erreur lors de la copie');
-            });
+            }
+            document.body.removeChild(textarea);
+        }
+        
+        function showCopiedFeedback(btn) {
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
+            btn.classList.remove('bg-green-600');
+            btn.classList.add('bg-green-700');
+            setTimeout(() => {
+                btn.innerHTML = original;
+                btn.classList.remove('bg-green-700');
+                btn.classList.add('bg-green-600');
+            }, 2000);
         }
 
         // Device mode radio handlers
