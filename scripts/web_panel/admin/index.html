@@ -1033,9 +1033,17 @@
                 }
                 let html = '';
                 users.forEach(u => {
-                    const pct = u.quota_mb > 0 ? Math.round((u.bytes_used / 1024 / 1024) / (u.quota_mb / 1024) * 100) : 0;
+                    const usedMB = Math.round((u.bytes_used || 0) / 1024 / 1024);
+                    const usedGB = (usedMB / 1024).toFixed(2);
+                    const isUnlimited = u.unlimited || (u.quota_mb || 0) <= 0;
+                    const quotaMB = u.quota_mb || 0;
+                    const limitMB = isUnlimited ? 0 : quotaMB;
+                    const limitGB = isUnlimited ? 'Illimité' : (quotaMB / 1024).toFixed(1) + ' Go';
+                    const usedDisplay = usedMB > 1024 ? usedGB + ' Go' : usedMB + ' Mo';
+                    const pct = !isUnlimited && limitMB > 0 ? Math.round((usedMB / limitMB) * 100) : 0;
                     const pctClass = pct >= 90 ? 'text-red-600' : pct >= 70 ? 'text-yellow-600' : 'text-green-600';
-                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs">#${u.id}</td><td class="px-4 py-3">${u.phone}</td><td class="px-4 py-3">${u.name}</td><td class="px-4 py-3 font-mono">${Math.round(u.quota_mb / 1024)} Go</td><td class="px-4 py-3 font-mono">${Math.round(u.bytes_used / 1024 / 1024)} Mo</td><td class="px-4 py-3 ${pctClass} font-semibold">${pct}%</td><td class="px-4 py-3">${u.expires_at}</td><td class="px-4 py-3"><button onclick="openQuotaModal(${u.id})" class="text-indigo-600 hover:text-indigo-800 text-xs px-2 py-1 rounded bg-indigo-50">Modifier</button></td></tr>`;
+                    const pctDisplay = isUnlimited ? '—' : pct + '%';
+                    html += `<tr class="hover:bg-slate-50/50"><td class="px-4 py-3 font-mono text-xs">#${u.id}</td><td class="px-4 py-3">${u.phone}</td><td class="px-4 py-3">${u.name}</td><td class="px-4 py-3 font-mono">${limitGB}</td><td class="px-4 py-3 font-mono">${usedDisplay}</td><td class="px-4 py-3 ${isUnlimited ? '' : pctClass} font-semibold">${pctDisplay}</td><td class="px-4 py-3">${u.expires_at}</td><td class="px-4 py-3"><button onclick="openQuotaModal(${u.id})" class="text-indigo-600 hover:text-indigo-800 text-xs px-2 py-1 rounded bg-indigo-50">Modifier</button></td></tr>`;
                 });
                 tbody.innerHTML = html;
             } catch (e) { console.error(e); }
