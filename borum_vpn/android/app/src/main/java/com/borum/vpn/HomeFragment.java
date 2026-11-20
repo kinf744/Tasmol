@@ -548,9 +548,8 @@ public class HomeFragment extends Fragment {
                         Toast.LENGTH_LONG).show();
             }
             ApiSession.activate(requireContext(), c);
-            // Editeur SSH pour Orange Fast 3 et tunnels SSH
-            if (("ssh".equalsIgnoreCase(c.optString("mode", "")))
-                    || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))) {
+            // Editeur SSH pour tunnels SSH seulement (pas Orange Fast 3)
+            if ("ssh".equalsIgnoreCase(c.optString("mode", ""))) {
                 showSshConfigEditor(c);
             }
             // Générer kighmu.txt détaillé pour les tunnels SSH (Orange Fast 3)
