@@ -289,13 +289,18 @@ class PanelHandler(BaseHTTPRequestHandler):
                 return
             # Vérifier état tunnels via systemd
             import subprocess
+            import os
             tunnel_status = {}
             for key, t in TUNNELS.items():
-                try:
-                    result = subprocess.run(["systemctl", "is-active", f"stivaros-{key}"], capture_output=True, text=True, timeout=2)
-                    tunnel_status[key] = result.stdout.strip() if result.returncode == 0 else "inactive"
-                except Exception:
-                    tunnel_status[key] = "unknown"
+                service_file = f"/etc/systemd/system/stivaros-{key}.service"
+                if not os.path.exists(service_file):
+                    tunnel_status[key] = "not_installed"
+                else:
+                    try:
+                        result = subprocess.run(["systemctl", "is-active", f"stivaros-{key}"], capture_output=True, text=True, timeout=2)
+                        tunnel_status[key] = result.stdout.strip() if result.returncode == 0 else "inactive"
+                    except Exception:
+                        tunnel_status[key] = "unknown"
             send_json(self, {"tunnels": tunnel_status})
             return
 
