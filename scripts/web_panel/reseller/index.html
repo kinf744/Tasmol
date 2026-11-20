@@ -16,11 +16,17 @@
         .badge-green { background: #dcfce7; color: #15803d; }
         .badge-yellow { background: #fef3c7; color: #a16207; }
         .badge-slate { background: #f1f5f9; color: #475569; }
+        .mobile-menu-open { transform: translateX(0); }
+        .mobile-menu-closed { transform: translateX(-100%); }
+        .overlay-bg { background: rgba(0, 0, 0, 0.5); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden">
-    <!-- Sidebar -->
-    <aside class="w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 z-50">
+    <!-- Overlay Mobile -->
+    <div id="mobile-overlay" class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm hidden" onclick="closeMobileMenu()"></div>
+
+    <!-- Sidebar Desktop -->
+    <aside class="w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 z-30">
         <div class="p-6">
             <div class="flex items-center gap-3 mb-8">
                 <div class="w-8 h-8 bg-gradient-to-r from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
@@ -29,15 +35,48 @@
                 <span class="text-lg font-bold tracking-tight">Revendeur<span class="text-slate-500">VPN</span></span>
             </div>
             <nav class="space-y-1">
-                <a href="#" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('dashboard')">
+                <button onclick="showSection('dashboard')" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-dashboard">
                     <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
-                </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('clients')">
+                </button>
+                <button onclick="showSection('clients')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-clients">
                     <i class="fa-solid fa-users w-5"></i> Mes Clients
-                </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('create')">
+                </button>
+                <button onclick="showSection('create')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-create">
                     <i class="fa-solid fa-plus-circle w-5"></i> Créer Compte
-                </a>
+                </button>
+                <div class="mt-8 pt-6 border-t border-slate-200">
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
+                        <i class="fa-solid fa-sign-out w-5"></i> Déconnexion
+                    </a>
+                </div>
+            </nav>
+        </div>
+    </aside>
+
+    <!-- Mobile Sidebar -->
+    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform translate-x-0 transition-transform duration-300" id="mobile-sidebar">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-gradient-to-r from-amber-500 to-orange-600 rounded-xl flex items-center justify-center">
+                        <i class="fa-solid fa-store text-white text-sm"></i>
+                    </div>
+                    <span class="text-lg font-bold tracking-tight">Revendeur<span class="text-slate-500">VPN</span></span>
+                </div>
+                <button onclick="closeMobileMenu()" class="text-slate-600 hover:text-slate-900">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <nav class="space-y-1">
+                <button onclick="showSection('dashboard'); closeMobileMenu();" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
+                </button>
+                <button onclick="showSection('clients'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-users w-5"></i> Mes Clients
+                </button>
+                <button onclick="showSection('create'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-plus-circle w-5"></i> Créer Compte
+                </button>
                 <div class="mt-8 pt-6 border-t border-slate-200">
                     <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
                         <i class="fa-solid fa-sign-out w-5"></i> Déconnexion
@@ -48,13 +87,18 @@
     </aside>
 
     <!-- Main Content -->
-    <div class="ml-64 h-screen overflow-y-auto bg-slate-50">
+    <div class="ml-0 md:ml-64 h-screen overflow-y-auto bg-slate-50">
         <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-            <div class="flex items-center gap-4">
-                <h1 class="text-lg font-bold text-slate-800">Tableau de bord Revendeur</h1>
-                <div class="flex items-center gap-2 text-xs text-slate-500">
-                    <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
-                    <span>Revendeur actif</span>
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMobileMenu()" class="text-slate-600 hover:text-slate-900 lg:hidden">
+                    <i class="fa-solid fa-bars text-xl"></i>
+                </button>
+                <div class="flex items-center gap-4">
+                    <h1 class="text-lg font-bold text-slate-800" id="page-title">Tableau de bord</h1>
+                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                        <div class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></div>
+                        <span>Revendeur actif</span>
+                    </div>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -211,12 +255,30 @@
     </div>
 
     <script>
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('mobile-sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            sidebar.classList.toggle('translate-x-0');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        function closeMobileMenu() {
+            const sidebar = document.getElementById('mobile-sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            sidebar.classList.add('-translate-x-full');
+            sidebar.classList.remove('translate-x-0');
+            overlay.classList.add('hidden');
+        }
+
         function showSection(sectionId) {
             document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById('view-' + sectionId).classList.remove('hidden');
             
-            document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active', 'text-slate-900', 'bg-slate-100'));
-            document.querySelectorAll('.sidebar-item').forEach(el => el.classList.add('text-slate-600'));
+            document.querySelectorAll('.sidebar-item').forEach(el => {
+                el.classList.remove('active', 'text-slate-900', 'bg-slate-100');
+                el.classList.add('text-slate-600');
+            });
             
             const items = document.querySelectorAll('.sidebar-item');
             items.forEach(item => {
@@ -225,6 +287,12 @@
                     item.classList.add('active', 'text-slate-900', 'bg-slate-100');
                 }
             });
+            
+            document.getElementById('page-title').textContent = 
+                sectionId === 'dashboard' ? 'Tableau de bord' :
+                sectionId === 'clients' ? 'Mes Comptes Clients' :
+                sectionId === 'create' ? 'Créer un Compte' :
+                'Dashboard';
             
             if (sectionId === 'dashboard') loadDashboard();
             if (sectionId === 'clients') loadClients();
@@ -291,12 +359,10 @@
             const path = document.getElementById('client-path').value;
             const payload = document.getElementById('client-payload').value;
             
-            // TODO: Appeler l'API de création de compte
             alert('Fonctionnalité de création à connecter à l\'API');
             showSection('clients');
         });
 
-        // Initialize
         loadDashboard();
     </script>
 </body>

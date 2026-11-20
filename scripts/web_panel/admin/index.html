@@ -17,11 +17,17 @@
         .badge-yellow { background: #fef3c7; color: #a16207; }
         .badge-red { background: #fee2e2; color: #991b1b; }
         .badge-slate { background: #f1f5f9; color: #475569; }
+        .mobile-menu-open { transform: translateX(0); }
+        .mobile-menu-closed { transform: translateX(-100%); }
+        .overlay-bg { background: rgba(0, 0, 0, 0.5); }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 h-screen overflow-hidden">
-    <!-- Sidebar -->
-    <aside class="w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 z-50">
+    <!-- Overlay Mobile -->
+    <div id="mobile-overlay" class="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm hidden" onclick="closeMobileMenu()"></div>
+
+    <!-- Sidebar Desktop -->
+    <aside class="w-64 bg-white border-r border-slate-200 h-screen fixed left-0 top-0 z-30">
         <div class="p-6">
             <div class="flex items-center gap-3 mb-8">
                 <div class="w-8 h-8 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl flex items-center justify-center">
@@ -30,21 +36,60 @@
                 <span class="text-lg font-bold tracking-tight">Borum<span class="text-slate-500">VPN</span></span>
             </div>
             <nav class="space-y-1">
-                <a href="#" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('dashboard')">
+                <button onclick="showSection('dashboard')" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-dashboard">
                     <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
-                </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('resellers')">
+                </button>
+                <button onclick="showSection('resellers')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-resellers">
                     <i class="fa-solid fa-users w-5"></i> Revendeurs
-                </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('configs')">
+                </button>
+                <button onclick="showSection('configs')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-configs">
                     <i class="fa-solid fa-server w-5"></i> Configs VPN
                 </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('users')">
+                <button onclick="showSection('users')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-users">
                     <i class="fa-solid fa-user w-5"></i> Utilisateurs
-                </a>
-                <a href="#" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" onclick="showSection('tunnels')">
+                </button>
+                <button onclick="showSection('tunnels')" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all" id="nav-tunnels">
                     <i class="fa-solid fa-layer-group w-5"></i> Tunnels
-                </a>
+                </button>
+                <div class="mt-8 pt-6 border-t border-slate-200">
+                    <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
+                        <i class="fa-solid fa-sign-out w-5"></i> Déconnexion
+                    </a>
+                </div>
+            </nav>
+        </div>
+    </aside>
+
+    <!-- Mobile Sidebar -->
+    <aside class="fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transform translate-x-0 transition-transform duration-300" id="mobile-sidebar">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-8">
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl flex items-center justify-center">
+                        <i class="fa-solid fa-shield-halved text-white text-sm"></i>
+                    </div>
+                    <span class="text-lg font-bold tracking-tight">Borum<span class="text-slate-500">VPN</span></span>
+                </div>
+                <button onclick="closeMobileMenu()" class="text-slate-600 hover:text-slate-900">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            <nav class="space-y-1">
+                <button onclick="showSection('dashboard'); closeMobileMenu();" class="sidebar-item active flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-chart-pie w-5"></i> Tableau de bord
+                </button>
+                <button onclick="showSection('resellers'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-users w-5"></i> Revendeurs
+                </button>
+                <button onclick="showSection('configs'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-server w-5"></i> Configs VPN
+                </button>
+                <button onclick="showSection('users'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-user w-5"></i> Utilisateurs
+                </button>
+                <button onclick="showSection('tunnels'); closeMobileMenu();" class="sidebar-item flex items-center gap-3 px-4 py-3 text-slate-600 rounded-lg transition-all">
+                    <i class="fa-solid fa-layer-group w-5"></i> Tunnels
+                </button>
                 <div class="mt-8 pt-6 border-t border-slate-200">
                     <a href="/logout" class="flex items-center gap-3 px-4 py-3 text-red-500 rounded-lg transition-all">
                         <i class="fa-solid fa-sign-out w-5"></i> Déconnexion
@@ -55,13 +100,18 @@
     </aside>
 
     <!-- Main Content -->
-    <div class="ml-64 h-screen overflow-y-auto bg-slate-50">
+    <div class="ml-0 md:ml-64 h-screen overflow-y-auto bg-slate-50">
         <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
-            <div class="flex items-center gap-4">
-                <h1 class="text-lg font-semibold text-slate-800">Tableau de bord</h1>
-                <div class="flex items-center gap-2 text-xs text-slate-500">
-                    <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                    <span>Système opérationnel</span>
+            <div class="flex items-center gap-3">
+                <button onclick="toggleMobileMenu()" class="text-slate-600 hover:text-slate-900 lg:hidden">
+                    <i class="fa-solid fa-bars text-xl"></i>
+                </div>
+                <div class="flex items-center gap-4">
+                    <h1 class="text-lg font-bold text-slate-800" id="page-title">Tableau de bord</h1>
+                    <div class="flex items-center gap-2 text-xs text-slate-500">
+                        <div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
+                        <span>Système opérationnel</span>
+                    </div>
                 </div>
             </div>
             <div class="flex items-center gap-3">
@@ -136,7 +186,6 @@
                                     <th class="px-4 py-3 font-medium">Utilisateur</th>
                                     <th class="px-4 py-3 font-medium">Serveur</th>
                                     <th class="px-4 py-3 font-medium">Port</th>
-                                    <th class="px-4 py-3 font-medium">Path</th>
                                     <th class="px-4 py-3 font-medium">Statut</th>
                                 </tr>
                             </thead>
@@ -272,19 +321,33 @@
     </div>
 
     <script>
+        // Mobile menu toggle
+        function toggleMobileMenu() {
+            const sidebar = document.getElementById('mobile-sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            sidebar.classList.toggle('translate-x-0');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        function closeMobileMenu() {
+            const sidebar = document.getElementById('mobile-sidebar');
+            const overlay = document.getElementById('mobile-overlay');
+            sidebar.classList.add('-translate-x-full');
+            sidebar.classList.remove('translate-x-0');
+            overlay.classList.add('hidden');
+        }
+
         // Navigation
         function showSection(sectionId) {
-            // Hide all views
             document.querySelectorAll('[id^="view-"]').forEach(el => el.classList.add('hidden'));
             document.getElementById('view-' + sectionId).classList.remove('hidden');
             
-            // Update sidebar
-            document.querySelectorAll('.sidebar-item').forEach(el => el.classList.remove('active', 'text-slate-900', 'bg-slate-100'));
             document.querySelectorAll('.sidebar-item').forEach(el => {
+                el.classList.remove('active', 'text-slate-900', 'bg-slate-100');
                 el.classList.add('text-slate-600');
             });
             
-            // Find clicked item and mark active (simplified - we track by section)
             const items = document.querySelectorAll('.sidebar-item');
             items.forEach(item => {
                 if (item.textContent.trim().toLowerCase().includes(sectionId === 'dashboard' ? 'tableau' : sectionId === 'resellers' ? 'revendeurs' : sectionId === 'configs' ? 'configs' : sectionId === 'users' ? 'utilisateurs' : 'tunnels')) {
@@ -293,13 +356,18 @@
                 }
             });
             
-            // Load data based on section
+            document.getElementById('page-title').textContent = 
+                sectionId === 'dashboard' ? 'Tableau de bord' :
+                sectionId === 'resellers' ? 'Gestion des Revendeurs' :
+                sectionId === 'configs' ? 'Configurations VPN' :
+                sectionId === 'users' ? 'Gestion des Utilisateurs' :
+                'Gestion des Tunnels';
+            
             if (sectionId === 'dashboard') loadDashboard();
             if (sectionId === 'resellers') loadResellers();
             if (sectionId === 'configs') loadConfigs();
         }
 
-        // Load Dashboard Stats
         async function loadDashboard() {
             try {
                 const res = await fetch('/admin/api/stats');
@@ -314,7 +382,6 @@
             loadConfigsTable();
         }
 
-        // Load Configs Table
         async function loadConfigsTable() {
             try {
                 const res = await fetch('/api/vpn_configs');
@@ -350,7 +417,6 @@
             }
         }
 
-        // Load Resellers
         async function loadResellers() {
             try {
                 const res = await fetch('/api/admin/resellers');
@@ -372,9 +438,7 @@
                             <td class="px-4 py-3 font-mono text-sm text-slate-600">${r.max_configs || 0}</td>
                             <td class="px-4 py-3 font-mono text-sm text-slate-600">${r.configs_created || 0}</td>
                             <td class="px-4 py-3"><span class="badge ${r.is_active ? 'badge-green' : 'badge-red'}">${r.is_active ? 'Actif' : 'Inactif'}</span></td>
-                            <td class="px-4 py-3">
-                                <button class="btn-danger text-xs px-2 py-1">Supprimer</button>
-                            </td>
+                            <td class="px-4 py-3"><button class="btn-danger text-xs px-2 py-1">Supprimer</button></td>
                         </tr>
                     `;
                 });
@@ -384,7 +448,6 @@
             }
         }
 
-        // Modal functions
         function openAddResellerModal() {
             document.getElementById('addResellerModal').classList.remove('hidden');
         }
@@ -419,7 +482,6 @@
             }
         });
 
-        // Initialize
         loadDashboard();
     </script>
 </body>
