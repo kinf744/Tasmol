@@ -188,12 +188,14 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				return nil, nil, fmt.Errorf("bad proxy addr: %w", perr)
 			}
 			rendered := renderPayload(p, phost, pport, "", "")
+			Journalf("ssh", "payload envoye: %s", rendered)
 			if _, err := io.WriteString(rawConn, rendered); err != nil {
 				sshDiagError("payload send", err,
 					"impossible d'envoyer le payload HTTP sur la connexion TCP")
 				rawConn.Close()
 				return nil, nil, fmt.Errorf("ssh payload send: %w", err)
 			}
+			Journalf("ssh", "payload envoye avec succes (%d bytes)", len(rendered))
 
 			// Lire toute la reponse HTTP du serveur (301, 403, 101, etc.)
 			// jusqu'a trouver la banniere SSH "SSH-2.0-...". Le serveur peut
@@ -228,7 +230,8 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				}
 			}
 			_ = rawConn.SetReadDeadline(time.Time{})
-			Journalf("ssh", "reponse HTTP lue (%d bytes), recherche SSH-", allBuf.Len())
+			Journalf("ssh", "reponse HTTP lue (%d bytes), recherche SSH- dans le flux", allBuf.Len())
+			Journalf("ssh", "apercu reponse HTTP: %.200s", strings.ReplaceAll(allBuf.String(), "\n", "|"))
 
 			if !foundSSH || serverVersion == "" {
 				sshDiagError("server version read", fmt.Errorf("no SSH banner found after HTTP response"),
@@ -236,7 +239,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				rawConn.Close()
 				return nil, nil, fmt.Errorf("ssh server version read: no SSH banner after HTTP")
 			}
-			Journalf("ssh", "server version: %s", serverVersion)
+			Journalf("ssh", "banniere SSH trouvee: %s", serverVersion)
 
 			// Wrapper qui re-joue la version du serveur lue, puis delègue à la
 			// connexion brute. La premiere ecriture (version client) est ignoree
@@ -253,6 +256,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				return nil, nil, err
 			}
 			sshStep("step 2/3 ssh handshake")
+			Journalf("ssh", "appel ssh.NewClientConn (envoi version client, echange de clés, auth)")
 			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 			if err != nil {
 				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
@@ -262,6 +266,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 			Tracef("[ssh] handshake OK")
 			sshStep("step 3/3 ssh session established")
 			client = ssh.NewClient(c, chans, reqs)
+			Journalf("ssh", "session SSH etablie avec succes")
 		} else {
 			// Pas de payload : connexion SSH directe classique.
 			conn, err = wrapSSHConn(cfg, rawConn, addr)
@@ -270,6 +275,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				return nil, nil, err
 			}
 			sshStep("step 2/3 ssh handshake")
+			Journalf("ssh", "appel ssh.NewClientConn (envoi version client, echange de clés, auth)")
 			c, chans, reqs, err := ssh.NewClientConn(conn, addr, sshCfg)
 			if err != nil {
 				sshDiagError("ssh handshake", err, sshDialHints(cfg, err))
@@ -279,6 +285,7 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 			Tracef("[ssh] handshake OK")
 			sshStep("step 3/3 ssh session established")
 			client = ssh.NewClient(c, chans, reqs)
+			Journalf("ssh", "session SSH etablie avec succes")
 		}
 
 		if client != nil {
@@ -1216,6 +1223,10 @@ func (c *sshVersionConn) Read(b []byte) (int, error) {
 func (c *sshVersionConn) Write(b []byte) (int, error) {
 	// La premiere ecriture (version du client SSH) est envoyee vraiment sur
 	// la connexion brute, car le serveur doit la recevoir pour envoyer son
-	// KEX_INIT. On ne l'ignore pas.
+	// KEX_INIT.
+	if !c.versionSent {
+		c.versionSent = true
+		Journalf("ssh", "envoi version client SSH: %s", strings.TrimSpace(string(b)))
+	}
 	return c.Conn.Write(b)
 }
