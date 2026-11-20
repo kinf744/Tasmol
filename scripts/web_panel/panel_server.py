@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import socket
 import ssl
 import sqlite3
 import sys
@@ -497,6 +498,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             days = int(data.get("days", 30))
             quota_mb = int(data.get("quota_mb", 0))
             multi_device = 1 if data.get("multi_device") else 0
+            allowed_uuids = data.get("allowed_uuids", "")
             if not phone or not valid_phone(phone):
                 send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
                 return
@@ -510,13 +512,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             c = conn.cursor()
             try:
                 c.execute("""
-                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-                """, (user_uuid, phone, name, code, expires, quota_mb, multi_device))
+                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, allowed_uuids, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (user_uuid, phone, name, code, expires, quota_mb, multi_device, allowed_uuids))
                 conn.commit()
                 user_id = c.lastrowid
                 conn.close()
-                log_admin("create_user", phone, f"days={days}, quota={quota_mb}")
+                log_admin("create_user", phone, f"days={days}, quota={quota_mb}, multi={multi_device}, uuids={allowed_uuids}")
                 send_json(self, {"ok": True, "user_id": user_id, "code": code})
             except sqlite3.IntegrityError:
                 conn.close()
@@ -534,6 +536,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 data = {}
             phone = data.get("phone", "")
             hours = int(data.get("hours", 1))
+            multi_device = 1 if data.get("multi_device") else 0
+            allowed_uuids = data.get("allowed_uuids", "")
             if not phone or not valid_phone(phone):
                 send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
                 return
@@ -547,13 +551,13 @@ class PanelHandler(BaseHTTPRequestHandler):
             c = conn.cursor()
             try:
                 c.execute("""
-                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, created_at)
-                    VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'))
-                """, (user_uuid, phone, "TEST", code, expires))
+                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, allowed_uuids, created_at)
+                    VALUES (?, ?, ?, ?, ?, 0, ?, ?, datetime('now'))
+                """, (user_uuid, phone, "TEST", code, expires, multi_device, allowed_uuids))
                 conn.commit()
                 user_id = c.lastrowid
                 conn.close()
-                log_admin("create_test_user", phone, f"hours={hours}")
+                log_admin("create_test_user", phone, f"hours={hours}, multi={multi_device}, uuids={allowed_uuids}")
                 send_json(self, {"ok": True, "user_id": user_id, "code": code, "expires": expires})
             except sqlite3.IntegrityError:
                 conn.close()
@@ -647,6 +651,52 @@ class PanelHandler(BaseHTTPRequestHandler):
                     INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
                     VALUES (?, ?, ?, 'vless', 'ws', 1, ?, ?, ?, ?, ?, ?, ?)
                 """, (user_id, m["addr"], 443, m["sni"], host or m["sni"], mode, mode, m["tier"], xray_uuid, m["path"]))
+            elif mode == "orange_fast3":
+                m = ORANGE_MODES["orange_fast3"]
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+                    VALUES (?, ?, ?, 'ssh', 'tcp', 0, ?, ?, 'orange_fast3', 'orange_fast3', '0', ?, ?, ?, ?, ?)
+                """, (user_id, m["addr"], m["port"], m["sni"], m["sni"], m["tier"], m["uuid"], m["path"], "danaelssh-damope", "damop", "GET / HTTP/1.1\r\nHost: m.batch.com\r\n\r\nX / HTTP/1.1\r\nHost: [host]\r\n\r\nGET /tieme HTTP/1.1\r\nHost: d76eob7wpy03j.cloudfront.net\r\nBackend: crashlyticsreports-pa.googleapis.com\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nUser-agent:\r\n\r\n"))
+            elif mode == "zivpn":
+                server_addr = get_domain()
+                server_addr = server_addr or (socket.gethostbyname(socket.gethostname()) if socket.gethostbyname(socket.gethostname()) != "127.0.0.1" else "127.0.0.1")
+                zivpn_pass = generate_secret()[:12]
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+                    VALUES (?, ?, ?, 'zivpn', 'udp', 0, ?, ?, 'camtel', 'zivpn', '150', ?, ?, ?)
+                """, (user_id, server_addr, 5667, server_addr, server_addr, xray_uuid, zivpn_pass, "10000-20000"))
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, zivpn_password, port_range)
+                    VALUES (?, ?, ?, 'zivpn', 'udp', 0, ?, ?, '', 'zivpn', '100', ?, ?, ?)
+                """, (user_id, server_addr, 5667, server_addr, server_addr, xray_uuid, zivpn_pass, "10000-20000"))
+            elif mode == "sshslowdns":
+                server_addr = get_domain()
+                server_addr = server_addr or (socket.gethostbyname(socket.gethostname()) if socket.gethostbyname(socket.gethostname()) != "127.0.0.1" else "127.0.0.1")
+                ns4 = "1.1.1.1"  # default NS
+                dnstt_pub = "default_pubkey"
+                ssh_user = "u" + str(user_id)
+                ssh_pass = generate_secret()[:12]
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+                    VALUES (?, ?, 22, 'ssh', 'dnstt', 0, ?, ?, '', 'sshslowdns', '150', ?, ?, ?, ?, ?)
+                """, (user_id, server_addr, server_addr, server_addr, xray_uuid, ns4, dnstt_pub, ssh_user, ssh_pass))
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey, ssh_user, ssh_pass)
+                    VALUES (?, ?, 22, 'ssh', 'dnstt', 0, ?, ?, '', 'sshslowdns', '150', ?, ?, ?, ?, ?)
+                """, (user_id, server_addr, server_addr, server_addr, xray_uuid, ns4, dnstt_pub, ssh_user, ssh_pass))
+            elif mode == "v2raydns":
+                server_addr = get_domain()
+                server_addr = server_addr or (socket.gethostbyname(socket.gethostname()) if socket.gethostbyname(socket.gethostname()) != "127.0.0.1" else "127.0.0.1")
+                nv4 = "1.1.1.1"  # default NS
+                dnstt_pub = "default_pubkey"
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+                    VALUES (?, ?, 443, 'vless', 'dnstt', 0, ?, ?, '', 'v2raydns', '150', ?, ?, ?)
+                """, (user_id, server_addr, server_addr, server_addr, xray_uuid, nv4, dnstt_pub))
+                c.execute("""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, nameserver, slowdns_pubkey)
+                    VALUES (?, ?, 443, 'vless', 'dnstt', 0, ?, ?, '', 'v2raydns', '150', ?, ?, ?)
+                """, (user_id, server_addr, server_addr, server_addr, xray_uuid, nv4, dnstt_pub))
             else:
                 send_json(self, {"ok": False, "error": "Mode inconnu"}, 400)
                 conn.close()
@@ -941,6 +991,28 @@ class PanelHandler(BaseHTTPRequestHandler):
 
         self.send_response(404)
         self.end_headers()
+
+def generate_secret():
+    import secrets
+    return secrets.token_hex(16)
+
+def get_domain():
+    """Get server domain or fallback to public IP"""
+    try:
+        import socket
+        # Try to get hostname
+        hostname = socket.gethostname()
+        ips = socket.gethostbyname_ex(hostname)[2]
+        for ip in ips:
+            if not ip.startswith("127.") and not ip.startswith("10.") and not ip.startswith("192.168."):
+                return ip
+        # If no public IP found, return first non-localhost
+        for ip in ips:
+            if not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+    return "99.86.91.72"  # fallback
 
 def valid_phone(phone):
     import re
