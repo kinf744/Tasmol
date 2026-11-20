@@ -460,12 +460,28 @@
                             <input type="number" id="cu-quota" class="form-input" value="0" placeholder="0 = illimité">
                         </div>
                     </div>
-                    <div>
-                        <label class="flex items-center gap-2 text-sm text-slate-700">
-                            <input type="checkbox" id="cu-multi" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500">
-                            Multi-appareil
-                        </label>
-                    </div>
+                    <fieldset class="border border-slate-200 rounded-lg p-4 space-y-3">
+                        <legend class="text-sm font-medium text-slate-700">Appareils autorisés</legend>
+                        <div class="space-y-2">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="cu-device-mode" value="mono" checked class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un seul UUID</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="cu-device-mode" value="multi" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">Multi-appareils — tout UUID accepté (partageable)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="cu-device-mode" value="custom" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">UUIDs définis — liste séparée par des virgules</span>
+                            </label>
+                        </div>
+                        <div id="cu-allowed-uuids" class="hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">UUIDs autorisés (virgule-séparés)</label>
+                            <input type="text" id="cu-uuids" class="form-input" placeholder="uuid1,uuid2,uuid3">
+                            <p class="text-xs text-slate-500 mt-1">Laisser vide pour autoriser tout UUID si multi, ou verrouiller sur premier UUID si mono</p>
+                        </div>
+                    </fieldset>
                     <div class="flex gap-3 pt-4">
                         <button type="button" onclick="closeCreateUserModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
                         <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
@@ -492,6 +508,27 @@
                         <label class="block text-sm font-medium text-slate-700 mb-1">Durée (heures)</label>
                         <input type="number" id="ctu-hours" class="form-input" value="1" min="1" max="24">
                     </div>
+                    <fieldset class="border border-slate-200 rounded-lg p-4 space-y-3">
+                        <legend class="text-sm font-medium text-slate-700">Appareils autorisés</legend>
+                        <div class="space-y-2">
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="ctu-device-mode" value="mono" checked class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un seul UUID</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="ctu-device-mode" value="multi" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">Multi-appareils — tout UUID accepté (partageable)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer">
+                                <input type="radio" name="ctu-device-mode" value="custom" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
+                                <span class="text-sm text-slate-700">UUIDs définis — liste séparée par des virgules</span>
+                            </label>
+                        </div>
+                        <div id="ctu-allowed-uuids" class="hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">UUIDs autorisés (virgule-séparés)</label>
+                            <input type="text" id="ctu-uuids" class="form-input" placeholder="uuid1,uuid2,uuid3">
+                        </div>
+                    </fieldset>
                     <div class="flex gap-3 pt-4">
                         <button type="button" onclick="closeCreateTestUserModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
                         <button type="submit" class="flex-1 px-4 py-3 bg-orange-600 text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
@@ -906,9 +943,9 @@
 
         // Modals
         function openCreateUserModal() { document.getElementById('createUserModal').classList.remove('hidden'); }
-        function closeCreateUserModal() { document.getElementById('createUserModal').classList.add('hidden'); document.getElementById('createUserForm').reset(); }
+        function closeCreateUserModal() { document.getElementById('createUserModal').classList.add('hidden'); document.getElementById('createUserForm').reset(); document.getElementById('cu-allowed-uuids').classList.add('hidden'); }
         function openCreateTestUserModal() { document.getElementById('createTestUserModal').classList.remove('hidden'); }
-        function closeCreateTestUserModal() { document.getElementById('createTestUserModal').classList.add('hidden'); document.getElementById('createTestUserForm').reset(); }
+        function closeCreateTestUserModal() { document.getElementById('createTestUserModal').classList.add('hidden'); document.getElementById('createTestUserForm').reset(); document.getElementById('ctu-allowed-uuids').classList.add('hidden'); }
         function openAddConfigModal(userId=0) { if(userId) document.getElementById('ac-user-id').value = userId; else document.getElementById('ac-user-id').value = ''; document.getElementById('addConfigModal').classList.remove('hidden'); }
         function closeAddConfigModal() { document.getElementById('addConfigModal').classList.add('hidden'); document.getElementById('addConfigForm').reset(); }
         function openAddResellerModal() { document.getElementById('addResellerModal').classList.remove('hidden'); }
@@ -920,10 +957,27 @@
         function openHostModal(mode) { document.getElementById('host-mode').value = mode; document.getElementById('host-value').value = document.getElementById(`host-input-${mode}`).value; document.getElementById('hostModal').classList.remove('hidden'); }
         function closeHostModal() { document.getElementById('hostModal').classList.add('hidden'); document.getElementById('hostForm').reset(); }
 
+        // Device mode radio handlers
+        document.querySelectorAll('input[name="cu-device-mode"]').forEach(r => r.addEventListener('change', () => {
+            document.getElementById('cu-allowed-uuids').classList.toggle('hidden', r.value !== 'custom');
+        }));
+        document.querySelectorAll('input[name="ctu-device-mode"]').forEach(r => r.addEventListener('change', () => {
+            document.getElementById('ctu-allowed-uuids').classList.toggle('hidden', r.value !== 'custom');
+        }));
+
         // Form submissions
         document.getElementById('createUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = { phone: document.getElementById('cu-phone').value, name: document.getElementById('cu-name').value, days: parseInt(document.getElementById('cu-days').value), quota_mb: parseInt(document.getElementById('cu-quota').value), multi_device: document.getElementById('cu-multi').checked ? 1 : 0 };
+            const deviceMode = document.querySelector('input[name="cu-device-mode"]:checked').value;
+            const allowedUuids = deviceMode === 'custom' ? document.getElementById('cu-uuids').value : '';
+            const data = { 
+                phone: document.getElementById('cu-phone').value, 
+                name: document.getElementById('cu-name').value, 
+                days: parseInt(document.getElementById('cu-days').value), 
+                quota_mb: parseInt(document.getElementById('cu-quota').value),
+                multi_device: deviceMode === 'multi' ? 1 : 0,
+                allowed_uuids: allowedUuids
+            };
             try {
                 const res = await fetch('/api/admin/create-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
                 const result = await res.json();
@@ -934,7 +988,14 @@
 
         document.getElementById('createTestUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = { phone: document.getElementById('ctu-phone').value, hours: parseInt(document.getElementById('ctu-hours').value) };
+            const deviceMode = document.querySelector('input[name="ctu-device-mode"]:checked').value;
+            const allowedUuids = deviceMode === 'custom' ? document.getElementById('ctu-uuids').value : '';
+            const data = { 
+                phone: document.getElementById('ctu-phone').value, 
+                hours: parseInt(document.getElementById('ctu-hours').value),
+                multi_device: deviceMode === 'multi' ? 1 : 0,
+                allowed_uuids: allowedUuids
+            };
             try {
                 const res = await fetch('/api/admin/create-test-user', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
                 const result = await res.json();
