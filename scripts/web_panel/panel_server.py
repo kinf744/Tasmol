@@ -89,7 +89,8 @@ def init_web_db():
             configs_created INTEGER DEFAULT 0,
             expires_at TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            is_active INTEGER DEFAULT 1
+            is_active INTEGER DEFAULT 1,
+            allowed_configs TEXT DEFAULT ''
         )
     """)
     c.execute("""
@@ -908,20 +909,27 @@ class PanelHandler(BaseHTTPRequestHandler):
             quota_gb = int(data.get("quota_gb", 0))
             max_cfgs = int(data.get("max_configs", 0))
             days = int(data.get("days", 30))
+            allowed_configs = data.get("allowed_configs", [])
             if not username:
                 send_json(self, {"ok": False, "error": "Nom requis"}, 400)
                 return
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             try:
+                # Ensure allowed_configs column exists
+                c.execute("PRAGMA table_info(resellers)")
+                cols = [row[1] for row in c.fetchall()]
+                if "allowed_configs" not in cols:
+                    c.execute("ALTER TABLE resellers ADD COLUMN allowed_configs TEXT DEFAULT ''")
+                allowed_configs_json = json.dumps(allowed_configs)
                 c.execute("""
-                    INSERT INTO resellers (username, password_hash, quota_data_gb, max_configs, expires_at)
-                    VALUES (?, ?, ?, ?, datetime('now', '+{} days'))
-                """.format(days), (username, hashlib.sha256(password.encode()).hexdigest(), quota_gb, max_cfgs))
+                    INSERT INTO resellers (username, password_hash, quota_data_gb, max_configs, expires_at, allowed_configs)
+                    VALUES (?, ?, ?, ?, datetime('now', '+{} days'), ?)
+                """.format(days), (username, hashlib.sha256(password.encode()).hexdigest(), quota_gb, max_cfgs, allowed_configs_json))
                 conn.commit()
                 reseller_id = c.lastrowid
                 conn.close()
-                log_admin("create_reseller", username, f"quota={quota_gb}")
+                log_admin("create_reseller", username, f"quota={quota_gb}, configs={allowed_configs_json}")
                 send_json(self, {"ok": True, "reseller_id": reseller_id})
             except sqlite3.IntegrityError:
                 conn.close()

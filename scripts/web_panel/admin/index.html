@@ -634,7 +634,7 @@
     <div id="addResellerModal" class="fixed inset-0 z-50 hidden">
         <div class="absolute inset-0 modal-overlay" onclick="closeAddResellerModal()"></div>
         <div class="absolute inset-0 flex items-center justify-center p-4">
-            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
                 <div class="flex items-center justify-between mb-6">
                     <h3 class="text-lg font-bold text-slate-800">Nouveau Revendeur</h3>
                     <button onclick="closeAddResellerModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
@@ -659,19 +659,75 @@
                             <input type="number" id="reseller-quota" value="0" class="form-input" placeholder="0 = illimité">
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-slate-700 mb-1">Configs Max</label>
-                            <input type="number" id="reseller-max-cfgs" value="0" class="form-input" placeholder="0 = illimité">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">Durée (jours)</label>
+                            <input type="number" id="reseller-days" value="30" class="form-input" min="1">
                         </div>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-slate-700 mb-1">Durée (jours)</label>
-                        <input type="number" id="reseller-days" value="30" class="form-input" min="1">
+                        <label class="block text-sm font-medium text-slate-700 mb-2">Configs autorisées (cochez une ou plusieurs)</label>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto border border-slate-200 rounded-lg p-3 bg-slate-50">
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="orange" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange (XHTTP)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="orange_fast" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange Fast (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="orange_fast2" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-bolt text-orange-500 mr-2"></i>Orange Fast 2 (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="orange_fast3" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-terminal text-green-500 mr-2"></i>Orange Fast 3 (SSH + Payload)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="mtn_unlimited" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-sim-card text-blue-500 mr-2"></i>MTN Illimité (WS TLS)</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="zivpn" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-wave-square text-purple-500 mr-2"></i>ZIVPN — Camtel UDP</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="sshslowdns" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-key text-amber-500 mr-2"></i>SSH + SlowDNS</span>
+                            </label>
+                            <label class="flex items-center gap-2 cursor-pointer hover:bg-slate-100 rounded p-2 transition">
+                                <input type="checkbox" name="reseller-configs" value="v2raydns" class="w-4 h-4 text-slate-600 rounded border-slate-300 focus:ring-slate-500" checked>
+                                <span class="text-sm text-slate-700"><i class="fa-solid fa-cloud-arrow-up text-cyan-500 mr-2"></i>V2Ray + SlowDNS</span>
+                            </label>
+                        </div>
+                        <p class="text-xs text-slate-500 mt-1">Cochez les configs que ce revendeur peut créer</p>
                     </div>
                     <div class="flex gap-3 pt-4">
                         <button type="button" onclick="closeAddResellerModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Annuler</button>
                         <button type="submit" class="flex-1 px-4 py-3 btn-gradient text-white font-semibold rounded-lg hover:shadow-lg">Créer</button>
                     </div>
                 </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Succès Création Revendeur -->
+    <div id="resellerSuccessModal" class="fixed inset-0 z-50 hidden">
+        <div class="absolute inset-0 modal-overlay" onclick="closeResellerSuccessModal()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="glass-card w-full max-w-md p-6 rounded-2xl shadow-2xl">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-lg font-bold text-slate-800">Revendeur créé avec succès</h3>
+                    <button onclick="closeResellerSuccessModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-times"></i></button>
+                </div>
+                <div class="space-y-3" id="resellerSuccessDetails">
+                    <!-- rempli dynamiquement -->
+                </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="closeResellerSuccessModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Fermer</button>
+                    <button onclick="copyResellerSuccessDetails()" class="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:shadow-lg">
+                        <i class="fa-solid fa-copy mr-2"></i> Copier tout
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -1056,6 +1112,44 @@
             });
         }
 
+        // Reseller Success Modal
+        function openResellerSuccessModal(details) {
+            const container = document.getElementById('resellerSuccessDetails');
+            container.innerHTML = details.map(d => `
+                <div class="flex justify-between py-2 border-b border-slate-100">
+                    <span class="text-slate-500">${d.label}</span>
+                    <span class="font-medium text-slate-800 font-mono text-sm">${d.value}</span>
+                </div>
+            `).join('');
+            document.getElementById('resellerSuccessModal').classList.remove('hidden');
+        }
+        function closeResellerSuccessModal() {
+            document.getElementById('resellerSuccessModal').classList.add('hidden');
+        }
+        function copyResellerSuccessDetails() {
+            const items = document.querySelectorAll('#resellerSuccessDetails .flex');
+            const text = Array.from(items).map(el => {
+                const label = el.querySelector('.text-slate-500').textContent;
+                const value = el.querySelector('.font-mono').textContent;
+                return `${label}: ${value}`;
+            }).join('\n');
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.querySelector('#resellerSuccessModal button[onclick="copyResellerSuccessDetails()"]');
+                const original = btn.innerHTML;
+                btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
+                btn.classList.remove('bg-green-600');
+                btn.classList.add('bg-green-700');
+                setTimeout(() => {
+                    btn.innerHTML = original;
+                    btn.classList.remove('bg-green-700');
+                    btn.classList.add('bg-green-600');
+                }, 2000);
+            }).catch(err => {
+                console.error('Erreur copie:', err);
+                alert('Erreur lors de la copie');
+            });
+        }
+
         // Device mode radio handlers
         document.querySelectorAll('input[name="cu-device-mode"]').forEach(r => r.addEventListener('change', () => {
             document.getElementById('cu-allowed-uuids').classList.toggle('hidden', r.value !== 'custom');
@@ -1159,11 +1253,33 @@
 
         document.getElementById('addResellerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const data = { username: document.getElementById('reseller-username').value, password: document.getElementById('reseller-password').value, quota_gb: parseInt(document.getElementById('reseller-quota').value), max_configs: parseInt(document.getElementById('reseller-max-cfgs').value), days: parseInt(document.getElementById('reseller-days').value) };
+            const configs = Array.from(document.querySelectorAll('input[name="reseller-configs"]:checked')).map(cb => cb.value);
+            const data = { 
+                username: document.getElementById('reseller-username').value, 
+                password: document.getElementById('reseller-password').value, 
+                quota_gb: parseInt(document.getElementById('reseller-quota').value), 
+                max_configs: configs.length,  // nombre de configs sélectionnées
+                days: parseInt(document.getElementById('reseller-days').value),
+                allowed_configs: configs  // envoyer les configs sélectionnées
+            };
             try {
                 const res = await fetch('/api/admin/create-reseller', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
                 const result = await res.json();
-                if (result.ok) { closeAddResellerModal(); loadResellers(); alert('Revendeur créé (ID: ' + result.reseller_id + ')'); }
+                if (result.ok) { 
+                    closeAddResellerModal(); 
+                    loadResellers(); 
+                    // Afficher le modal de succès avec détails
+                    const quotaText = data.quota_gb === 0 ? 'Illimité' : data.quota_gb + ' Go';
+                    const configsText = configs.length > 0 ? configs.join(', ') : 'Aucune';
+                    openResellerSuccessModal([
+                        {label: 'Nom du revendeur', value: data.username},
+                        {label: 'Mot de passe', value: data.password},
+                        {label: 'Quota Data', value: quotaText},
+                        {label: 'Durée', value: data.days + ' jour(s)'},
+                        {label: 'Configs autorisées', value: configsText},
+                        {label: 'ID Revendeur', value: result.reseller_id}
+                    ]);
+                }
                 else alert(result.error || 'Erreur');
             } catch (err) { alert('Erreur de connexion'); }
         });
