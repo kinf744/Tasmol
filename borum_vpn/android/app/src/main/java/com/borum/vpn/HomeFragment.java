@@ -548,9 +548,7 @@ public class HomeFragment extends Fragment {
                         Toast.LENGTH_LONG).show();
             }
             ApiSession.activate(requireContext(), c);
-            Toast.makeText(requireContext(),
-                    "Active: " + c.optString("label", "config"), Toast.LENGTH_SHORT).show();
-// Editeur SSH pour Orange Fast 3 et tunnels SSH
+            // Editeur SSH pour Orange Fast 3 et tunnels SSH
             if (("ssh".equalsIgnoreCase(c.optString("mode", "")))
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))) {
                 showSshConfigEditor(c);
@@ -622,59 +620,34 @@ public class HomeFragment extends Fragment {
         final android.widget.EditText etUser = new android.widget.EditText(ctx);
         etUser.setHint("Utilisateur SSH");
         etUser.setText(cfg.optString("ssh_user", cfg.optString("username", "")));
+        etUser.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        etUser.setEnabled(false);
         layout.addView(etUser);
 
         final android.widget.EditText etPass = new android.widget.EditText(ctx);
         etPass.setHint("Mot de passe SSH");
         etPass.setText(cfg.optString("ssh_pass", cfg.optString("password", "")));
         etPass.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        etPass.setEnabled(false);
         layout.addView(etPass);
 
         final android.widget.EditText etPath = new android.widget.EditText(ctx);
-        etPath.setHint("Path (ex: /tieme)");
+        etPath.setHint("Path");
         etPath.setText(cfg.optString("path", ""));
+        etPath.setEnabled(false);
         layout.addView(etPath);
 
         final android.widget.EditText etPayload = new android.widget.EditText(ctx);
-        etPayload.setHint("Payload HTTP (multi-ligne)");
+        etPayload.setHint("Payload HTTP");
         etPayload.setText(cfg.optString("ssh_payload", ""));
         etPayload.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE);
         etPayload.setMinLines(4);
         etPayload.setMaxLines(8);
+        etPayload.setEnabled(false);
         layout.addView(etPayload);
 
         d.setView(layout);
-        d.setPositiveButton("Enregistrer", (dialog, which) -> {
-            String u = etUser.getText().toString().trim();
-            String p = etPass.getText().toString().trim();
-            String pa = etPath.getText().toString().trim();
-            String pl = etPayload.getText().toString().trim();
-            try {
-                applySshFields(cfg, u, p, pa, pl);
-                org.json.JSONArray cfgs = ApiSession.configs(ctx);
-                JSONObject stored = findStoredConfig(cfgs, cfg);
-                if (stored == null) {
-                    stored = cfg;
-                } else if (stored != cfg) {
-                    applySshFields(stored, u, p, pa, pl);
-                }
-                ApiSession.saveConfigs(ctx, cfgs);
-                Toast.makeText(ctx, "Config SSH mise à jour", Toast.LENGTH_SHORT).show();
-                try {
-                    ApiSession.activate(ctx, stored);
-                } catch (Exception ignored) {
-                }
-                BinaryManager.writeKighmuTxt(ctx, buildSshKighmuReport(
-                        stored.optString("mode", "ssh"), stored.optString("label", "SSH"),
-                        stored.optString("address", stored.optString("server_address", "")),
-                        stored.optInt("port", stored.optInt("server_port", 22)),
-                        u, p, pa, pl, stored.optString("sni", ""),
-                        "MODIFIE", null));
-                populateApiSpinner(ctx);
-            } catch (Exception e) {
-                Toast.makeText(ctx, "Erreur: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            }
-        });
+        d.setPositiveButton("Fermer", null);
         d.setNegativeButton("Annuler", null);
         d.show();
     }
