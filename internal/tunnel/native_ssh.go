@@ -223,20 +223,32 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 		responseStr := headerBuf.String()
 			if strings.HasPrefix(responseStr, "HTTP/") {
 				// Mode HTTP proxy + SSH (Orange Fast 3) : le proxy repond 301/101,
-				// puis envoie sa banniere SSH. Lire jusqu'a trouver "SSH-2.0-...".
+				// puis envoie sa banniere SSH. Lire octet par octet jusqu'a trouver
+				// "SSH-2.0-..." sans consommer de donnees supplementaires dans un
+				// buffer bufio (ce qui corromprait le handshake SSH suivant).
 				sshStep("mode HTTP proxy detecte, lecture de la banniere SSH apres les en-têtes HTTP")
 				_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-				reader := bufio.NewReader(rawConn)
 				serverVersion := ""
+				buf := make([]byte, 1)
+				var line []byte
 				for {
-					line, err := reader.ReadString('\n')
+					n, err := rawConn.Read(buf)
+					if n > 0 {
+						line = append(line, buf[0])
+						if buf[0] == '\n' {
+							s := strings.TrimSpace(string(line))
+							if strings.HasPrefix(s, "SSH-") {
+								serverVersion = s
+								break
+							}
+							line = nil
+						}
+					}
 					if err != nil {
 						break
 					}
-					line = strings.TrimSpace(line)
-					if strings.HasPrefix(line, "SSH-") {
-						serverVersion = line
-						break
+					if len(line) > 256 {
+						line = nil
 					}
 				}
 				_ = rawConn.SetReadDeadline(time.Time{})
