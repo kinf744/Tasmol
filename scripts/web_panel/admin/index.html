@@ -547,7 +547,12 @@
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-slate-700 mb-1">Mot de passe</label>
-                        <input type="password" id="reseller-password" value="admin123" class="form-input">
+                        <div class="relative">
+                            <input type="password" id="reseller-password" value="admin123" class="form-input pr-10">
+                            <button type="button" onclick="togglePassword('reseller-password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                <i class="fa-solid fa-eye" id="reseller-password-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>
@@ -1052,6 +1057,21 @@
                 if (result.ok) { loadHosts(); alert('Host enregistré'); }
                 else alert(result.error || 'Erreur');
             } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        // Toggle password visibility
+        function togglePassword(inputId) {
+            const input = document.getElementById(inputId);
+            const eye = document.getElementById(inputId + '-eye');
+            if (input.type === 'password') {
+                input.type = 'text';
+                eye.classList.remove('fa-eye');
+                eye.classList.add('fa-eye-slash');
+            } else {
+                input.type = 'password';
+                eye.classList.remove('fa-eye-slash');
+                eye.classList.add('fa-eye');
+            }
         }
 
         loadDashboard();
