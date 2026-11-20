@@ -1214,9 +1214,8 @@ func (c *sshVersionConn) Read(b []byte) (int, error) {
 }
 
 func (c *sshVersionConn) Write(b []byte) (int, error) {
-	if !c.versionSent {
-		c.versionSent = true
-		return len(b), nil
-	}
+	// La premiere ecriture (version du client SSH) est envoyee vraiment sur
+	// la connexion brute, car le serveur doit la recevoir pour envoyer son
+	// KEX_INIT. On ne l'ignore pas.
 	return c.Conn.Write(b)
 }
