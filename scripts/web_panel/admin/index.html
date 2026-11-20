@@ -465,7 +465,7 @@
                         <div class="space-y-2">
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="radio" name="cu-device-mode" value="mono" checked class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
-                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un seul UUID</span>
+                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un UUID</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="radio" name="cu-device-mode" value="multi" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
@@ -477,9 +477,14 @@
                             </label>
                         </div>
                         <div id="cu-allowed-uuids" class="hidden">
-                            <label class="block text-sm font-medium text-slate-700 mb-1">UUIDs autorisés (virgule-séparés)</label>
+                            <label class="block text-sm font-medium text-slate-700 mb-1">UUID(s) autorisé(s) (virgule-séparés)</label>
                             <input type="text" id="cu-uuids" class="form-input" placeholder="uuid1,uuid2,uuid3">
-                            <p class="text-xs text-slate-500 mt-1">Laisser vide pour autoriser tout UUID si multi, ou verrouiller sur premier UUID si mono</p>
+                            <p class="text-xs text-slate-500 mt-1">Pour Mono: un UUID ; Pour Custom: liste séparée par virgules</p>
+                        </div>
+                        <div id="cu-single-uuid" class="hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">UUID à verrouiller</label>
+                            <input type="text" id="cu-uuid" class="form-input" placeholder="uuid-du-premier-appareil">
+                            <p class="text-xs text-slate-500 mt-1">Optionnel: si laissé vide, verrouille sur le premier appareil qui se connecte</p>
                         </div>
                     </fieldset>
                     <div class="flex gap-3 pt-4">
@@ -513,7 +518,7 @@
                         <div class="space-y-2">
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="radio" name="ctu-device-mode" value="mono" checked class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
-                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un seul UUID</span>
+                                <span class="text-sm text-slate-700">Mono-appareil — verrouillé sur un UUID</span>
                             </label>
                             <label class="flex items-center gap-2 cursor-pointer">
                                 <input type="radio" name="ctu-device-mode" value="multi" class="w-4 h-4 text-slate-600 border-slate-300 focus:ring-slate-500">
@@ -527,6 +532,12 @@
                         <div id="ctu-allowed-uuids" class="hidden">
                             <label class="block text-sm font-medium text-slate-700 mb-1">UUIDs autorisés (virgule-séparés)</label>
                             <input type="text" id="ctu-uuids" class="form-input" placeholder="uuid1,uuid2,uuid3">
+                            <p class="text-xs text-slate-500 mt-1">Pour Mono: un UUID ; Pour Custom: liste séparée par virgules</p>
+                        </div>
+                        <div id="ctu-single-uuid" class="hidden">
+                            <label class="block text-sm font-medium text-slate-700 mb-1">UUID à verrouiller</label>
+                            <input type="text" id="ctu-uuid" class="form-input" placeholder="uuid-du-premier-appareil">
+                            <p class="text-xs text-slate-500 mt-1">Optionnel: si laissé vide, verrouille sur le premier appareil qui se connecte</p>
                         </div>
                     </fieldset>
                     <div class="flex gap-3 pt-4">
@@ -960,16 +971,23 @@
         // Device mode radio handlers
         document.querySelectorAll('input[name="cu-device-mode"]').forEach(r => r.addEventListener('change', () => {
             document.getElementById('cu-allowed-uuids').classList.toggle('hidden', r.value !== 'custom');
+            document.getElementById('cu-single-uuid').classList.toggle('hidden', r.value !== 'mono');
         }));
         document.querySelectorAll('input[name="ctu-device-mode"]').forEach(r => r.addEventListener('change', () => {
             document.getElementById('ctu-allowed-uuids').classList.toggle('hidden', r.value !== 'custom');
+            document.getElementById('ctu-single-uuid').classList.toggle('hidden', r.value !== 'mono');
         }));
 
         // Form submissions
         document.getElementById('createUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const deviceMode = document.querySelector('input[name="cu-device-mode"]:checked').value;
-            const allowedUuids = deviceMode === 'custom' ? document.getElementById('cu-uuids').value : '';
+            let allowedUuids = '';
+            if (deviceMode === 'custom') {
+                allowedUuids = document.getElementById('cu-uuids').value;
+            } else if (deviceMode === 'mono') {
+                allowedUuids = document.getElementById('cu-uuid').value;
+            }
             const data = { 
                 phone: document.getElementById('cu-phone').value, 
                 name: document.getElementById('cu-name').value, 
@@ -989,7 +1007,12 @@
         document.getElementById('createTestUserForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const deviceMode = document.querySelector('input[name="ctu-device-mode"]:checked').value;
-            const allowedUuids = deviceMode === 'custom' ? document.getElementById('ctu-uuids').value : '';
+            let allowedUuids = '';
+            if (deviceMode === 'custom') {
+                allowedUuids = document.getElementById('ctu-uuids').value;
+            } else if (deviceMode === 'mono') {
+                allowedUuids = document.getElementById('ctu-uuid').value;
+            }
             const data = { 
                 phone: document.getElementById('ctu-phone').value, 
                 hours: parseInt(document.getElementById('ctu-hours').value),
