@@ -147,89 +147,122 @@
                     <h2 class="text-xl font-bold text-slate-800">Vue d'ensemble</h2>
                     <p class="text-slate-600 text-sm mt-1">Surveillance de votre infrastructure VPN</p>
                 </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-8 gap-6 mb-8">
+
+                <!-- System Resources Row - Circular Progress Indicators -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Utilisateurs actifs</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-active-users">-</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                                <i class="fa-solid fa-user-group"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Utilisateurs expirés</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-expired-users">-</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-lg bg-yellow-50 flex items-center justify-center text-yellow-600">
-                                <i class="fa-solid fa-clock"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Configs</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-configs">-</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
-                                <i class="fa-solid fa-layer-group"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Serveurs</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-servers">-</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-600">
-                                <i class="fa-solid fa-server"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Quota Total</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-total-quota">-</h3>
-                            </div>
-                            <div class="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center text-emerald-600">
-                                <i class="fa-solid fa-database"></i>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="glass-card p-6 rounded-xl shadow-sm">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">CPU Libre</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-cpu-free">-</h3>
+                            <div class="flex-1">
+                                <p class="text-sm text-slate-500">CPU</p>
+                                <div class="flex items-center gap-4 mt-2">
+                                    <div class="relative w-20 h-20">
+                                        <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                            <circle id="cpu-progress" cx="50" cy="50" r="45" fill="none" stroke="#f97316" stroke-width="8" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                        <div class="absolute inset-0 flex items-center justify-center">
+                                            <div class="text-center">
+                                                <h3 id="cpu-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <p class="text-xs text-slate-500">Utilisé</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-slate-500">Cœurs</p>
+                                        <h3 id="cpu-cores" class="font-bold text-slate-800">-</h3>
+                                        <p class="text-xs text-slate-400" id="cpu-frequency">-</p>
+                                    </div>
+                                </div>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center text-orange-600">
                                 <i class="fa-solid fa-microchip"></i>
                             </div>
                         </div>
                     </div>
+
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">RAM Libre</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-ram-free">-</h3>
+                            <div class="flex-1">
+                                <p class="text-sm text-slate-500">Mémoire</p>
+                                <div class="flex items-center gap-4 mt-2">
+                                    <div class="relative w-20 h-20">
+                                        <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                            <circle id="mem-progress" cx="50" cy="50" r="45" fill="none" stroke="#ec4899" stroke-width="8" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                        <div class="absolute inset-0 flex items-center justify-center">
+                                            <div class="text-center">
+                                                <h3 id="mem-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <p class="text-xs text-slate-500">Utilisé</p>
+                                            </div>
+                                        </div>
+                                    </svg>
+                                    <div>
+                                        <p class="text-sm text-slate-500">Total / Dispo</p>
+                                        <h3 id="mem-total" class="font-bold text-slate-800">-</h3>
+                                        <p class="text-xs text-slate-400" id="mem-available">-</p>
+                                    </div>
+                                </div>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-rose-50 flex items-center justify-center text-rose-600">
                                 <i class="fa-solid fa-memory"></i>
                             </div>
                         </div>
                     </div>
+
                     <div class="glass-card p-6 rounded-xl shadow-sm">
                         <div class="flex items-center justify-between">
-                            <div>
-                                <p class="text-sm text-slate-500">Disque Libre</p>
-                                <h3 class="text-2xl font-bold text-slate-800" id="stat-disk-free">-</h3>
+                            <div class="flex-1">
+                                <p class="text-sm text-slate-500">Swap</p>
+                                <div class="flex items-center gap-4 mt-2">
+                                    <div class="relative w-20 h-20">
+                                        <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                            <circle id="swap-progress" cx="50" cy="50" r="45" fill="none" stroke="#8b5cf6" stroke-width="8" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                        <div class="absolute inset-0 flex items-center justify-center">
+                                            <div class="text-center">
+                                                <h3 id="swap-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <p class="text-xs text-slate-500">Utilisé</p>
+                                            </div>
+                                        </div>
+                                    </svg>
+                                    <div>
+                                        <p class="text-sm text-slate-500">Total / Libre</p>
+                                        <h3 id="swap-total" class="font-bold text-slate-800">-</h3>
+                                        <p class="text-xs text-slate-400" id="swap-free">-</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center text-purple-600">
+                                <i class="fa-solid fa-exchange-alt"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1">
+                                <p class="text-sm text-slate-500">Disque</p>
+                                <div class="flex items-center gap-4 mt-2">
+                                    <div class="relative w-20 h-20">
+                                        <svg class="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+                                            <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" stroke-width="8"/>
+                                            <circle id="disk-progress" cx="50" cy="50" r="45" fill="none" stroke="#14b8a6" stroke-width="8" stroke-linecap="round"
+                                                stroke-dasharray="283" stroke-dashoffset="283" style="transition: stroke-dashoffset 0.5s ease;"></svg>
+                                        <div class="absolute inset-0 flex items-center justify-center">
+                                            <div class="text-center">
+                                                <h3 id="disk-used-percent" class="text-xl font-bold text-slate-800">-</h3>
+                                                <p class="text-xs text-slate-500">Utilisé</p>
+                                            </div>
+                                        </div>
+                                    </svg>
+                                    <div>
+                                        <p class="text-sm text-slate-500">Total / Libre</p>
+                                        <h3 id="disk-total" class="font-bold text-slate-800">-</h3>
+                                        <p class="text-xs text-slate-400" id="disk-free">-</p>
+                                    </div>
+                                </div>
                             </div>
                             <div class="w-10 h-10 rounded-lg bg-teal-50 flex items-center justify-center text-teal-600">
                                 <i class="fa-solid fa-hard-drive"></i>
@@ -237,6 +270,202 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Network & System Stats Row -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-arrow-up text-green-500"></i> Upload
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Vitesse actuelle</span>
+                                <span class="font-bold text-green-600" id="net-up-speed">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Total envoyé</span>
+                                <span class="font-bold text-slate-800" id="net-total-sent">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Paquets envoyés</span>
+                                <span class="font-mono text-slate-600" id="net-packets-sent">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-arrow-down text-rose-500"></i> Download
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Vitesse actuelle</span>
+                                <span class="font-bold text-rose-600" id="net-down-speed">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Total reçu</span>
+                                <span class="font-bold text-slate-800" id="net-total-recv">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Paquets reçus</span>
+                                <span class="font-mono text-slate-600" id="net-packets-recv">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-swap text-blue-500"></i> Connexions
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">TCP établies</span>
+                                <span class="font-bold text-blue-600" id="conn-tcp">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">UDP</span>
+                                <span class="font-bold text-blue-600" id="conn-udp">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Total trafic</span>
+                                <span class="font-bold text-slate-800" id="total-traffic">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-gauge text-indigo-500"></i> Charge Système
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Load 1min</span>
+                                <span class="font-bold text-slate-800" id="load-1m">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Load 5min</span>
+                                <span class="font-bold text-slate-800" id="load-5m">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Load 15min</span>
+                                <span class="font-bold text-slate-800" id="load-15m">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tunnel Status & Xray Info Row -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-server text-blue-500"></i> Statut Xray
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Statut</span>
+                                <span id="xray-status" class="px-2 py-1 rounded-full text-xs font-medium">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Version</span>
+                                <span class="font-mono text-slate-800" id="xray-version">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Uptime Xray</span>
+                                <span class="font-mono text-slate-600" id="xray-uptime">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Uptime Système</span>
+                                <span class="font-mono text-slate-600" id="system-uptime">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-database text-emerald-500"></i> Quota & Utilisateurs
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Quota Total</span>
+                                <span class="font-bold text-emerald-600" id="total-quota-gb">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Utilisateurs Actifs</span>
+                                <span class="font-bold text-blue-600" id="active-users">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Configs Actives</span>
+                                <span class="font-bold text-purple-600" id="active-configs">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Serveurs</span>
+                                <span class="font-bold text-indigo-600" id="servers-count">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-chart-bar text-purple-500"></i> CPU Détail
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Cœurs physiques</span>
+                                <span class="font-bold text-slate-800" id="cpu-physical">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Cœurs logiques</span>
+                                <span class="font-bold text-slate-800" id="cpu-logical">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Fréquence</span>
+                                <span class="font-bold text-slate-800" id="cpu-freq">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Charge (1/5/15)</span>
+                                <span class="font-mono text-slate-600" id="cpu-load">-</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card p-6 rounded-xl shadow-sm">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                                <i class="fa-solid fa-globe text-teal-500"></i> IP & Réseau
+                            </h3>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Trafic Total</span>
+                                <span class="font-bold text-slate-800" id="total-traffic">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Envoyé / Reçu</span>
+                                <span class="font-mono text-slate-600" id="net-sent-recv">-</span>
+                            </div>
+                            <div class="flex justify-between text-sm">
+                                <span class="text-slate-500">Connexions TCP/UDP</span>
+                                <span class="font-bold text-blue-600" id="conn-summary">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Recent Configs -->
                 <div class="glass-card p-6 rounded-xl shadow-sm">
                     <h3 class="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
                         <i class="fa-solid fa-list text-slate-400"></i> Configs Orange Fast 3 récentes
@@ -924,9 +1153,96 @@
                 document.getElementById('stat-servers').textContent = data.servers || 0;
                 if (data.system) {
                     document.getElementById('stat-total-quota').textContent = data.system.total_quota_gb + ' Go';
-                    document.getElementById('stat-cpu-free').textContent = data.system.cpu_free_percent + '%';
-                    document.getElementById('stat-ram-free').textContent = data.system.ram_free_percent + '%';
-                    document.getElementById('stat-disk-free').textContent = data.system.disk_free_percent + '%';
+                    document.getElementById('stat-cpu-free').textContent = data.system.cpu.free_percent + '%';
+                    document.getElementById('stat-ram-free').textContent = data.system.memory.free_percent + '%';
+                    document.getElementById('stat-disk-free').textContent = data.system.disk.free_percent + '%';
+
+                    // Circular progress indicators
+                    updateCircularProgress('cpu-progress', 'cpu-used-percent', data.system.cpu.used_percent, '#f97316');
+                    updateCircularProgress('mem-progress', 'mem-used-percent', data.system.memory.used_percent, '#ec4899');
+                    updateCircularProgress('swap-progress', 'swap-used-percent', data.system.swap.used_percent, '#8b5cf6');
+                    updateCircularProgress('disk-progress', 'disk-used-percent', data.system.disk.used_percent, '#14b8a6');
+
+                    // CPU details
+                    document.getElementById('cpu-cores').textContent = data.system.cpu.cores + ' / ' + data.system.cpu.logical_cores;
+                    document.getElementById('cpu-frequency').textContent = data.system.cpu.frequency_mhz + ' MHz';
+                    document.getElementById('cpu-load').textContent = data.system.cpu.load_avg.map(l => l.toFixed(2)).join(' / ');
+                    document.getElementById('cpu-physical').textContent = data.system.cpu.cores;
+                    document.getElementById('cpu-logical').textContent = data.system.cpu.logical_cores;
+                    document.getElementById('cpu-freq').textContent = data.system.cpu.frequency_mhz + ' MHz';
+
+                    // Memory
+                    document.getElementById('mem-total').textContent = data.system.memory.total_gb + ' Go';
+                    document.getElementById('mem-available').textContent = data.system.memory.available_gb + ' Go';
+                    document.getElementById('mem-used-percent').textContent = data.system.memory.used_percent + '%';
+
+                    // Swap
+                    document.getElementById('swap-total').textContent = data.system.swap.total_gb + ' Go';
+                    document.getElementById('swap-free').textContent = data.system.swap.free_percent + '% libre';
+                    document.getElementById('swap-used-percent').textContent = data.system.swap.used_percent + '%';
+
+                    // Disk
+                    document.getElementById('disk-total').textContent = data.system.disk.total_gb + ' Go';
+                    document.getElementById('disk-free').textContent = data.system.disk.free_gb + ' Go libre';
+                    document.getElementById('disk-used-percent').textContent = data.system.disk.used_percent + '%';
+
+                    // Network
+                    document.getElementById('net-up-speed').textContent = formatSpeed(data.system.network.bytes_sent);
+                    document.getElementById('net-down-speed').textContent = formatSpeed(data.system.network.bytes_recv);
+                    document.getElementById('net-total-sent').textContent = formatBytes(data.system.network.bytes_sent);
+                    document.getElementById('net-total-recv').textContent = formatBytes(data.system.network.bytes_recv);
+                    document.getElementById('net-packets-sent').textContent = data.system.network.packets_sent.toLocaleString();
+                    document.getElementById('net-packets-recv').textContent = data.system.network.packets_recv.toLocaleString();
+
+                    // Connections
+                    document.getElementById('conn-tcp').textContent = data.system.connections.tcp;
+                    document.getElementById('conn-udp').textContent = data.system.connections.udp;
+                    document.getElementById('total-traffic').textContent = formatBytes(data.system.network.bytes_sent + data.system.network.bytes_recv);
+                    document.getElementById('conn-tcp').textContent = data.system.connections.tcp;
+                    document.getElementById('conn-udp').textContent = data.system.connections.udp;
+                    document.getElementById('conn-summary').textContent = data.system.connections.tcp + ' TCP / ' + data.system.connections.udp + ' UDP';
+
+                    // Load averages
+                    const loads = data.system.cpu.load_avg;
+                    document.getElementById('load-1m').textContent = loads[0].toFixed(2);
+                    document.getElementById('load-5m').textContent = loads[1].toFixed(2);
+                    document.getElementById('load-15m').textContent = loads[2].toFixed(2);
+                    document.getElementById('cpu-load').textContent = loads.map(l => l.toFixed(2)).join(' / ');
+
+                    // CPU details
+                    document.getElementById('cpu-physical').textContent = data.system.cpu.cores;
+                    document.getElementById('cpu-logical').textContent = data.system.cpu.logical_cores;
+                    document.getElementById('cpu-freq').textContent = data.system.cpu.frequency_mhz + ' MHz';
+
+                    // Uptime
+                    document.getElementById('system-uptime').textContent = formatUptime(data.system.uptime.system_seconds);
+                    document.getElementById('xray-uptime').textContent = data.system.uptime.xray_seconds > 0 ? formatUptime(data.system.uptime.xray_seconds) : 'N/A';
+
+                    // Quota & Users
+                    document.getElementById('total-quota-gb').textContent = data.system.total_quota_gb + ' Go';
+                    document.getElementById('active-users').textContent = data.active_users || 0;
+                    document.getElementById('active-configs').textContent = data.active_configs || 0;
+                    document.getElementById('servers-count').textContent = data.servers || 0;
+                    document.getElementById('active-users').textContent = data.active_users || 0;
+                    document.getElementById('total-quota-gb').textContent = data.system.total_quota_gb + ' Go';
+
+                    // Xray status
+                    const xrayActive = data.tunnels && data.tunnels.xray === 'active';
+                    document.getElementById('xray-status').textContent = xrayActive ? 'Actif' : 'Inactif';
+                    document.getElementById('xray-status').className = 'px-2 py-1 rounded-full text-xs font-medium ' + (xrayActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700');
+                    document.getElementById('xray-version').textContent = 'v1.0'; // TODO: get from xray
+                    document.getElementById('xray-uptime').textContent = formatUptime(data.system.uptime.xray_seconds);
+                    document.getElementById('system-uptime').textContent = formatUptime(data.system.uptime.system_seconds);
+
+                    // Total traffic
+                    const totalBytes = data.system.network.bytes_sent + data.system.network.bytes_recv;
+                    document.getElementById('total-traffic').textContent = formatBytes(totalBytes);
+                    document.getElementById('net-sent-recv').textContent = formatBytes(data.system.network.bytes_sent) + ' / ' + formatBytes(data.system.network.bytes_recv);
+                    document.getElementById('net-sent-recv').textContent = formatBytes(data.system.network.bytes_sent) + ' ↑ / ' + formatBytes(data.system.network.bytes_recv) + ' ↓';
+                    document.getElementById('conn-summary').textContent = data.system.connections.tcp + ' TCP / ' + data.system.connections.udp + ' UDP';
+                    document.getElementById('conn-tcp').textContent = data.system.connections.tcp;
+                    document.getElementById('conn-udp').textContent = data.system.connections.udp;
+
                 }
             } catch (e) { console.error(e); }
         }
@@ -1487,6 +1803,44 @@
                 if (result.ok) { loadHosts(); alert('Host enregistré'); }
                 else alert(result.error || 'Erreur');
             } catch (err) { alert('Erreur de connexion'); }
+        }
+
+        // Helper functions for dashboard
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatSpeed(bytesPerSec) {
+            return formatBytes(bytesPerSec) + '/s';
+        }
+
+        function formatUptime(seconds) {
+            if (!seconds || seconds < 0) return 'N/A';
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = seconds % 60;
+            const parts = [];
+            if (days > 0) parts.push(days + 'j');
+            if (hours > 0) parts.push(hours + 'h');
+            if (mins > 0) parts.push(mins + 'm');
+            if (secs > 0 || parts.length === 0) parts.push(secs + 's');
+            return parts.join(' ');
+        }
+
+        function updateCircularProgress(circleId, textId, percent, color) {
+            const circle = document.getElementById(circleId);
+            const text = document.getElementById(textId);
+            if (!circle || !text) return;
+            const circumference = 283;
+            const offset = circumference * (1 - percent / 100);
+            circle.style.stroke = color;
+            circle.style.strokeDashoffset = offset;
+            text.textContent = percent.toFixed(1) + '%';
         }
 
         // Toggle password visibility
