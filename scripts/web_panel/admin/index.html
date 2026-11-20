@@ -724,7 +724,7 @@
                 </div>
                 <div class="flex gap-3 pt-4">
                     <button onclick="closeResellerSuccessModal()" class="flex-1 px-4 py-3 bg-slate-100 text-slate-700 rounded-lg font-medium hover:bg-slate-200">Fermer</button>
-                    <button onclick="copyResellerSuccessDetails()" class="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:shadow-lg">
+                    <button onclick="copyResellerSuccessDetails(this)" class="flex-1 px-4 py-3 bg-green-600 text-white font-semibold rounded-lg hover:shadow-lg">
                         <i class="fa-solid fa-copy mr-2"></i> Copier tout
                     </button>
                 </div>
@@ -1126,7 +1126,7 @@
         function closeResellerSuccessModal() {
             document.getElementById('resellerSuccessModal').classList.add('hidden');
         }
-        function copyResellerSuccessDetails() {
+        function copyResellerSuccessDetails(btn) {
             const items = document.querySelectorAll('#resellerSuccessDetails .flex');
             const text = Array.from(items).map(el => {
                 const label = el.querySelector('.text-slate-500').textContent;
@@ -1134,7 +1134,6 @@
                 return `${label}: ${value}`;
             }).join('\n');
             navigator.clipboard.writeText(text).then(() => {
-                const btn = document.querySelector('#resellerSuccessModal button[onclick="copyResellerSuccessDetails()"]');
                 const original = btn.innerHTML;
                 btn.innerHTML = '<i class="fa-solid fa-check mr-2"></i> Copié !';
                 btn.classList.remove('bg-green-600');
