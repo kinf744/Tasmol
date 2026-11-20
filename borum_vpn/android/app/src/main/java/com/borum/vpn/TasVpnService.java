@@ -75,8 +75,8 @@ public class TasVpnService extends VpnService {
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private static final int MAX_START_ATTEMPTS = 10;
-    private static final long RETRY_DELAY_MS = 2000;
-    private static final long MAX_RETRY_DELAY_MS = 30000;
+    private static final long RETRY_DELAY_MS = 5000;
+    private static final long MAX_RETRY_DELAY_MS = 10000;
     private static volatile int startAttempt = 0;
 
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
@@ -192,17 +192,8 @@ public class TasVpnService extends VpnService {
     private static int currentRetryAttempt = 0;
 
     private static long retryDelayMs() {
-        // Backoff exponentiel : 2s, 4s, 8s, 16s, 30s (capé à MAX_RETRY_DELAY_MS)
-        // Quand le réseau dérange, on attend de plus en plus longtemps entre les tentatives
-        // pour éviter d'épuiser la batterie et donner le temps au réseau de se rétablir.
+        // Delai fixe de 5 secondes entre chaque tentative de reconnexion.
         long delay = RETRY_DELAY_MS;
-        for (int i = 0; i < currentRetryAttempt; i++) {
-            delay *= 2;
-            if (delay > MAX_RETRY_DELAY_MS) {
-                delay = MAX_RETRY_DELAY_MS;
-                break;
-            }
-        }
         VPNApplication app = VPNApplication.getInstance();
         if (app != null) {
             long userDelay = app.getReconnectDelaySeconds() * 1000L;

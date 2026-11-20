@@ -32,23 +32,8 @@ public final class ApiSession {
     public static final String MTN_UNLIMITED_HOST_DEFAULT =
             "kighmu-vpn-919282834024.asia-south1.run.app";
     public static final String MTN_UNLIMITED_ADDR = "172.217.112.4";
-
     
-    public static final String ORANGE_FAST3_ADDR = "52.85.193.74";
-    public static final String ORANGE_FAST3_PORT = "80";
-    public static final int ORANGE_FAST3_PORT_INT = 80;
-    public static final String ORANGE_FAST3_USER = "danaelssh-damope";
-    public static final String ORANGE_FAST3_PASS = "damop";
-    public static final String ORANGE_FAST3_PATH_DEFAULT = "/tieme";
-    public static final String ORANGE_FAST3_PAYLOAD_DEFAULT =
-            "GET / HTTP/1.1[crlf]FoxNews.com[crlf]Host: m.batch.com[crlf][crlf]"
-                    + "X / HTTP/1.1[crlf]bing.com[crlf]Host: [host][crlf][crlf]"
-                    + "GET /tieme HTTP/1.1[crlf]Host: d76eob7wpy03j.cloudfront.net[crlf]"
-                    + "Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]"
-                    + "Connection: Upgrade[crlf]User-agent:[crlf][crlf]";
-    public static final String ORANGE_FAST3_BACKEND = "crashlyticsreports-pa.googleapis.com";
 
-    
     public static final String ORANGE_FAST_UUID_DEFAULT =
             "aaaa0000-1111-4222-8333-444455556666";
     public static final String ORANGE_FAST_PATH_DEFAULT = "/@kighmu";
@@ -397,27 +382,12 @@ public final class ApiSession {
             transport.put("security", "none");
         } else if ("orange_fast3".equalsIgnoreCase(mode)) {
             type = "ssh";
-            String of3Addr = c.optString("address", ORANGE_FAST3_ADDR);
-            if (of3Addr.isEmpty()) {
-                of3Addr = ORANGE_FAST3_ADDR;
-            }
-            int of3Port = c.optInt("port", ORANGE_FAST3_PORT_INT);
-            String of3User = c.optString("ssh_user", c.optString("username", ORANGE_FAST3_USER));
-            if (of3User.isEmpty()) {
-                of3User = ORANGE_FAST3_USER;
-            }
-            String of3Pass = c.optString("ssh_pass", c.optString("password", ORANGE_FAST3_PASS));
-            if (of3Pass.isEmpty()) {
-                of3Pass = ORANGE_FAST3_PASS;
-            }
-            String of3Path = c.optString("path", ORANGE_FAST3_PATH_DEFAULT);
-            if (of3Path.isEmpty()) {
-                of3Path = ORANGE_FAST3_PATH_DEFAULT;
-            }
+            String of3Addr = c.optString("address", "");
+            int of3Port = c.optInt("port", 80);
+            String of3User = c.optString("ssh_user", c.optString("username", ""));
+            String of3Pass = c.optString("ssh_pass", c.optString("password", ""));
+            String of3Path = c.optString("path", "");
             String of3Payload = c.optString("ssh_payload", "");
-            if (of3Payload.isEmpty()) {
-                of3Payload = ORANGE_FAST3_PAYLOAD_DEFAULT;
-            }
 
             server.put("host", of3Addr);
             server.put("port", of3Port);
