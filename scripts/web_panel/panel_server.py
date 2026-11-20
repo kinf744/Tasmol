@@ -3,6 +3,7 @@
 Borum VPN - Panneau Web 3XUI Moderne
 Serveur web avec API REST complète et interface admin/revendeur.
 Gère les comptes SSH Orange Fast 3, les revendeurs et les quotas.
+Synchronisé avec stivaros.sh.
 """
 
 import argparse
@@ -14,7 +15,7 @@ import sqlite3
 import sys
 import uuid
 from datetime import datetime, timedelta
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -24,6 +25,23 @@ ADMIN_DIR = os.path.join(BASE_DIR, "admin")
 RESELLER_DIR = os.path.join(BASE_DIR, "reseller")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 STIVAROS_DB = "/opt/stivaros/stivaros.db"
+
+# Tunnels fixes pour correspondance stivaros.sh
+TUNNELS = {
+    "xray": {"name": "Xray", "port": 443, "protocol": "vless", "transport": "ws", "tls": 1},
+    "zivpn": {"name": "ZIVPN", "port": 5667, "protocol": "zivpn", "transport": "udp", "tls": 0},
+    "slowdns": {"name": "SlowDNS", "port": 53, "protocol": "dnstt", "transport": "udp", "tls": 0},
+    "sshslowdns": {"name": "SSH+SlowDNS", "port": 22, "protocol": "ssh", "transport": "tcp", "tls": 0},
+    "v2raydns": {"name": "V2Ray+DNS", "port": 443, "protocol": "vmess", "transport": "ws", "tls": 1},
+}
+
+ORANGE_MODES = {
+    "orange": {"addr": "192.179.18.100", "sni": "192.179.18.100", "path": "/xray", "uuid": "aaaa0000-1111-4222-8333-444455556666", "tier": "0"},
+    "orange_fast": {"addr": "192.179.18.100", "sni": "crashlyticsreports-pa.googleapis.com", "path": "/@kighmu", "uuid": "aaaa0000-1111-4222-8333-444455556666", "tier": "0"},
+    "orange_fast2": {"addr": "192.179.18.100", "sni": "crashlyticsreports-pa.googleapis.com", "path": "/@kighmu2", "uuid": "aaaa0000-1111-4222-8333-444455556666", "tier": "0"},
+    "mtn_unlimited": {"addr": "104.18.123.45", "sni": "mtnplay.com", "path": "/vless", "uuid": "aaaa0000-1111-4222-8333-444455556666", "tier": "0"},
+    "orange_fast3": {"addr": "99.86.91.72", "port": 80, "sni": "99.86.91.72", "path": "/tieme", "uuid": "aaaa0000-1111-4222-8333-444455556667", "tier": "0"},
+}
 
 def load_config():
     if os.path.exists(CONFIG_FILE):
@@ -38,22 +56,14 @@ def save_config(cfg):
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f, indent=2)
 
-# Utilisateurs par défaut du panel (admin et revendeur de démo)
 USERS = {
-    "admin": {
-        "password_hash": hashlib.sha256(b"admin").hexdigest(),
-        "role": "admin",
-    },
-    "reseller": {
-        "password_hash": hashlib.sha256(b"reseller").hexdigest(),
-        "role": "reseller",
-    }
+    "admin": {"password_hash": hashlib.sha256(b"admin").hexdigest(), "role": "admin"},
+    "reseller": {"password_hash": hashlib.sha256(b"reseller").hexdigest(), "role": "reseller"},
 }
 
-SESSIONS = {}  # session_id -> {"user": ..., "role": ..., "expires": ...}
+SESSIONS = {}
 
 def init_web_db():
-    """Initialise la base de données du panel web (revendeurs, quotas, clients, logs)"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
@@ -102,39 +112,50 @@ def init_web_db():
     conn.commit()
     conn.close()
 
-def get_stivaros_configs():
-    """Lit les configs Orange Fast 3 depuis la base stivaros"""
+def get_stivaros_conn():
     if not os.path.exists(STIVAROS_DB):
-        return []
+        return None
     conn = sqlite3.connect(STIVAROS_DB)
     conn.row_factory = sqlite3.Row
+    return conn
+
+def get_stivaros_configs(mode_filter=None):
+    conn = get_stivaros_conn()
+    if not conn:
+        return []
+    cur = conn.cursor()
+    sql = "SELECT id, user_id, mode, server_address, server_port, protocol, transport, tls, sni, host, isp, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload, zivpn_password, nameserver, slowdns_pubkey FROM vpn_configs"
+    params = []
+    if mode_filter:
+        sql += " WHERE mode=?"
+        params.append(mode_filter)
+    cur.execute(sql, params)
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return rows
+
+def get_stivaros_users():
+    conn = get_stivaros_conn()
+    if not conn:
+        return []
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, user_id, mode, server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, label
-        FROM vpn_configs WHERE mode='orange_fast3'
+        SELECT u.*, 
+            (SELECT COUNT(*) FROM vpn_configs WHERE user_id=u.id) as config_count,
+            (SELECT GROUP_CONCAT(DISTINCT mode) FROM vpn_configs WHERE user_id=u.id) as modes
+        FROM users u
+        ORDER BY u.id DESC
     """)
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
 
-def add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, user_id=None, label=None, mode='orange_fast3'):
-    """Ajoute une config Orange Fast 3 dans la base stivaros (matching stivaros.sh)"""
-    if not os.path.exists(STIVAROS_DB):
-        return False
-    conn = sqlite3.connect(STIVAROS_DB)
+def log_admin(action, target, details):
+    conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    try:
-        c.execute("""
-            INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
-            VALUES (?, ?, ?, 'ssh', 'tcp', 0, ?, ?, 'orange_fast3', 'orange_fast3', '', '0', 'aaaa0000-1111-4222-8333-444455556667', ?, ?, ?, ?)
-        """, (user_id or 1, server_address, server_port, server_address, server_address, path, ssh_user, ssh_pass, ssh_payload))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Erreur insertion config: {e}")
-        conn.close()
-        return False
+    c.execute("INSERT INTO admin_logs (action, target, details) VALUES (?, ?, ?)", (action, target, details))
+    conn.commit()
+    conn.close()
 
 def get_session(handler):
     cookie = handler.headers.get("Cookie", "")
@@ -157,7 +178,7 @@ def require_session(handler, role=None):
         return False
     if role and session.get("role") != role:
         handler.send_response(302)
-        handler.send_header("Location", "/admin")
+        handler.send_header("Location", "/admin" if session["role"] == "admin" else "/reseller")
         handler.end_headers()
         return False
     return session
@@ -193,8 +214,11 @@ def send_file(handler, path, status=200):
         handler.end_headers()
 
 class PanelHandler(BaseHTTPRequestHandler):
+    timeout = 15
+    protocol_version = "HTTP/1.0"
+
     def log_message(self, format, *args):
-        pass  # réduire le bruit
+        pass
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -235,12 +259,91 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not session:
                 return
             configs = get_stivaros_configs()
-            self.send_json({
+            users = get_stivaros_users()
+            active_users = len([u for u in users if u.get("expires_at") and datetime.strptime(u["expires_at"], "%Y-%m-%d") > datetime.now()])
+            expired_users = len(users) - active_users
+            send_json(self, {
                 "total_configs": len(configs),
                 "active_configs": len([c for c in configs if c.get("ssh_user")]),
-                "servers": len(set(c.get("server_address") for c in configs)),
-                "total_payload_bytes": sum(len(c.get("ssh_payload", "")) for c in configs),
+                "total_users": len(users),
+                "active_users": active_users,
+                "expired_users": expired_users,
+                "servers": len(set(c.get("server_address") for c in configs if c.get("server_address"))),
+                "tunnels": list(TUNNELS.keys()),
             })
+            return
+
+        if path == "/admin/api/tunnels":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            # Vérifier état tunnels via systemd
+            import subprocess
+            tunnel_status = {}
+            for key, t in TUNNELS.items():
+                try:
+                    result = subprocess.run(["systemctl", "is-active", f"stivaros-{key}"], capture_output=True, text=True, timeout=2)
+                    tunnel_status[key] = result.stdout.strip() if result.returncode == 0 else "inactive"
+                except Exception:
+                    tunnel_status[key] = "unknown"
+            send_json(self, {"tunnels": tunnel_status})
+            return
+
+        if path == "/admin/api/users":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            users = get_stivaros_users()
+            send_json(self, {"users": users})
+            return
+
+        if path == "/admin/api/users/configs":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            user_id = parse_qs(parsed.query).get("user_id", [None])[0]
+            if not user_id:
+                send_json(self, {"error": "user_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"configs": []})
+                return
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM vpn_configs WHERE user_id=?", (user_id,))
+            configs = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"configs": configs})
+            return
+
+        if path == "/admin/api/hosts":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            hosts = {}
+            for key in ["orange", "orange_fast", "orange_fast2", "mtn_unlimited"]:
+                host_file = f"/opt/stivaros/{key}_host.txt"
+                if os.path.exists(host_file):
+                    with open(host_file) as f:
+                        hosts[key] = f.read().strip()
+                else:
+                    hosts[key] = ""
+            send_json(self, {"hosts": hosts})
+            return
+
+        if path == "/admin/api/quota/stats":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"users": []})
+                return
+            cur = conn.cursor()
+            cur.execute("SELECT id, phone, name, quota_mb, bytes_used, expires_at FROM users WHERE quota_mb > 0 ORDER BY bytes_used DESC")
+            users = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"users": users})
             return
 
         if path == "/admin/api/resellers":
@@ -256,12 +359,47 @@ class PanelHandler(BaseHTTPRequestHandler):
             send_json(self, {"resellers": rows})
             return
 
+        if path == "/admin/api/logs":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT * FROM admin_logs ORDER BY id DESC LIMIT 100")
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"logs": rows})
+            return
+
+        # API vpn_configs (pour admin et reseller)
         if path == "/api/vpn_configs":
             session = get_session(self)
             if not session:
                 send_json(self, {"error": "non authentifié"}, 401)
                 return
-            configs = get_stivaros_configs()
+            configs = get_stivaros_configs("orange_fast3")
+            send_json(self, {"configs": configs})
+            return
+
+        if path == "/api/admin/resellers":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            cur.execute("SELECT id, username, quota_data_gb, quota_data_used_gb, max_configs, configs_created, expires_at, is_active FROM resellers")
+            rows = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"resellers": rows})
+            return
+
+        if path == "/api/admin/configs":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            configs = get_stivaros_configs("orange_fast3")
             send_json(self, {"configs": configs})
             return
 
@@ -277,8 +415,29 @@ class PanelHandler(BaseHTTPRequestHandler):
             session = require_session(self, "reseller")
             if not session:
                 return
-            configs = get_stivaros_configs()
+            configs = get_stivaros_configs("orange_fast3")
             send_json(self, {"configs": configs})
+            return
+
+        if path == "/reseller/api/clients":
+            session = require_session(self, "reseller")
+            if not session:
+                return
+            conn = sqlite3.connect(DB_FILE)
+            conn.row_factory = sqlite3.Row
+            cur = conn.cursor()
+            # Trouver le reseller connecté
+            cur.execute("SELECT id FROM resellers WHERE is_active=1 LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                send_json(self, {"clients": []})
+                conn.close()
+                return
+            reseller_id = row[0]
+            cur.execute("SELECT * FROM reseller_clients WHERE reseller_id=? ORDER BY id DESC", (reseller_id,))
+            clients = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"clients": clients})
             return
 
         self.send_response(404)
@@ -288,8 +447,9 @@ class PanelHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
         length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(length).decode("utf-8")
+        body = self.rfile.read(length).decode("utf-8") if length > 0 else ""
 
+        # Login public
         if path == "/login":
             try:
                 data = json.loads(body)
@@ -314,7 +474,336 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps({"ok": False, "error": "Identifiants invalides"}).encode())
             return
 
-        if path == "/api/admin/resellers":
+        # Admin: créer utilisateur
+        if path == "/api/admin/create-user":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            phone = data.get("phone", "")
+            name = data.get("name", "")
+            days = int(data.get("days", 30))
+            quota_mb = int(data.get("quota_mb", 0))
+            multi_device = 1 if data.get("multi_device") else 0
+            if not phone or not valid_phone(phone):
+                send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
+                return
+            expires = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+            code = generate_secret()[:8]
+            user_uuid = str(uuid.uuid4())
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            try:
+                c.execute("""
+                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                """, (user_uuid, phone, name, code, expires, quota_mb, multi_device))
+                conn.commit()
+                user_id = c.lastrowid
+                conn.close()
+                log_admin("create_user", phone, f"days={days}, quota={quota_mb}")
+                send_json(self, {"ok": True, "user_id": user_id, "code": code})
+            except sqlite3.IntegrityError:
+                conn.close()
+                send_json(self, {"ok": False, "error": "Utilisateur existe"}, 400)
+            return
+
+        # Admin: créer utilisateur test (heures)
+        if path == "/api/admin/create-test-user":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            phone = data.get("phone", "")
+            hours = int(data.get("hours", 1))
+            if not phone or not valid_phone(phone):
+                send_json(self, {"ok": False, "error": "Numéro invalide"}, 400)
+                return
+            expires = (datetime.now() + timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M:%S")
+            code = generate_secret()[:8]
+            user_uuid = str(uuid.uuid4())
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            try:
+                c.execute("""
+                    INSERT INTO users (uuid, phone, name, activation_code, expires_at, quota_mb, multi_device, created_at)
+                    VALUES (?, ?, ?, ?, ?, 0, 1, datetime('now'))
+                """, (user_uuid, phone, "TEST", code, expires))
+                conn.commit()
+                user_id = c.lastrowid
+                conn.close()
+                log_admin("create_test_user", phone, f"hours={hours}")
+                send_json(self, {"ok": True, "user_id": user_id, "code": code, "expires": expires})
+            except sqlite3.IntegrityError:
+                conn.close()
+                send_json(self, {"ok": False, "error": "Utilisateur existe"}, 400)
+            return
+
+        # Admin: lister utilisateurs
+        if path == "/api/admin/users":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            users = get_stivaros_users()
+            send_json(self, {"users": users})
+            return
+
+        # Admin: supprimer utilisateur
+        if path == "/api/admin/delete-user":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            user_id = data.get("user_id")
+            if not user_id:
+                send_json(self, {"ok": False, "error": "user_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            c.execute("DELETE FROM users WHERE id=?", (user_id,))
+            c.execute("DELETE FROM vpn_configs WHERE user_id=?", (user_id,))
+            conn.commit()
+            conn.close()
+            log_admin("delete_user", str(user_id), "")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: configs d'un utilisateur
+        if path == "/api/admin/user-configs":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            user_id = data.get("user_id")
+            if not user_id:
+                send_json(self, {"ok": False, "error": "user_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            c.execute("SELECT * FROM vpn_configs WHERE user_id=?", (user_id,))
+            configs = [dict(r) for r in cur.fetchall()]
+            conn.close()
+            send_json(self, {"configs": configs})
+            return
+
+        # Admin: ajouter config à utilisateur
+        if path == "/api/admin/add-config":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            user_id = data.get("user_id")
+            mode = data.get("mode", "xray")
+            if not user_id:
+                send_json(self, {"ok": False, "error": "user_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            # Générer UUID
+            xray_uuid = str(uuid.uuid4())
+            c = conn.cursor()
+            if mode in ORANGE_MODES:
+                m = ORANGE_MODES[mode]
+                host = get_orange_host(mode)
+                c.execute(f"""
+                    INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
+                    VALUES (?, ?, ?, 'vless', 'ws', 1, ?, ?, ?, ?, ?, ?, ?)
+                """, (user_id, m["addr"], 443, m["sni"], host or m["sni"], mode, mode, m["tier"], xray_uuid, m["path"]))
+            else:
+                send_json(self, {"ok": False, "error": "Mode inconnu"}, 400)
+                conn.close()
+                return
+            conn.commit()
+            conn.close()
+            log_admin("add_config", str(user_id), f"mode={mode}")
+            send_json(self, {"ok": True, "xray_uuid": xray_uuid})
+            return
+
+        # Admin: supprimer config
+        if path == "/api/admin/delete-config":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            config_id = data.get("config_id")
+            if not config_id:
+                send_json(self, {"ok": False, "error": "config_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            c.execute("DELETE FROM vpn_configs WHERE id=?", (config_id,))
+            conn.commit()
+            conn.close()
+            log_admin("delete_config", str(config_id), "")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: gérer devices/UUID
+        if path == "/api/admin/devices":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            action = data.get("action")
+            phone = data.get("phone", "")
+            device_id = data.get("device_id", "")
+            allowed_uuids = data.get("allowed_uuids", "")
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            if action == "set":
+                c.execute("UPDATE users SET device_install_id=?, allowed_uuids=? WHERE phone=?", (device_id, allowed_uuids, phone))
+            elif action == "clear":
+                c.execute("UPDATE users SET device_install_id='', allowed_uuids='' WHERE phone=?", (phone,))
+            conn.commit()
+            conn.close()
+            log_admin("devices", phone, f"action={action}")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: host Orange
+        if path == "/api/admin/host":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            mode = data.get("mode")
+            host = data.get("host", "")
+            action = data.get("action", "set")
+            if mode not in ["orange", "orange_fast", "orange_fast2", "mtn_unlimited"]:
+                send_json(self, {"ok": False, "error": "Mode invalide"}, 400)
+                return
+            host_file = f"/opt/stivaros/{mode}_host.txt"
+            if action == "set":
+                with open(host_file, "w") as f:
+                    f.write(host)
+                os.chmod(host_file, 0o600)
+                conn = get_stivaros_conn()
+                if conn:
+                    c = conn.cursor()
+                    c.execute(f"UPDATE vpn_configs SET host=? WHERE isp=? AND mode=?", (host, mode, mode))
+                    conn.commit()
+                    conn.close()
+                log_admin("host_set", mode, host)
+            elif action == "delete":
+                if os.path.exists(host_file):
+                    os.remove(host_file)
+                conn = get_stivaros_conn()
+                if conn:
+                    c = conn.cursor()
+                    c.execute(f"UPDATE vpn_configs SET host='' WHERE isp=? AND mode=?", (mode, mode))
+                    conn.commit()
+                    conn.close()
+                log_admin("host_delete", mode, "")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: tunnels
+        if path == "/api/admin/tunnel-action":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            tunnel = data.get("tunnel")
+            action = data.get("action")
+            if tunnel not in TUNNELS or action not in ["install", "repair", "restart", "status"]:
+                send_json(self, {"ok": False, "error": "Paramètres invalides"}, 400)
+                return
+            import subprocess
+            try:
+                if action == "install":
+                    subprocess.run(["/opt/stivaros/stivaros.sh", "install-tunnel", tunnel], check=True, capture_output=True, text=True, timeout=120)
+                elif action == "repair":
+                    subprocess.run(["/opt/stivaros/stivaros.sh", "repair-tunnel", tunnel], check=True, capture_output=True, text=True, timeout=120)
+                elif action == "restart":
+                    subprocess.run(["systemctl", "restart", f"stivaros-{tunnel}"], check=True, capture_output=True, text=True, timeout=30)
+                elif action == "status":
+                    result = subprocess.run(["systemctl", "is-active", f"stivaros-{tunnel}"], capture_output=True, text=True, timeout=5)
+                    status = result.stdout.strip() if result.returncode == 0 else "inactive"
+                    send_json(self, {"ok": True, "status": status})
+                    return
+                log_admin("tunnel", tunnel, action)
+                send_json(self, {"ok": True})
+            except subprocess.CalledProcessError as e:
+                send_json(self, {"ok": False, "error": e.stderr or str(e)}, 500)
+            except Exception as e:
+                send_json(self, {"ok": False, "error": str(e)}, 500)
+            return
+
+        # Admin: quota
+        if path == "/api/admin/quota":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            user_id = data.get("user_id")
+            quota_mb = int(data.get("quota_mb", 0))
+            if not user_id:
+                send_json(self, {"ok": False, "error": "user_id requis"}, 400)
+                return
+            conn = get_stivaros_conn()
+            if not conn:
+                send_json(self, {"ok": False, "error": "DB indisponible"}, 500)
+                return
+            c = conn.cursor()
+            c.execute("UPDATE users SET quota_mb=? WHERE id=?", (quota_mb, user_id))
+            conn.commit()
+            conn.close()
+            log_admin("quota", str(user_id), f"quota_mb={quota_mb}")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: créer revendeur
+        if path == "/api/admin/create-reseller":
             session = require_session(self, "admin")
             if not session:
                 return
@@ -335,18 +824,42 @@ class PanelHandler(BaseHTTPRequestHandler):
             try:
                 c.execute("""
                     INSERT INTO resellers (username, password_hash, quota_data_gb, max_configs, expires_at)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (username, hashlib.sha256(password.encode()).hexdigest(), quota_gb, max_cfgs,
-                      (datetime.now() + timedelta(days=days)).isoformat()))
+                    VALUES (?, ?, ?, ?, datetime('now', '+{} days'))
+                """.format(days), (username, hashlib.sha256(password.encode()).hexdigest(), quota_gb, max_cfgs))
                 conn.commit()
                 reseller_id = c.lastrowid
                 conn.close()
+                log_admin("create_reseller", username, f"quota={quota_gb}")
                 send_json(self, {"ok": True, "reseller_id": reseller_id})
             except sqlite3.IntegrityError:
                 conn.close()
                 send_json(self, {"ok": False, "error": "Revendeur déjà existant"}, 400)
             return
 
+        # Admin: supprimer revendeur
+        if path == "/api/admin/delete-reseller":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            reseller_id = data.get("reseller_id")
+            if not reseller_id:
+                send_json(self, {"ok": False, "error": "reseller_id requis"}, 400)
+                return
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("DELETE FROM resellers WHERE id=?", (reseller_id,))
+            c.execute("DELETE FROM reseller_clients WHERE reseller_id=?", (reseller_id,))
+            conn.commit()
+            conn.close()
+            log_admin("delete_reseller", str(reseller_id), "")
+            send_json(self, {"ok": True})
+            return
+
+        # Admin: créer config Orange Fast 3
         if path == "/api/admin/create-vpn-config":
             session = require_session(self, "admin")
             if not session:
@@ -355,7 +868,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
             except Exception:
                 data = {}
-            server_address = data.get("server_address", "")
+            server_address = data.get("server_address", "99.86.91.72")
             server_port = int(data.get("server_port", 80))
             ssh_user = data.get("ssh_user", "")
             ssh_pass = data.get("ssh_pass", "")
@@ -365,13 +878,14 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not server_address or not ssh_user or not ssh_pass:
                 send_json(self, {"ok": False, "error": "server_address, ssh_user et ssh_pass requis"}, 400)
                 return
-            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, label=label)
+            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path)
             if ok:
                 send_json(self, {"ok": True, "message": "Config créée avec succès"})
             else:
                 send_json(self, {"ok": False, "error": "Erreur lors de la création"}, 500)
             return
 
+        # Reseller: créer config client
         if path == "/api/reseller/create-vpn-config":
             session = require_session(self, "reseller")
             if not session:
@@ -390,7 +904,6 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not ssh_user or not ssh_pass:
                 send_json(self, {"ok": False, "error": "ssh_user et ssh_pass requis"}, 400)
                 return
-            # Trouver le reseller connecté (simplifié: premier reseller actif)
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             c.execute("SELECT id FROM resellers WHERE is_active=1 LIMIT 1")
@@ -400,10 +913,8 @@ class PanelHandler(BaseHTTPRequestHandler):
                 send_json(self, {"ok": False, "error": "Aucun revendeur trouvé"}, 400)
                 return
             reseller_id = row[0]
-            # Créer la config dans stivaros
-            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, label=username or ssh_user)
+            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path)
             if ok:
-                # Récupérer l'id de la config créée
                 c.execute("SELECT id FROM vpn_configs WHERE ssh_user=? AND server_address=? ORDER BY id DESC LIMIT 1", (ssh_user, server_address))
                 cfg_row = c.fetchone()
                 config_id = cfg_row[0] if cfg_row else None
@@ -422,6 +933,39 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+def valid_phone(phone):
+    import re
+    return bool(re.match(r'^[+]?[0-9]{8,15}$', phone))
+
+def generate_secret():
+    import secrets
+    return secrets.token_hex(16)
+
+def get_orange_host(mode):
+    host_file = f"/opt/stivaros/{mode}_host.txt"
+    if os.path.exists(host_file):
+        with open(host_file) as f:
+            return f.read().strip()
+    return None
+
+def add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, user_id=None, label=None, mode='orange_fast3'):
+    if not os.path.exists(STIVAROS_DB):
+        return False
+    conn = sqlite3.connect(STIVAROS_DB)
+    c = conn.cursor()
+    try:
+        c.execute("""
+            INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+            VALUES (?, ?, ?, 'ssh', 'tcp', 0, ?, ?, 'orange_fast3', 'orange_fast3', '', '0', 'aaaa0000-1111-4222-8333-444455556667', ?, ?, ?, ?)
+        """, (user_id or 1, server_address, server_port, server_address, server_address, path, ssh_user, ssh_pass, ssh_payload))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erreur insertion config: {e}")
+        conn.close()
+        return False
+
 def main():
     init_web_db()
     parser = argparse.ArgumentParser(description="Borum VPN Panel Web 3XUI Moderne")
@@ -434,7 +978,7 @@ def main():
     cfg = load_config()
     port = args.port or cfg.get("port", 8985)
 
-    server = HTTPServer(("0.0.0.0", port), PanelHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), PanelHandler)
 
     if args.ssl and args.cert and args.key:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
