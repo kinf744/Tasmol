@@ -428,6 +428,36 @@ class APIHandler(BaseHTTPRequestHandler):
             conn.close()
             return self._send({"status": "ok", "active_users": count})
 
+        if path == "/api/v1/tunnel/stats":
+            # Récupérer les stats de trafic depuis le manager Go
+            # Le manager Go expose les stats via un fichier JSON ou socket
+            # Pour l'instant, on lit depuis la DB (bytes_used par user)
+            conn = get_db()
+            rows = conn.execute("""
+                SELECT u.id, u.phone, u.name, u.bytes_used, u.quota_mb, u.multi_device
+                FROM users u WHERE u.active=1
+            """).fetchall()
+            conn.close()
+            users = []
+            total_up = 0
+            total_down = 0
+            for r in rows:
+                used = r["bytes_used"] or 0
+                limit = max(0, (r["quota_mb"] or 0)) * 1048576
+                users.append({
+                    "id": r["id"],
+                    "phone": r["phone"],
+                    "name": r["name"],
+                    "bytes_used": used,
+                    "quota_mb": r["quota_mb"] or 0,
+                    "quota_bytes": limit,
+                    "multi_device": r["multi_device"],
+                    "unlimited": (r["quota_mb"] or 0) <= 0,
+                })
+                total_up += 0  # TODO: séparer up/down
+                total_down += used
+            return self._send({"success": True, "users": users, "total_up": total_up, "total_down": total_down})
+
         return self._send({"error": "Not found"}, 404)
 
     def do_POST(self):
@@ -537,6 +567,25 @@ class APIHandler(BaseHTTPRequestHandler):
             return self._send({"success": True, "message": "Device activated successfully",
                                "phone": phone, "expires_at": exp,
                                "device_mode": "multi" if user["multi_device"] else "mono"})
+
+        if path == "/api/v1/usage/report":
+            # Recevoir le rapport d'usage depuis l'app Android
+            # Body: {uuid, bytes_up, bytes_down, timestamp}
+            body = self._read_body()
+            uuid = str(body.get("uuid", "")).strip()
+            bytes_up = int(body.get("bytes_up", 0))
+            bytes_down = int(body.get("bytes_down", 0))
+            if not uuid or (bytes_up == 0 and bytes_down == 0):
+                return self._send({"success": False, "message": "Missing fields"}, 400)
+            conn = get_db()
+            # Mettre à jour bytes_used pour l'utilisateur correspondant à l'UUID
+            conn.execute("""
+                UPDATE users SET bytes_used = COALESCE(bytes_used, 0) + ?
+                WHERE uuid = ? AND active = 1
+            """, (bytes_down, uuid))  # On compte le download comme usage principal
+            conn.commit()
+            conn.close()
+            return self._send({"success": True})
 
         return self._send({"error": "Not found"}, 404)
 

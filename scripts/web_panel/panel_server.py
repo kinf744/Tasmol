@@ -19,6 +19,17 @@ from datetime import datetime, timedelta
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+def format_bytes(b):
+    """Formate les bytes en format lisible (B, KB, MB, GB, TB)"""
+    if b is None:
+        return "0 B"
+    b = int(b)
+    for unit in ["B", "KB", "MB", "GB", "TB"]:
+        if b < 1024:
+            return f"{b:.1f} {unit}"
+        b /= 1024
+    return f"{b:.1f} PB"
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 DB_FILE = os.path.join(BASE_DIR, "web_panel.db")
@@ -355,9 +366,29 @@ class PanelHandler(BaseHTTPRequestHandler):
                 send_json(self, {"users": []})
                 return
             cur = conn.cursor()
-            cur.execute("SELECT id, phone, name, quota_mb, bytes_used, expires_at FROM users WHERE quota_mb > 0 ORDER BY bytes_used DESC")
+            cur.execute("SELECT id, phone, name, quota_mb, bytes_used, expires_at, multi_device FROM users WHERE active=1 ORDER BY bytes_used DESC")
             users = [dict(r) for r in cur.fetchall()]
             conn.close()
+            # Ajouter formatage lisible
+            for u in users:
+                used = u.get("bytes_used") or 0
+                quota = u.get("quota_mb") or 0
+                limit = quota * 1048576 if quota > 0 else 0
+                u["used_bytes"] = used
+                u["used_human"] = format_bytes(used)
+                if limit > 0:
+                    u["limit_bytes"] = limit
+                    u["limit_human"] = format_bytes(limit)
+                    u["remaining_bytes"] = max(0, limit - used)
+                    u["remaining_human"] = format_bytes(max(0, limit - used))
+                    u["pct_used"] = round(used / limit * 100, 1) if limit > 0 else 0
+                else:
+                    u["limit_bytes"] = 0
+                    u["limit_human"] = "Illimité"
+                    u["remaining_bytes"] = 0
+                    u["remaining_human"] = "Illimité"
+                    u["pct_used"] = 0
+                u["unlimited"] = (quota or 0) <= 0
             send_json(self, {"users": users})
             return
 

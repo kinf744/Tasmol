@@ -146,6 +146,16 @@ func (m *manager) GetUDPGW() UDPGW {
 	return m.udpgw
 }
 
+func (m *manager) GetAllStats() map[string]Stats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	result := make(map[string]Stats)
+	for id, t := range m.tunnels {
+		result[id] = t.Stats()
+	}
+	return result
+}
+
 func useNativeSSH(cfg *config.TunnelConfig) bool {
 	if cfg.Advanced != nil {
 		if v, ok := cfg.Advanced["native_ssh"]; ok {
