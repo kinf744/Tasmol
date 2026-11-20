@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Borum VPN - Panneau Web 3XUI Moderne
-Serveur web avec API REST complète et interface admin/revendeur moderne.
+Serveur web avec API REST complète et interface admin/revendeur.
+Gère les comptes SSH Orange Fast 3, les revendeurs et les quotas.
 """
 
 import argparse
@@ -24,28 +25,22 @@ RESELLER_DIR = os.path.join(BASE_DIR, "reseller")
 PUBLIC_DIR = os.path.join(BASE_DIR, "public")
 STIVAROS_DB = "/opt/stivaros/stivaros.db"
 
-# Utilisateurs en dur (à migrer vers DB)
+# Utilisateurs par défaut du panel (admin et revendeur de démo)
 USERS = {
     "admin": {
         "password_hash": hashlib.sha256(b"admin").hexdigest(),
         "role": "admin",
+    },
+    "reseller": {
+        "password_hash": hashlib.sha256(b"reseller").hexdigest(),
+        "role": "reseller",
     }
 }
 
 SESSIONS = {}  # session_id -> {"user": ..., "role": ..., "expires": ...}
 
-def load_config():
-    if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    return {"mode": "plain", "port": 8985, "admin_user": "admin"}
-
-def save_config(cfg):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(cfg, f, indent=2)
-
 def init_web_db():
-    """Initialise la base de données du panel web (revendeurs, quotas, etc.)"""
+    """Initialise la base de données du panel web (revendeurs, quotas, clients, logs)"""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     c.execute("""
@@ -95,7 +90,7 @@ def init_web_db():
     conn.close()
 
 def get_stivaros_configs():
-    """Lit les configs Orange Fast 3 depuis la DB stivaros"""
+    """Lit les configs Orange Fast 3 depuis la base stivaros"""
     if not os.path.exists(STIVAROS_DB):
         return []
     conn = sqlite3.connect(STIVAROS_DB)
@@ -108,6 +103,25 @@ def get_stivaros_configs():
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return rows
+
+def add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, user_id=None, label=None, mode='orange_fast3'):
+    """Ajoute une config Orange Fast 3 dans la base stivaros"""
+    if not os.path.exists(STIVAROS_DB):
+        return False
+    conn = sqlite3.connect(STIVAROS_DB)
+    c = conn.cursor()
+    try:
+        c.execute("""
+            INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload, label)
+            VALUES (?, ?, ?, 'ssh', 'tcp', 0, '', '', 'orange_fast3', ?, '0', '', ?, ?, ?, ?, ?)
+        """, (user_id or 1, server_address, server_port, mode, path, ssh_user, ssh_pass, ssh_payload, label or ssh_user))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erreur insertion config: {e}")
+        conn.close()
+        return False
 
 def get_session(handler):
     cookie = handler.headers.get("Cookie", "")
@@ -216,16 +230,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             })
             return
 
-        if path == "/api/vpn_configs":
-            session = get_session(self)
-            if not session:
-                send_json(self, {"error": "non authentifié"}, 401)
-                return
-            configs = get_stivaros_configs()
-            send_json(self, {"configs": configs})
-            return
-
-        if path == "/api/resellers":
+        if path == "/admin/api/resellers":
             session = require_session(self, "admin")
             if not session:
                 return
@@ -238,12 +243,29 @@ class PanelHandler(BaseHTTPRequestHandler):
             send_json(self, {"resellers": rows})
             return
 
+        if path == "/api/vpn_configs":
+            session = get_session(self)
+            if not session:
+                send_json(self, {"error": "non authentifié"}, 401)
+                return
+            configs = get_stivaros_configs()
+            send_json(self, {"configs": configs})
+            return
+
         # Routes reseller
         if path == "/reseller":
             session = require_session(self, "reseller")
             if not session:
                 return
             send_file(self, os.path.join(RESELLER_DIR, "index.html"))
+            return
+
+        if path == "/reseller/api/my-configs":
+            session = require_session(self, "reseller")
+            if not session:
+                return
+            configs = get_stivaros_configs()
+            send_json(self, {"configs": configs})
             return
 
         self.send_response(404)
@@ -265,8 +287,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             pwd_hash = hashlib.sha256(password.encode()).hexdigest()
             user = USERS.get(username)
             if user and user["password_hash"] == pwd_hash:
-                import uuid as uuid_mod
-                sid = uuid_mod.uuid4().hex
+                sid = uuid.uuid4().hex
                 SESSIONS[sid] = {"user": username, "role": user["role"], "expires": datetime.now() + timedelta(days=7)}
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
@@ -311,6 +332,76 @@ class PanelHandler(BaseHTTPRequestHandler):
             except sqlite3.IntegrityError:
                 conn.close()
                 send_json(self, {"ok": False, "error": "Revendeur déjà existant"}, 400)
+            return
+
+        if path == "/api/admin/create-vpn-config":
+            session = require_session(self, "admin")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            server_address = data.get("server_address", "")
+            server_port = int(data.get("server_port", 80))
+            ssh_user = data.get("ssh_user", "")
+            ssh_pass = data.get("ssh_pass", "")
+            ssh_payload = data.get("ssh_payload", "")
+            path = data.get("path", "/tieme")
+            label = data.get("label", ssh_user or "config")
+            if not server_address or not ssh_user or not ssh_pass:
+                send_json(self, {"ok": False, "error": "server_address, ssh_user et ssh_pass requis"}, 400)
+                return
+            ok = add_stivaros_config(server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, label=label)
+            if ok:
+                send_json(self, {"ok": True, "message": "Config créée avec succès"})
+            else:
+                send_json(self, {"ok": False, "error": "Erreur lors de la création"}, 500)
+            return
+
+        if path == "/api/reseller/create-vpn-config":
+            session = require_session(self, "reseller")
+            if not session:
+                return
+            try:
+                data = json.loads(body)
+            except Exception:
+                data = {}
+            username = data.get("client_name", "")
+            ssh_user = data.get("ssh_user", "")
+            ssh_pass = data.get("ssh_pass", "")
+            ssh_payload = data.get("ssh_payload", "")
+            path = data.get("path", "/tieme")
+            if not ssh_user or not ssh_pass:
+                send_json(self, {"ok": False, "error": "ssh_user et ssh_pass requis"}, 400)
+                return
+            # Trouver le reseller connecté (simplifié: premier reseller actif)
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT id FROM resellers WHERE is_active=1 LIMIT 1")
+            row = c.fetchone()
+            if not row:
+                conn.close()
+                send_json(self, {"ok": False, "error": "Aucun revendeur trouvé"}, 400)
+                return
+            reseller_id = row[0]
+            # Créer la config dans stivaros
+            ok = add_stivaros_config("99.86.91.72", 80, ssh_user, ssh_pass, ssh_payload, path, label=username or ssh_user)
+            if ok:
+                # Récupérer l'id de la config créée
+                c.execute("SELECT id FROM vpn_configs WHERE ssh_user=? AND server_address='99.86.91.72' ORDER BY id DESC LIMIT 1", (ssh_user,))
+                cfg_row = c.fetchone()
+                config_id = cfg_row[0] if cfg_row else None
+                c.execute("""
+                    INSERT INTO reseller_clients (reseller_id, client_name, config_id, server_address, server_port, ssh_user, ssh_pass, ssh_payload, path, mode, path, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'orange_fast3', ?, 'active')
+                """, (reseller_id, username or ssh_user, config_id, "99.86.91.72", 80, ssh_user, ssh_pass, ssh_payload, path, path))
+                conn.commit()
+                conn.close()
+                send_json(self, {"ok": True, "message": "Compte client créé avec succès"})
+            else:
+                conn.close()
+                send_json(self, {"ok": False, "error": "Erreur lors de la création"}, 500)
             return
 
         self.send_response(404)
