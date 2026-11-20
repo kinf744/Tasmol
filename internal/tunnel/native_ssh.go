@@ -195,83 +195,57 @@ func sshDial(cfg *config.TunnelConfig, addr string) (*ssh.Client, dialFunc, erro
 				return nil, nil, fmt.Errorf("ssh payload send: %w", err)
 			}
 
-			// Lire et rejeter toute reponse HTTP du serveur (301, 200, etc.)
-			// jusqu'a un double CRLF (fin des headers) ou timeout.
-			_ = rawConn.SetReadDeadline(time.Now().Add(3 * time.Second))
+			// Lire toute la reponse HTTP du serveur (301, 403, 101, etc.)
+			// jusqu'a trouver la banniere SSH "SSH-2.0-...". Le serveur peut
+			// envoyer plusieurs reponses HTTP consecutives avant la banniere.
+			_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
 			buf := make([]byte, 4096)
-			var headerBuf strings.Builder
-			done := false
-			for !done {
+			var allBuf strings.Builder
+			serverVersion := ""
+			foundSSH := false
+			for {
 				n, err := rawConn.Read(buf)
 				if n > 0 {
-					headerBuf.Write(buf[:n])
-					s := headerBuf.String()
-					if strings.Contains(s, "\r\n\r\n") {
-						done = true
+					allBuf.Write(buf[:n])
+					s := allBuf.String()
+					if idx := strings.Index(s, "SSH-"); idx >= 0 {
+						// Extraire la version SSH (jusqu'au saut de ligne)
+						rest := s[idx:]
+						if nl := strings.Index(rest, "\n"); nl >= 0 {
+							serverVersion = strings.TrimSpace(rest[:nl])
+						} else {
+							serverVersion = strings.TrimSpace(rest)
+						}
+						foundSSH = true
+						break
 					}
 				}
 				if err != nil {
 					break
 				}
-				if headerBuf.Len() > 65536 {
-					done = true
+				if allBuf.Len() > 65536 {
+					break
 				}
 			}
 			_ = rawConn.SetReadDeadline(time.Time{})
-			Journalf("ssh", "payload HTTP response headers discarded (%d bytes)", headerBuf.Len())
+			Journalf("ssh", "reponse HTTP lue (%d bytes), recherche SSH-", allBuf.Len())
 
-		responseStr := headerBuf.String()
-			if strings.HasPrefix(responseStr, "HTTP/") {
-				// Mode HTTP proxy + SSH (Orange Fast 3) : le proxy repond 301/101,
-				// puis envoie sa banniere SSH. Lire octet par octet jusqu'a trouver
-				// "SSH-2.0-..." sans consommer de donnees supplementaires dans un
-				// buffer bufio (ce qui corromprait le handshake SSH suivant).
-				sshStep("mode HTTP proxy detecte, lecture de la banniere SSH apres les en-têtes HTTP")
-				_ = rawConn.SetReadDeadline(time.Now().Add(5 * time.Second))
-				serverVersion := ""
-				buf := make([]byte, 1)
-				var line []byte
-				for {
-					n, err := rawConn.Read(buf)
-					if n > 0 {
-						line = append(line, buf[0])
-						if buf[0] == '\n' {
-							s := strings.TrimSpace(string(line))
-							if strings.HasPrefix(s, "SSH-") {
-								serverVersion = s
-								break
-							}
-							line = nil
-						}
-					}
-					if err != nil {
-						break
-					}
-					if len(line) > 256 {
-						line = nil
-					}
-				}
-				_ = rawConn.SetReadDeadline(time.Time{})
-
-				if serverVersion == "" {
-					sshDiagError("server version read", fmt.Errorf("no SSH banner found after HTTP response"),
-						"le serveur n'a pas repondu avec une version SSH après le 101")
-					rawConn.Close()
-					return nil, nil, fmt.Errorf("ssh server version read: no SSH banner after HTTP")
-				}
-				Journalf("ssh", "server version: %s", serverVersion)
-
-				// Wrapper qui re-joue la version du serveur lue, puis delègue à la
-				// connexion brute. La premiere ecriture (version client) est ignoree
-				// car ssh.NewClientConn l'envoie elle-même.
-				conn = &sshVersionConn{
-					Conn:          rawConn,
-					serverVersion: []byte(serverVersion + "\r\n"),
-				}
-			} else {
-				// Mode SSH direct classique (pas de proxy HTTP).
-				conn = rawConn
+			if !foundSSH || serverVersion == "" {
+				sshDiagError("server version read", fmt.Errorf("no SSH banner found after HTTP response"),
+					"le serveur n'a pas repondu avec une version SSH après le payload HTTP")
+				rawConn.Close()
+				return nil, nil, fmt.Errorf("ssh server version read: no SSH banner after HTTP")
 			}
+			Journalf("ssh", "server version: %s", serverVersion)
+
+			// Wrapper qui re-joue la version du serveur lue, puis delègue à la
+			// connexion brute. La premiere ecriture (version client) est ignoree
+			// car ssh.NewClientConn l'envoie elle-même.
+			conn = &sshVersionConn{
+				Conn:          rawConn,
+				serverVersion: []byte(serverVersion + "\r\n"),
+			}
+
 
 			conn, err = wrapSSHConn(cfg, conn, addr)
 			if err != nil {
