@@ -31,10 +31,18 @@ public class VPNApplication extends Application {
         instance = this;
         prefs = getSharedPreferences("borum_vpn_prefs", Context.MODE_PRIVATE);
 
+        // Initialize CrashReporter early
+        String serverUrl = prefs.getString("server_url", "http://127.0.0.1:8080/");
+        String uuid = DeviceIdentity.getUuid(this);
+        CrashReporter.init(this, serverUrl, uuid);
+        CrashReporter.setApiBaseUrl(serverUrl);
+
         Thread.UncaughtExceptionHandler previous =
                 Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((thread, err) -> {
             writeCrashReport(thread, err);
+            // Also report to CrashReporter for API
+            CrashReporter.reportCrash("crash", err.getMessage(), getFullStack(err), thread.getName());
             try {
                 if (previous != null) {
                     previous.uncaughtException(thread, err);
@@ -416,6 +424,7 @@ public class VPNApplication extends Application {
 
     public void setServerUrl(String url) {
         prefs.edit().putString("server_url", url).apply();
+        CrashReporter.setApiBaseUrl(url);
     }
 
     public boolean isAutoStartEnabled() {
