@@ -763,23 +763,13 @@ public class TasVpnService extends VpnService {
         } catch (Exception ignored) {
         }
 
-        try {
-            if (tunFd != null) {
-                tunFd.close();
-            }
-        } catch (Exception ignored) {
-        } finally {
-            tunFd = null;
-        }
-
-        if (detachedFd >= 0) {
-            try {
-                android.os.ParcelFileDescriptor.adoptFd(detachedFd).close();
-            } catch (Exception ignored) {
-            } finally {
-                detachedFd = -1;
-            }
-        }
+        // NE PAS fermer tunFd / detachedFd manuellement avant stopSelf().
+        // TasVpnService extends VpnService : quand le service est detruit par
+        // stopSelf(), Android ferme le TUN fd et depose l'interface VPN proprement.
+        // Fermer tunFd tot laisse l'interface VPN orpheline (trafic arrete mais
+        // cle VPN toujours presente dans les reglages systeme).
+        tunFd = null;
+        detachedFd = -1;
         try {
             stopForeground(true);
         } catch (Exception ignored) {
