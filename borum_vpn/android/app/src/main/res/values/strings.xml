@@ -31,6 +31,10 @@
     <string name="profils_refresh">Actualiser</string>
 
     <!-- Journal -->
+    <string name="logs_empty">Aucun événement.\nConnectez-vous pour démarrer le journal.</string>
+    <string name="logs_verbose">Verbose</string>
+    <string name="logs_clear">Vider</string>
+    <string name="logs_share">Partager</string>
 
     <!-- Réglages -->
     <string name="settings_title">RÉGLAGES</string>
@@ -88,23 +92,4 @@
     <string name="settings_diag_desc">Onglet Logs en mode Verbose par défaut</string>
     <string name="settings_confirm_desc">Demander avant d\'arrêter une session</string>
     <string name="settings_reset">Réinitialiser les réglages</string>
-
-    <!-- Journal d'activité -->
-    <string name="logs_freeze">Figer</string>
-    <string name="logs_unfreeze">Reprendre</string>
-    <string name="logs_freeze_label">Affichage figé</string>
-    <string name="logs_clear">Vider le journal</string>
-    <string name="logs_clear_title">Vider le journal ?</string>
-    <string name="logs_clear_msg">Les événements affichés seront masqués. Le VPN et vos profils ne sont pas affectés.</string>
-    <string name="logs_clear_confirm">Vider</string>
-    <string name="logs_share_title">Partager ce journal</string>
-    <string name="logs_share_subject">BORUM VPN - Journal d'activité</string>
-    <string name="logs_share_chooser">Partager via</string>
-    <string name="logs_filter_all">Tout</string>
-    <string name="logs_filter_problems">Problèmes</string>
-    <string name="logs_filter_connection">Connexion</string>
-    <string name="logs_filter_application">Application</string>
-    <string name="logs_empty">Aucun événement. Connectez-vous pour démarrer le journal.</string>
-    <string name="logs_events">événements</string>
-
 </resources>
