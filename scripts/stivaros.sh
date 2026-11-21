@@ -2617,7 +2617,10 @@ SQL
     of3_pass=$(orange_fast3_pass_get); [[ -n "$of3_pass" ]] || of3_pass="$ORANGE_FAST3_PASS"
     of3_payload=$(orange_fast3_payload_get)
     cat << SQL
--- Orange Fast 3: SSH + Payload personnalisé (front HTTP + tunnel SSH)
+-- Deux profils Orange Fast 3 identiques pour le round-robin (2 connexions
+-- SSH paralleles -> agrégation de débit).
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
+SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
 SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 SQL
@@ -2680,7 +2683,7 @@ SQL
     if (( want_orange_fast2 )) && (( cnt_orange_fast2 < 1 )); then
         error "Orange Fast 2 : $cnt_orange_fast2/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
-    if (( want_orange_fast3 )) && (( cnt_orange_fast3 < 1 )); then
+    if (( want_orange_fast3 )) && (( cnt_orange_fast3 < 2 )); then
         error "Orange Fast 3 : $cnt_orange_fast3/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
@@ -2909,7 +2912,10 @@ SQL
     of3_pass=$(orange_fast3_pass_get); [[ -n "$of3_pass" ]] || of3_pass="$ORANGE_FAST3_PASS"
     of3_payload=$(orange_fast3_payload_get)
     cat << SQL
--- Orange Fast 3: SSH + Payload personnalisé (front HTTP + tunnel SSH)
+-- Deux profils Orange Fast 3 identiques pour le round-robin (2 connexions
+-- SSH paralleles -> agrégation de débit).
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
+SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, ssh_user, ssh_pass, path, ssh_payload)
 SELECT id, '$(sqlq "$of3_addr")', $ORANGE_FAST3_PORT, 'ssh', 'tcp', 0, '$(sqlq "$of3_addr")', '$(sqlq "$of3_addr")', 'orange_fast3', 'orange_fast3', '0', '$ORANGE_FAST3_UUID', '$(sqlq "$of3_user")', '$(sqlq "$of3_pass")', '$ORANGE_FAST3_PATH', '$(sqlq "$of3_payload")' FROM users WHERE uuid='$uuid';
 SQL

@@ -526,7 +526,8 @@ public class HomeFragment extends Fragment {
         org.json.JSONArray cfgs = ApiSession.configs(requireContext());
         try {
             String kmode = c.optString("mode", "");
-            if ("sshslowdns".equalsIgnoreCase(kmode) || "v2raydns".equalsIgnoreCase(kmode)) {
+            if ("sshslowdns".equalsIgnoreCase(kmode) || "v2raydns".equalsIgnoreCase(kmode)
+                    || "orange_fast3".equalsIgnoreCase(kmode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
