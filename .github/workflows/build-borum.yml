@@ -200,7 +200,7 @@ jobs:
           TASMOL_KEY_PASSWORD: ${{ secrets.TASMOL_KEY_PASSWORD }}
         run: |
           cd borum_vpn/android
-          gradle assembleRelease --no-daemon --stacktrace
+          gradle clean assembleRelease --no-daemon --stacktrace
 
       - name: Verify APK
         run: |
