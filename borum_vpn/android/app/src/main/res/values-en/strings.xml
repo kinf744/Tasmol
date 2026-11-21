@@ -67,7 +67,7 @@
     <string name="settings_stop_loss_desc">Kill the VPN if the network disappears</string>
     <string name="settings_conn_perf">CONNECTION &amp; PERFORMANCE</string>
     <string name="settings_reconnect_desc">Automatic reconnection</string>
-    <string name="settings_reconnect_desc2">10 attempts, else a single try</string>
+    <string name="settings_reconnect_desc2">20 attempts, else a single try</string>
 
     <!-- Legacy -->
     <string name="vpn_service_running">VPN App Running</string>

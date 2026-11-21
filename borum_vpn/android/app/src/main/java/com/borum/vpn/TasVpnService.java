@@ -74,7 +74,7 @@ public class TasVpnService extends VpnService {
     private static final java.util.concurrent.atomic.AtomicBoolean connectInFlight =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
-    private static final int MAX_START_ATTEMPTS = 10;
+    private static final int MAX_START_ATTEMPTS = 20;
     private static final long RETRY_DELAY_MS = 5000;
     private static final long MAX_RETRY_DELAY_MS = 10000;
     private static volatile int startAttempt = 0;
