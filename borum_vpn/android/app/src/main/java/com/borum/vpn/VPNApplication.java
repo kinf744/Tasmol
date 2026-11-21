@@ -290,6 +290,14 @@ public class VPNApplication extends Application {
     private static volatile String lastCrashReport = "";
     private static volatile boolean hasPendingCrash = false;
 
+    private static String getFullStack(Throwable t) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        t.printStackTrace(pw);
+        return sw.toString();
+    }
+
+
     public boolean hasPendingCrash() {
         return hasPendingCrash;
     }
