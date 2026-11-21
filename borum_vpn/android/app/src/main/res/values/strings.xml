@@ -106,7 +106,7 @@
     <string name="logs_filter_problems">Problèmes</string>
     <string name="logs_filter_connection">Connexion</string>
     <string name="logs_filter_application">Application</string>
-    <string name="logs_empty">Aucun événement.\nConnectez-vous pour démarrer le journal.</string>
+    <string name="logs_empty">Aucun événement. Connectez-vous pour démarrer le journal.</string>
     <string name="logs_events">événements</string>
 
 </resources>

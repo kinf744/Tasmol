@@ -31,7 +31,7 @@
     <string name="profils_refresh">Refresh</string>
 
     <!-- Logs -->
-    <string name="logs_empty">No events yet.\nConnect to start the journal.</string>
+    <string name="logs_empty">No events yet. Connect to start the journal.</string>
     <string name="logs_verbose">Verbose</string>
     <string name="logs_clear">Clear</string>
     <string name="logs_share">Share</string>
