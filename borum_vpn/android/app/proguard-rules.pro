@@ -12,6 +12,7 @@
 -keep class com.borum.vpn.AuthActivity { *; }
 -keep class com.borum.vpn.BootReceiver { *; }
 -keep class com.borum.vpn.TasVpnService { *; }
+-keep class com.borum.vpn.CrashReporter { *; }
 
 # ── JNI remonte des stacks via les noms de classes/ méthodes gobind ───────
 -keepattributes SourceFile,LineNumberTable
