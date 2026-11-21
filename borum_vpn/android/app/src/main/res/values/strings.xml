@@ -31,10 +31,8 @@
     <string name="profils_refresh">Actualiser</string>
 
     <!-- Journal -->
-    <string name="logs_empty">Aucun événement.\nConnectez-vous pour démarrer le journal.</string>
-    <string name="logs_verbose">Verbose</string>
-    <string name="logs_clear">Vider</string>
     <string name="logs_share">Partager</string>
+
 
     <!-- Réglages -->
     <string name="settings_title">RÉGLAGES</string>
