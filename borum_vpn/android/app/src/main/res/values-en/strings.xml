@@ -31,10 +31,6 @@
     <string name="profils_refresh">Refresh</string>
 
     <!-- Logs -->
-    <string name="logs_empty">No events yet. Connect to start the journal.</string>
-    <string name="logs_verbose">Verbose</string>
-    <string name="logs_clear">Clear</string>
-    <string name="logs_share">Share</string>
 
     <!-- Settings -->
     <string name="settings_title">SETTINGS</string>
@@ -92,4 +88,22 @@
     <string name="settings_diag_desc">Logs tab in Verbose mode by default</string>
     <string name="settings_confirm_desc">Ask before stopping a session</string>
     <string name="settings_reset">Reset settings</string>
+
+    <!-- Activity journal -->
+    <string name="logs_freeze">Freeze</string>
+    <string name="logs_unfreeze">Resume</string>
+    <string name="logs_freeze_label">Display frozen</string>
+    <string name="logs_clear">Clear journal</string>
+    <string name="logs_clear_title">Clear journal?</string>
+    <string name="logs_clear_msg">Displayed events will be hidden. VPN and profiles are not affected.</string>
+    <string name="logs_clear_confirm">Clear</string>
+    <string name="logs_share_title">Share this journal</string>
+    <string name="logs_share_subject">BORUM VPN - Activity journal</string>
+    <string name="logs_share_chooser">Share via</string>
+    <string name="logs_filter_all">All</string>
+    <string name="logs_filter_problems">Issues</string>
+    <string name="logs_filter_connection">Connection</string>
+    <string name="logs_filter_application">Application</string>
+    <string name="logs_empty">No events. Connect to start the journal.</string>
+    <string name="logs_events">events</string>
 </resources>
