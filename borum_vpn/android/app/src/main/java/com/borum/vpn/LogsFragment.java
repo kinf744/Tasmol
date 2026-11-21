@@ -232,7 +232,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         TextView chip = new TextView(ctx);
         chip.setText(levelLabel(ev.level));
         chip.setTextSize(10f);
-        chip.setTextStyle(android.graphics.Typeface.BOLD);
+        chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         chip.setTextColor(0xFFFFFFFF);
         chip.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
         chip.setBackground(makeChip(color));
@@ -248,7 +248,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         titleView.setText(TextUtils.isEmpty(ev.title) ? "Événement" : ev.title);
         titleView.setTextColor(ContextCompat.getColor(ctx, R.color.log_text));
         titleView.setTextSize(14.5f);
-        titleView.setTextStyle(android.graphics.Typeface.BOLD);
+        titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleView.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
 
@@ -299,7 +299,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         for (int i = 0; i < filters.length; i++) {
             String f = filters[i];
             int count = bus.count(f);
-            TextView chip = new ChipView(getContext());
+            ChipView chip = new ChipView(getContext());
             chip.setText(getString(labels[i]) + "  " + count);
             chip.setTextSize(13f);
             boolean selected = f.equals(filter);

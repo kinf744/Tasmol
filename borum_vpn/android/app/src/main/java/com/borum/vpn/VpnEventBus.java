@@ -184,7 +184,7 @@ public final class VpnEventBus {
 
     private synchronized void notifyObservers() {
         final List<VpnEvent> current = getEventsFiltered();
-        for (Observer obs : observers.keySet()) {
+        for (Observer obs : observers.values()) {
             final Observer o = obs;
             if (o != null) {
                 mainHandler.post(() -> o.onEventsChanged(current));
