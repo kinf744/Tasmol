@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,6 +36,11 @@ type CrashReport struct {
 	Timestamp     int64  `json:"timestamp"`
 }
 
+var (
+	globalReporter *CrashReporter
+	globalMu       sync.Mutex
+)
+
 // NewCrashReporter creates a new crash reporter
 func NewCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
 	return &CrashReporter{
@@ -48,6 +54,118 @@ func NewCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
 	}
 }
 
+// InitCrashReporter initializes the global crash reporter and installs a
+// process-wide panic handler that reports panics to the API.
+func InitCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
+	reporter := NewCrashReporter(apiURL, uuid, appVersion)
+	globalMu.Lock()
+	globalReporter = reporter
+	globalMu.Unlock()
+
+	// Install a panic handler on the main goroutine so that any unrecovered
+	// panic in main is reported before the process exits.
+	go installMainPanicHandler(reporter)
+
+	return reporter
+}
+
+// GlobalReporter returns the package-level reporter, or nil if not initialized.
+func GlobalReporter() *CrashReporter {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	return globalReporter
+}
+
+// ReportPanic recovers from a panic and reports it using the global reporter.
+func ReportPanic() {
+	if r := recover(); r != nil {
+		stack := debug.Stack()
+		msg := fmt.Sprintf("Panic: %v", r)
+		rep := GlobalReporter()
+		if rep != nil {
+			rep.reportCrash("panic", msg, string(stack), "main")
+		}
+		// Re-panic so the crash still propagates
+		panic(r)
+	}
+}
+
+// ReportError reports a generic error using the global reporter.
+func ReportError(err error, context string) {
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	if context != "" {
+		msg = context + ": " + msg
+	}
+	rep := GlobalReporter()
+	if rep != nil {
+		rep.reportCrash("error", msg, "", "background")
+	}
+}
+
+// ReportDisconnect reports a disconnection issue using the global reporter.
+func ReportDisconnect(reason string, details string) {
+	msg := reason
+	if details != "" {
+		msg += ": " + details
+	}
+	rep := GlobalReporter()
+	if rep != nil {
+		rep.reportCrash("disconnect", msg, "", "tunnel")
+	}
+}
+
+// ReportException reports an exception with stack trace using the global reporter.
+func ReportException(err error, stackTrace string) {
+	if err == nil {
+		return
+	}
+	rep := GlobalReporter()
+	if rep != nil {
+		rep.reportCrash("exception", err.Error(), stackTrace, "tunnel")
+	}
+}
+
+// CrashHandler wraps a function with panic recovery and reporting.
+func CrashHandler(fn func()) {
+	defer ReportPanic()
+	fn()
+}
+
+// CrashHandlerWithContext wraps a function with context for crash reporting.
+func CrashHandlerWithContext(context string, fn func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			msg := fmt.Sprintf("Panic in %s: %v", context, r)
+			rep := GlobalReporter()
+			if rep != nil {
+				rep.reportCrash("panic", msg, string(stack), "goroutine")
+			}
+			panic(r)
+		}
+	}()
+	fn()
+}
+
+// installMainPanicHandler installs a deferred panic handler on a goroutine
+// that runs for the lifetime of the process, catching any panic that escapes
+// all other recovery.
+func installMainPanicHandler(rep *CrashReporter) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			msg := fmt.Sprintf("Unrecovered panic: %v", r)
+			rep.reportCrash("panic", msg, string(stack), "main")
+			os.Exit(1)
+		}
+	}()
+	// Keep this goroutine alive forever
+	select {}
+}
+
 // SetUUID sets the UUID for the crash reporter
 func (cr *CrashReporter) SetUUID(uuid string) {
 	cr.uuid = uuid
@@ -58,6 +176,7 @@ func (cr *CrashReporter) ReportPanic() {
 	if r := recover(); r != nil {
 		stack := debug.Stack()
 		cr.reportCrash("panic", fmt.Sprintf("Panic: %v", r), string(stack), "main")
+		panic(r)
 	}
 }
 
@@ -133,32 +252,6 @@ func (cr *CrashReporter) sendReport(report CrashReport) {
 func getDeviceModel() string {
 	hostname, _ := os.Hostname()
 	return fmt.Sprintf("%s/%s", runtime.GOOS, hostname)
-}
-
-// InitCrashReporter initializes the global crash reporter
-func InitCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
-	reporter := NewCrashReporter(apiURL, uuid, appVersion)
-	_ = reporter
-	// Note: We can't set a global panic handler in Go easily
-	// Each goroutine should defer reporter.ReportPanic()
-	return reporter
-}
-
-// CrashHandler is a helper to wrap functions with crash reporting
-func (cr *CrashReporter) CrashHandler(fn func()) {
-	defer cr.ReportPanic()
-	fn()
-}
-
-// CrashHandlerWithContext wraps a function with context for crash reporting
-func (cr *CrashReporter) CrashHandlerWithContext(context string, fn func()) {
-	defer func() {
-		if r := recover(); r != nil {
-			stack := debug.Stack()
-			cr.reportCrash("panic", fmt.Sprintf("Panic in %s: %v", context, r), string(stack), "goroutine")
-		}
-	}()
-	fn()
 }
 
 // LogCrash logs a crash locally (for debugging)

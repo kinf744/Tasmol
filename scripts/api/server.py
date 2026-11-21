@@ -124,6 +124,20 @@ def init_db():
             proof_sha TEXT NOT NULL DEFAULT '',
             created_at TEXT DEFAULT (datetime('now'))
         );
+        CREATE TABLE IF NOT EXISTS crash_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            uuid TEXT DEFAULT '',
+            platform TEXT DEFAULT '',
+            app_version TEXT DEFAULT '',
+            android_version TEXT DEFAULT '',
+            device_model TEXT DEFAULT '',
+            crash_type TEXT DEFAULT '',
+            crash_message TEXT DEFAULT '',
+            stack_trace TEXT DEFAULT '',
+            thread_name TEXT DEFAULT '',
+            timestamp INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT (datetime('now'))
+        );
     """)
     for col, ddl in [("nameserver", "TEXT DEFAULT ''"), ("slowdns_pubkey", "TEXT DEFAULT ''"),
                      ("ssh_user", "TEXT DEFAULT ''"), ("ssh_pass", "TEXT DEFAULT ''"),
@@ -458,6 +472,26 @@ class APIHandler(BaseHTTPRequestHandler):
                 total_down += used
             return self._send({"success": True, "users": users, "total_up": total_up, "total_down": total_down})
 
+        if path == "/admin/api/crash-reports":
+            # Liste les rapports de crash pour l'admin (filtre optionnel ?type=...)
+            conn = get_db()
+            q = """
+                SELECT id, uuid, platform, app_version, android_version,
+                       device_model, crash_type, crash_message, stack_trace,
+                       thread_name, timestamp, created_at
+                FROM crash_reports
+            """
+            params = []
+            ct = parse_qs(parsed.query).get("type", [None])[0]
+            if ct:
+                q += " WHERE crash_type = ?"
+                params.append(ct)
+            q += " ORDER BY id DESC LIMIT 500"
+            rows = conn.execute(q, params).fetchall()
+            conn.close()
+            reports = [dict(r) for r in rows]
+            return self._send({"success": True, "reports": reports, "count": len(reports)})
+
         return self._send({"error": "Not found"}, 404)
 
     def do_POST(self):
@@ -586,6 +620,38 @@ class APIHandler(BaseHTTPRequestHandler):
             conn.commit()
             conn.close()
             return self._send({"success": True})
+
+        if path == "/api/v1/crash/report":
+            # Recevoir un rapport de crash/déconnexion/erreur depuis un client
+            # (Go manager ou app Android). Pas d'auth requise : un client en
+            # détresse doit pouvoir envoyer son rapport même si sa session
+            # est invalide.
+            body = self._read_body()
+            try:
+                conn = get_db()
+                conn.execute("""
+                    INSERT INTO crash_reports
+                        (uuid, platform, app_version, android_version,
+                         device_model, crash_type, crash_message,
+                         stack_trace, thread_name, timestamp)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    str(body.get("uuid", ""))[:128],
+                    str(body.get("platform", ""))[:32],
+                    str(body.get("app_version", ""))[:32],
+                    str(body.get("android_version", ""))[:32],
+                    str(body.get("device_model", ""))[:128],
+                    str(body.get("crash_type", ""))[:32],
+                    str(body.get("crash_message", ""))[:2000],
+                    str(body.get("stack_trace", ""))[:10000],
+                    str(body.get("thread_name", ""))[:64],
+                    int(body.get("timestamp", 0) or 0),
+                ))
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                return self._send({"success": False, "message": str(e)}, 500)
+            return self._send({"success": True, "message": "Crash report received"})
 
         return self._send({"error": "Not found"}, 404)
 

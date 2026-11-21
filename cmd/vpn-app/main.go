@@ -13,6 +13,7 @@ import (
 	"vpn-app/internal/api"
 	"vpn-app/internal/config"
 	"vpn-app/internal/core"
+	"vpn-app/internal/crash"
 )
 
 var (
@@ -31,6 +32,8 @@ func main() {
 		exportPath  = flag.String("export", "", "Export config to file")
 		importPath  = flag.String("import", "", "Import config from file")
 		password    = flag.String("password", "", "Password for encrypt/decrypt")
+		apiURL      = flag.String("api-url", "", "Stivaros API URL for crash reporting")
+		crashUUID   = flag.String("crash-uuid", "", "UUID for crash reports")
 	)
 	flag.Parse()
 
@@ -52,6 +55,11 @@ func main() {
 	defer configMgr.Close()
 
 	cfg := configMgr.Get()
+
+	// Initialize crash reporting (panics, disconnects, errors) -> stivaros API
+	if *apiURL != "" && *crashUUID != "" {
+		crash.InitCrashReporter(*apiURL, *crashUUID, version)
+	}
 
 	if *dataDir != "" {
 		cfg.App.DataDir = *dataDir

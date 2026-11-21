@@ -3966,6 +3966,57 @@ tz_offset_menu() {
     pause
 }
 
+# ── Log bug Borum VPN (rapports de crash/déconnexion clients) ─────────────
+crash_reports_menu() {
+    while true; do
+        banner
+        echo "  ${GOLD}${BOLD}=== LOG BUG BORUM VPN ===${NC}"
+        box_sep
+        box_line "  ${GOLD}${BOLD}1${NC} ${WHITE})${NC} Afficher tous les bugs critiques (tous clients)"
+        box_line "  ${GOLD}${BOLD}2${NC} ${WHITE})${NC} Effacer l'historique des rapports de bug"
+        box_sep
+        box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Retour"
+        box_bot
+        echo
+        local c=""
+        printf "  ${GOLD}► Option${NC} ${WHITE}:${NC} "; read -r c || { echo; return; }
+        case "$c" in
+            1)
+                if [[ ! -f "$DB_PATH" ]]; then
+                    warn "Base de données introuvable : $DB_PATH"
+                    pause
+                    continue
+                fi
+                echo
+                echo "  ${CYAN}Rapports de bugs Borum VPN (${NC}${WHITE}derniers 200${NC}${CYAN}) :${NC}"
+                echo
+                sqlite3 -batch -header -column "$DB_PATH" "
+                    SELECT id, substr(uuid,1,8) AS uuid, platform, crash_type,
+                           substr(crash_message,1,60) AS message,
+                           datetime(created_at) AS date
+                    FROM crash_reports
+                    ORDER BY id DESC
+                    LIMIT 200;
+                " 2>/dev/null || warn "Impossible de lire les rapports de crash."
+                echo
+                pause
+                ;;
+            2)
+                read -r -p "Confirmer l'effacement de tous les rapports de bug ? (o/N): " conf
+                if [[ "$conf" == "o" || "$conf" == "O" ]]; then
+                    if [[ -f "$DB_PATH" ]]; then
+                        sqlite3 -batch "$DB_PATH" "DELETE FROM crash_reports;"
+                        msg "Rapports de bug effaces."
+                    fi
+                fi
+                pause
+                ;;
+            0) return ;;
+            *) warn "Choix invalide" ;;
+        esac
+    done
+}
+
 menu() {
     while true; do
         banner
@@ -3988,7 +4039,8 @@ menu() {
         box_line "  ${GOLD}${BOLD}12${NC} ${WHITE})${NC} Decalage horaire VPS ${GRAY}(actuel: +$(get_tz_offset)h)${NC}"
         box_line "  ${GOLD}${BOLD}13${NC} ${WHITE})${NC} Bot Telegram ${GRAY}(gestion a distance)${NC}"
         box_line "  ${GOLD}${BOLD}14${NC} ${WHITE})${NC} Pannel web 3Xui ${GRAY}(install/desinstall)${NC}"
-        box_line " ${RED}${BOLD}15${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
+        box_line "  ${GOLD}${BOLD}15${NC} ${WHITE})${NC} Log bug Borum VPN ${GRAY}(rapports clients)${NC}"
+        box_line " ${RED}${BOLD}16${NC} ${WHITE})${NC} ${RED}Désinstaller tout${NC}"
         box_line "  ${GOLD}${BOLD}0${NC} ${WHITE})${NC} Quitter"
         box_bot
         echo
@@ -4010,7 +4062,8 @@ menu() {
             12) tz_offset_menu || true ;;
             13) tg_bot_menu || true ;;
             14) web_panel_menu || true ;;
-            15) uninstall_all || true ;;
+            15) crash_reports_menu || true ;;
+            16) uninstall_all || true ;;
             0) echo "Au revoir."; exit 0 ;;
             *) warn "Choix invalide" ;;
         esac
