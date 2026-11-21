@@ -2,6 +2,8 @@ package com.borum.vpn;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
+import android.database.Cursor;
+import android.net.ContentUris;
 import android.util.Log;
 
 import org.json.JSONArray;
