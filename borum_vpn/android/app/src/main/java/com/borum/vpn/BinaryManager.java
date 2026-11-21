@@ -343,6 +343,12 @@ public class BinaryManager {
                 out.write(row.getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
 
+            // diffuse l'événement vers le bus central du journal (UI)
+            try {
+                VpnEventBus.get().ingest(line);
+            } catch (Exception ignored) {
+            }
+
         } catch (Exception e) {
             android.util.Log.w("Tasmol", "appendLog: " + e);
         }

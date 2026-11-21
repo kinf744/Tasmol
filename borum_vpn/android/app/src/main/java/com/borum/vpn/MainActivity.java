@@ -102,6 +102,13 @@ public class MainActivity extends AppCompatActivity {
                 .commit();
     }
 
+    public void returnToHome() {
+        showFragment(new HomeFragment(), "home");
+        if (bottomNav != null) {
+            bottomNav.setSelectedItemId(R.id.nav_home);
+        }
+    }
+
     private void offerLaunchReconnect() {
         if (!app.isLaunchOnBootEnabled()) {
             return;
