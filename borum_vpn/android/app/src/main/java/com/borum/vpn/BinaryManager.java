@@ -2,8 +2,6 @@ package com.borum.vpn;
 
 import android.content.Context;
 import android.content.pm.ApplicationInfo;
-import android.database.Cursor;
-import android.net.ContentUris;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -539,20 +537,7 @@ public class BinaryManager {
                         android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
                 String sel = android.provider.MediaStore.Downloads.DISPLAY_NAME + "=?";
                 java.lang.String[] selArgs = {"kighmu.txt"};
-                try (android.database.Cursor c =
-                             ctx.getContentResolver().query(uri, null, sel, selArgs, null)) {
-                    if (c != null) {
-                        while (c.moveToNext()) {
-                            int idCol = c.getColumnIndex(android.provider.MediaStore.Downloads._ID);
-                            if (idCol >= 0) {
-                                long id = c.getLong(idCol);
-                                android.net.Uri contentUri =
-                                        android.net.ContentUris.withAppendedId(uri, id);
-                                ctx.getContentResolver().delete(contentUri, null, null);
-                            }
-                        }
-                    }
-                }
+                ctx.getContentResolver().delete(uri, sel, selArgs);
             } catch (Throwable ignored) {
             }
         }
