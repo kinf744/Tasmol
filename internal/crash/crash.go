@@ -37,7 +37,6 @@ type CrashReport struct {
 
 // NewCrashReporter creates a new crash reporter
 func NewCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
-	hostname, _ := os.Hostname()
 	return &CrashReporter{
 		apiURL:     strings.TrimRight(apiURL, "/"),
 		appVersion: appVersion,
@@ -117,7 +116,6 @@ func (cr *CrashReporter) sendReport(report CrashReport) {
 		return
 	}
 
-	url := cr.apiURL + "/api/v1/crash/report"
 	req, err := http.NewRequest("POST", cr.apiURL+"/api/v1/crash/report", bytes.NewBuffer(data))
 	if err != nil {
 		return
@@ -140,18 +138,7 @@ func getDeviceModel() string {
 // InitCrashReporter initializes the global crash reporter
 func InitCrashReporter(apiURL, uuid, appVersion string) *CrashReporter {
 	reporter := NewCrashReporter(apiURL, uuid, appVersion)
-	// Set up global panic handler
-	panicHandler := func() {
-		if r := recover(); r != nil {
-			stack := debug.Stack()
-			// Create a temporary reporter to send the crash
-			tempReporter := NewCrashReporter("", "", "")
-			tempReporter.apiURL = ""
-			tempReporter.uuid = ""
-			// We can't send without UUID/API, but we log it
-			fmt.Fprintf(os.Stderr, "[CRASH] Panic recovered: %v\n%s\n", r, string(debug.Stack()))
-		}
-	}
+	_ = reporter
 	// Note: We can't set a global panic handler in Go easily
 	// Each goroutine should defer reporter.ReportPanic()
 	return reporter
