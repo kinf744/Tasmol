@@ -320,9 +320,11 @@ public class TasVpnService extends VpnService {
         if (intent == null) {
             return START_NOT_STICKY;
         }
-        if (usageTracker == null) {
-            usageTracker = new UsageTracker(this, VPNApplication.getInstance().getServerUrl(),
-                    ApiSession.deviceUuid(this));
+        VPNApplication app = VPNApplication.getInstance();
+        String serverUrl = (app != null) ? app.getServerUrl() : "";
+        String uuid = ApiSession.deviceUuid(this);
+        if (usageTracker == null && !uuid.isEmpty() && !serverUrl.isEmpty()) {
+            usageTracker = new UsageTracker(this, serverUrl, uuid);
         }
         String action = intent.getAction();
         if (ACTION_NUCLEAR_DISCONNECT.equals(action)) {
@@ -556,7 +558,9 @@ public class TasVpnService extends VpnService {
                         UdpSessionLog.connected(tunnelType);
                     }
                     logEvent("connection", "app", "connected (" + tid + ")");
-                    usageTracker.start();
+                    if (usageTracker != null) {
+                        usageTracker.start();
+                    }
                     // Ecrire kighmu.txt pour diagnostic (succès de connexion)
                     try {
                         BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,

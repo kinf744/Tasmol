@@ -44,20 +44,30 @@ public final class UsageTracker {
 
     public UsageTracker(Context ctx, String apiBaseUrl, String uuid) {
         this.ctx = ctx.getApplicationContext();
-        this.apiBaseUrl = apiBaseUrl == null ? "" : apiBaseUrl;
-        this.uuid = uuid == null ? "" : uuid;
+        this.apiBaseUrl = (apiBaseUrl == null || apiBaseUrl.isEmpty()) ? "" : apiBaseUrl;
+        this.uuid = (uuid == null) ? "" : uuid.trim();
+    }
+
+    /** Retourne true si le tracker peut envoyer (URL + UUID valides). */
+    public boolean isReady() {
+        return !apiBaseUrl.isEmpty() && !uuid.isEmpty();
     }
 
     public void start() {
         if (running) {
             return;
         }
+        if (!isReady()) {
+            Log.w(TAG, "UsageTracker non prêt: apiBaseUrl='" + apiBaseUrl + "' uuid='" + uuid + "'");
+            return;
+        }
         running = true;
         // Initialiser les références pour ne pas envoyer un pic d'emblée
         lastRx = TrafficStats.getUidRxBytes(ctx.getApplicationInfo().uid);
         lastTx = TrafficStats.getUidTxBytes(ctx.getApplicationInfo().uid);
-        handler.postDelayed(runner, INTERVAL_MS);
-        Log.d(TAG, "UsageTracker démarré");
+        // Envoi immédiat pour ne pas perdre les premiers octets
+        handler.post(runner);
+        Log.d(TAG, "UsageTracker démarré (envoi immédiat)");
     }
 
     public void stop() {
@@ -74,7 +84,7 @@ public final class UsageTracker {
     }
 
     private void sendUsage() {
-        if (!running || apiBaseUrl.isEmpty() || uuid.isEmpty()) {
+        if (!running || !isReady()) {
             return;
         }
         long rx = TrafficStats.getUidRxBytes(ctx.getApplicationInfo().uid);
@@ -91,18 +101,22 @@ public final class UsageTracker {
         if (up == 0 && down == 0) {
             return;
         }
-        new Thread(() -> postToApi(up, down)).start();
+        new Thread(() -> postToApi(up, down, 0)).start();
     }
 
-    private void postToApi(long bytesUp, long bytesDown) {
+    private void postToApi(final long bytesUp, final long bytesDown, final int attempt) {
+        if (attempt >= 2) {
+            Log.w(TAG, "Usage report échoué après 2 tentatives");
+            return;
+        }
         try {
-            URL url = new URL(apiBaseUrl.endsWith("/") ? apiBaseUrl + "api/v1/usage/report"
-                    : apiBaseUrl + "/api/v1/usage/report");
+            String base = apiBaseUrl.endsWith("/") ? apiBaseUrl : apiBaseUrl + "/";
+            URL url = new URL(base + "api/v1/usage/report");
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
+            conn.setConnectTimeout(10000);
+            conn.setReadTimeout(10000);
             conn.setDoOutput(true);
             JSONObject body = new JSONObject();
             body.put("uuid", uuid);
@@ -113,10 +127,25 @@ public final class UsageTracker {
                 os.write(body.toString().getBytes("UTF-8"));
             }
             int code = conn.getResponseCode();
-            Log.d(TAG, "Usage report sent: up=" + bytesUp + " down=" + bytesDown + " code=" + code);
+            String resp = "";
+            try {
+                java.io.InputStream is = conn.getInputStream();
+                java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(is));
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = br.readLine()) != null) {
+                    sb.append(line);
+                }
+                resp = sb.toString();
+                br.close();
+            } catch (Exception ignored) {
+            }
+            Log.d(TAG, "Usage report sent: up=" + bytesUp + " down=" + bytesDown + " code=" + code + " resp=" + resp);
             conn.disconnect();
         } catch (Exception e) {
-            Log.w(TAG, "Usage report failed: " + e.getMessage());
+            Log.w(TAG, "Usage report tentative " + (attempt + 1) + " échouée: " + e.getMessage());
+            // Retry immédiat une fois
+            new Thread(() -> postToApi(bytesUp, bytesDown, attempt + 1)).start();
         }
     }
 }
