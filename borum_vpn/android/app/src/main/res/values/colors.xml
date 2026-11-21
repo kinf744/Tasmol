@@ -26,4 +26,20 @@
     <color name="text_primary">#1E293B</color>
     <color name="text_secondary">#64748B</color>
     <color name="divider">#E2E8F0</color>
+
+    <!-- Journal d'activité (thème nuit professionnel, cohérent clair/sombre) -->
+    <color name="log_bg">#0B1020</color>
+    <color name="log_card">#121A2E</color>
+    <color name="log_card_hover">#18233A</color>
+    <color name="log_border">#1F2A44</color>
+    <color name="log_text">#E8EEF7</color>
+    <color name="log_text_dim">#9FB0C8</color>
+    <color name="log_cyan">#22D3EE</color>
+    <color name="log_green">#34D399</color>
+    <color name="log_red">#F87171</color>
+    <color name="log_orange">#FB923C</color>
+    <color name="log_line">#1E293B</color>
+    <color name="log_chip_bg">#162036</color>
+    <color name="log_chip_selected">#22D3EE</color>
+    <color name="log_chip_selected_text">#05141A</color>
 </resources>
