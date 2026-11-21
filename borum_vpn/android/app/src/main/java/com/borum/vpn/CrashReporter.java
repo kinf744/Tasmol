@@ -92,7 +92,7 @@ public class CrashReporter {
 
         new Thread(() -> {
             try {
-                sendCrashReport(crashType, message, stackTrace, Thread.currentThread().getName());
+                sendCrashReport(crashType, message, stackTrace, threadName);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to send crash report", e);
             }
