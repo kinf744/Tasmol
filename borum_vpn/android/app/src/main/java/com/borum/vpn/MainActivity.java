@@ -32,7 +32,7 @@ public class MainActivity extends AppCompatActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private long lastServerCheckMs = 0;
-    private static final long SERVER_CHECK_INTERVAL_MS = 60_000;
+    private static final long SERVER_CHECK_INTERVAL_MS = 30_000;
 
     private final Runnable statusTick = new Runnable() {
         @Override
@@ -208,6 +208,7 @@ public class MainActivity extends AppCompatActivity {
         handler.post(statusTick);
 
         checkExpiry();
+        checkQuota();
 
         checkServerValidity();
     }
@@ -437,7 +438,8 @@ public class MainActivity extends AppCompatActivity {
 
         String blockErr = SecurityGuard.checkConnectionAllowed(this);
         if (blockErr != null) {
-            showToast(blockErr);
+            // Compte expiré ou quota epuise : forcer le retour a l'activation
+            forceResetToAuth(blockErr);
             return;
         }
 
@@ -556,21 +558,56 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             if (d != null && d.before(now)) {
-
-                ApiSession.resetAll(this);
-                VPNApplication a = VPNApplication.getInstance();
-                a.resetAll();
-                a.resetConfigFile(this);
-                handler.removeCallbacks(statusTick);
-                Intent i = new Intent(this, AuthActivity.class);
-                i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(i);
-                finish();
-                showToast("Compte expiré - réinitialisation");
+                forceResetToAuth("Compte expire - reinitialisation");
             }
         } catch (Exception ignored) {
 
         }
+    }
+
+    /**
+     * Verifie aussi le quota data : si epuise et compte non illimite,
+     * force le retour a l'ecran d'activation.
+     */
+    private void checkQuota() {
+        try {
+            JSONObject card = ApiSession.accountCard(this);
+            if (card == null) {
+                return;
+            }
+            boolean unlimited = card.optBoolean("unlimited", false);
+            if (unlimited) {
+                return;
+            }
+            long remaining = card.optLong("data_remaining_bytes", -1);
+            if (remaining >= 0 && remaining <= 0) {
+                forceResetToAuth("Quota data epuise - reinitialisation");
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void forceResetToAuth(String reason) {
+        ApiSession.resetAll(this);
+        VPNApplication a = VPNApplication.getInstance();
+        if (a != null) {
+            a.resetAll();
+            a.resetConfigFile(this);
+        }
+        handler.removeCallbacks(statusTick);
+        cancelDisconnectWatchdogs();
+        try {
+            Intent disconnect = new Intent(this, TasVpnService.class);
+            disconnect.setAction(TasVpnService.ACTION_NUCLEAR_DISCONNECT);
+            startService(disconnect);
+        } catch (Exception ignored) {
+        }
+        Intent i = new Intent(this, AuthActivity.class);
+        i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
+                | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        startActivity(i);
+        finish();
+        showToast(reason);
     }
 
     private void checkServerValidity() {
@@ -592,22 +629,7 @@ public class MainActivity extends AppCompatActivity {
             JSONObject account = resp.optJSONObject("account");
             boolean active = account != null && account.optInt("active", 0) == 1;
             if (!activated || !active) {
-                runOnUiThread(() -> {
-                    ApiSession.resetAll(MainActivity.this);
-                    VPNApplication a = VPNApplication.getInstance();
-                    if (a != null) {
-                        a.resetAll();
-                        a.resetConfigFile(MainActivity.this);
-                    }
-                    handler.removeCallbacks(statusTick);
-                    cancelDisconnectWatchdogs();
-                    Intent i = new Intent(MainActivity.this, AuthActivity.class);
-                    i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK
-                            | Intent.FLAG_ACTIVITY_CLEAR_TOP);
-                    startActivity(i);
-                    finish();
-                    showToast("Compte désactivé côté serveur - réinitialisation");
-                });
+                runOnUiThread(() -> forceResetToAuth("Compte desactive ou supprime cote serveur - reinitialisation"));
             }
         });
     }
