@@ -56,6 +56,9 @@ public class VPNApplication extends Application {
         UiPrefs.applySavedTheme(this);
         UiPrefs.applySavedLang(this);
 
+        // Nettoyage des fichiers kighmu.txt restes dans Download (versions anterieures)
+        BinaryManager.cleanupDownloadFiles(this);
+
         PhoHelper.init(this);
 
         IntegrityGuard.start(this);

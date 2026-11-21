@@ -507,4 +507,52 @@ public class BinaryManager {
         // Desactive : kighmu.txt n'est plus ecrit dans le dossier Download du telephone.
         return;
     }
+
+    /**
+     * Supprime les fichiers kighmu.txt eventuellement restes dans le dossier
+     * Download du telephone (versions anciennes de l'application). Appelle au
+     * demarrage de l'app pour nettoyer les fichiers legacy.
+     */
+    public static void cleanupDownloadFiles(Context ctx) {
+        if (ctx == null) {
+            return;
+        }
+        // 1) Legacy chemin public Downloads
+        try {
+            java.io.File dir =
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                            android.os.Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null && dir.exists()) {
+                java.io.File f = new java.io.File(dir, "kighmu.txt");
+                if (f.exists()) {
+                    f.delete();
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        // 2) MediaStore Downloads (Android 10+, stockage paritee)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            try {
+                android.net.Uri uri =
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI;
+                String sel = android.provider.MediaStore.Downloads.DISPLAY_NAME + "=?";
+                java.lang.String[] selArgs = {"kighmu.txt"};
+                try (android.database.Cursor c =
+                             ctx.getContentResolver().query(uri, null, sel, selArgs, null)) {
+                    if (c != null) {
+                        while (c.moveToNext()) {
+                            int idCol = c.getColumnIndex(android.provider.MediaStore.Downloads._ID);
+                            if (idCol >= 0) {
+                                long id = c.getLong(idCol);
+                                android.net.Uri contentUri =
+                                        android.net.ContentUris.withAppendedId(uri, id);
+                                ctx.getContentResolver().delete(contentUri, null, null);
+                            }
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+    }
 }
