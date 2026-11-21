@@ -27,19 +27,19 @@
     <color name="text_secondary">#64748B</color>
     <color name="divider">#E2E8F0</color>
 
-    <!-- Journal d'activité (thème nuit professionnel, cohérent clair/sombre) -->
-    <color name="log_bg">#0B1020</color>
-    <color name="log_card">#121A2E</color>
-    <color name="log_card_hover">#18233A</color>
-    <color name="log_border">#1F2A44</color>
-    <color name="log_text">#E8EEF7</color>
-    <color name="log_text_dim">#9FB0C8</color>
-    <color name="log_cyan">#22D3EE</color>
-    <color name="log_green">#34D399</color>
-    <color name="log_red">#F87171</color>
-    <color name="log_orange">#FB923C</color>
-    <color name="log_line">#1E293B</color>
-    <color name="log_chip_bg">#162036</color>
-    <color name="log_chip_selected">#22D3EE</color>
-    <color name="log_chip_selected_text">#05141A</color>
+    <!-- Journal d'activité — utilise la palette npv_* de l'app pour cohérence visuelle -->
+    <color name="log_bg">@color/npv_bg</color>
+    <color name="log_card">@color/npv_card</color>
+    <color name="log_card_hover">@color/npv_border</color>
+    <color name="log_border">@color/npv_border</color>
+    <color name="log_text">@color/npv_text</color>
+    <color name="log_text_dim">@color/npv_dim</color>
+    <color name="log_cyan">@color/npv_cyan</color>
+    <color name="log_green">@color/npv_green</color>
+    <color name="log_red">@color/npv_red</color>
+    <color name="log_orange">@color/npv_yellow</color>
+    <color name="log_line">@color/divider</color>
+    <color name="log_chip_bg">@color/secondary</color>
+    <color name="log_chip_selected">@color/primary</color>
+    <color name="log_chip_selected_text">#FFFFFF</color>
 </resources>

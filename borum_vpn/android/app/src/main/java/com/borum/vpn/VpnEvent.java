@@ -93,6 +93,11 @@ public final class VpnEvent {
         s = s.replaceAll("(?i)(password|pass|passwd|pwd|secret|token|api[_-]?key|private[_-]?key)\\s*[:=]\\s*\\S+", "$1=***");
         s = s.replaceAll("(?i)(payload|payload_data|http_payload)\\s*[:=]\\s*\\S+", "$1=***");
         s = s.replaceAll("(?i)(ssh[_-]?user|ssh[_-]?pass|username|login)\\s*[:=]\\s*\\S+", "$1=***");
+        // Masque les références aux protocoles/moteurs sensibles (pas de détails de config).
+        s = s.replaceAll("(?i)(ssh[_-]?payload|slowdns|zivpn|v2ray|xray|hysteria|clash|libuz)", "[protocole]");
+        // Masque les bannières SSH et versions de serveur.
+        s = s.replaceAll("(?i)SSH-2\\.0-[^\\s]+", "SSH-2.0-***");
+        s = s.replaceAll("(?i)banner[:=]\\s*\\S+", "banner=***");
         // Masque les adresses IPv4 explicites pour éviter de révéler le serveur.
         s = s.replaceAll("\\b\\d{1,3}(\\.\\d{1,3}){3}\\b", "***.***.***");
         return s.trim();

@@ -12,6 +12,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
+import android.view.animation.DecelerateInterpolator;
+import android.view.animation.TranslateAnimation;
 import android.widget.Button;
 import android.widget.HorizontalScrollView;
 import android.widget.ImageButton;
@@ -25,12 +27,15 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 
 public class LogsFragment extends Fragment implements VpnEventBus.Observer {
-    private static final int MAX_DISPLAYED = 260;
+    private static final int MAX_DISPLAYED = 200;
 
     private VpnEventBus bus;
     private String filter = "tout";
@@ -146,14 +151,22 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         lastDisplayedSize = size;
         timeline.removeAllViews();
 
+        Context ctx = getContext();
+        if (ctx == null) {
+            return;
+        }
+
         int shown = 0;
+        int index = 0;
         for (int i = 0; i < list.size() && shown < MAX_DISPLAYED; i++) {
             VpnEvent ev = list.get(i);
             if (!ev.matchesFilter(filter)) {
                 continue;
             }
-            addEventCard(ev, shown == 0);
+            boolean isNewest = (index == 0);
+            addEventCard(ev, isNewest);
             shown++;
+            index++;
         }
 
         boolean empty = shown == 0;
@@ -177,27 +190,30 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         }
 
         int color = ev.color();
+        int textColor = ContextCompat.getColor(ctx, R.color.log_text);
+        int dimColor = ContextCompat.getColor(ctx, R.color.log_text_dim);
 
         // Ligne de la chronologie (connecteur + point)
         LinearLayout row = new LinearLayout(ctx);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        row.setPadding(0, 6, 0, 6);
+        row.setPadding(0, 8, 0, 8);
 
+        // Connecteur vertical avec point
         LinearLayout connector = new LinearLayout(ctx);
         connector.setOrientation(LinearLayout.VERTICAL);
         connector.setLayoutParams(new LinearLayout.LayoutParams(
-                dpToPx(26), LinearLayout.LayoutParams.MATCH_PARENT));
+                dpToPx(30), LinearLayout.LayoutParams.MATCH_PARENT));
         connector.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
 
         View line = new View(ctx);
         line.setLayoutParams(new LinearLayout.LayoutParams(
-                dpToPx(3), LinearLayout.LayoutParams.MATCH_PARENT));
-        line.setBackgroundColor(0xFF1E293B);
+                dpToPx(2), LinearLayout.LayoutParams.MATCH_PARENT));
+        line.setBackgroundColor(ContextCompat.getColor(ctx, R.color.log_line));
 
         android.widget.ImageView dot = new android.widget.ImageView(ctx);
-        int dotSize = dpToPx(12);
+        int dotSize = dpToPx(10);
         LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(dotSize, dotSize);
         dotParams.topMargin = dpToPx(2);
         dot.setLayoutParams(dotParams);
@@ -206,16 +222,16 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         connector.addView(line);
         connector.addView(dot);
 
-        // Carte événement
+        // Carte événement avec design soigné
         LinearLayout card = new LinearLayout(ctx);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        card.setPadding(dpToPx(14), dpToPx(12), dpToPx(14), dpToPx(12));
+        card.setPadding(dpToPx(16), dpToPx(14), dpToPx(16), dpToPx(14));
         card.setBackgroundResource(R.drawable.log_card_bg);
-        card.setElevation(0f);
+        card.setElevation(1f);
 
-        // En-tête carte : heure (gauche) + puce niveau (droite)
+        // En-tête carte : heure (gauche) + badge niveau (droite)
         LinearLayout header = new LinearLayout(ctx);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setLayoutParams(new LinearLayout.LayoutParams(
@@ -223,30 +239,32 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
 
         TextView timeView = new TextView(ctx);
         timeView.setText(formatTime(ev.timestamp));
-        timeView.setTextColor(ContextCompat.getColor(ctx, R.color.log_text_dim));
-        timeView.setTextSize(11f);
+        timeView.setTextColor(dimColor);
+        timeView.setTextSize(10.5f);
+        timeView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         timeView.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView chip = new TextView(ctx);
-        chip.setText(levelLabel(ev.level));
-        chip.setTextSize(10f);
-        chip.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
-        chip.setTextColor(0xFFFFFFFF);
-        chip.setPadding(dpToPx(8), dpToPx(2), dpToPx(8), dpToPx(2));
-        chip.setBackground(makeChip(color));
-        LinearLayout.LayoutParams chipParams = new LinearLayout.LayoutParams(
+        TextView badge = new TextView(ctx);
+        badge.setText(levelLabel(ev.level));
+        badge.setTextSize(9.5f);
+        badge.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
+        badge.setTextColor(0xFFFFFFFF);
+        badge.setPadding(dpToPx(10), dpToPx(3), dpToPx(10), dpToPx(3));
+        badge.setBackground(makeChip(color));
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-        chipParams.leftMargin = dpToPx(8);
-        chip.setLayoutParams(chipParams);
+        badgeParams.leftMargin = dpToPx(8);
+        badge.setLayoutParams(badgeParams);
 
         header.addView(timeView);
-        header.addView(chip);
+        header.addView(badge);
 
+        // Titre principal
         TextView titleView = new TextView(ctx);
         titleView.setText(TextUtils.isEmpty(ev.title) ? "Événement" : ev.title);
-        titleView.setTextColor(ContextCompat.getColor(ctx, R.color.log_text));
-        titleView.setTextSize(14.5f);
+        titleView.setTextColor(textColor);
+        titleView.setTextSize(15.5f);
         titleView.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
         titleView.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -254,14 +272,15 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
         card.addView(header);
         card.addView(titleView);
 
+        // Description secondaire
         if (!TextUtils.isEmpty(ev.description) && !ev.description.equals(ev.title)) {
             TextView descView = new TextView(ctx);
             descView.setText(ev.description);
-            descView.setTextColor(ContextCompat.getColor(ctx, R.color.log_text_dim));
-            descView.setTextSize(12.5f);
+            descView.setTextColor(dimColor);
+            descView.setTextSize(13.5f);
             LinearLayout.LayoutParams descParams = new LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-            descParams.topMargin = dpToPx(4);
+            descParams.topMargin = dpToPx(5);
             descView.setLayoutParams(descParams);
             card.addView(descView);
         }
@@ -271,9 +290,22 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
 
         if (highlight) {
             card.setBackgroundColor(ContextCompat.getColor(ctx, R.color.log_card_hover));
-            Animation fade = new AlphaAnimation(0f, 1f);
-            fade.setDuration(400);
-            row.startAnimation(fade);
+            // Animation d'apparition : slide up + fade
+            android.view.animation.Animation fadeIn = new AlphaAnimation(0f, 1f);
+            fadeIn.setDuration(350);
+            fadeIn.setInterpolator(new DecelerateInterpolator());
+            android.view.animation.Animation slideUp = new TranslateAnimation(
+                    Animation.RELATIVE_TO_SELF, 0f,
+                    Animation.RELATIVE_TO_SELF, 0f,
+                    Animation.RELATIVE_TO_SELF, 0.15f,
+                    Animation.RELATIVE_TO_SELF, 0f);
+            slideUp.setDuration(350);
+            slideUp.setInterpolator(new DecelerateInterpolator());
+            android.view.animation.AnimationSet set = new android.view.animation.AnimationSet(false);
+            set.addAnimation(fadeIn);
+            set.addAnimation(slideUp);
+            set.setDuration(350);
+            row.startAnimation(set);
         }
 
         timeline.addView(row);
@@ -388,8 +420,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
     /* ---------- utilitaires ---------- */
 
     private String formatTime(long millis) {
-        return java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT,
-                Locale.getDefault()).format(millis);
+        return DateFormat.getTimeInstance(DateFormat.SHORT, Locale.getDefault()).format(new Date(millis));
     }
 
     private String levelLabel(String level) {
@@ -416,7 +447,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
                 new android.graphics.drawable.GradientDrawable();
         d.setShape(android.graphics.drawable.GradientDrawable.OVAL);
         d.setColor(color);
-        d.setSize(dpToPx(12), dpToPx(12));
+        d.setSize(dpToPx(10), dpToPx(10));
         return d;
     }
 
@@ -433,7 +464,7 @@ public class LogsFragment extends Fragment implements VpnEventBus.Observer {
     private static class ChipView extends androidx.appcompat.widget.AppCompatTextView {
         public ChipView(Context c) {
             super(c);
-            setPadding(dpToPx(c, 12), dpToPx(c, 6), dpToPx(c, 12), dpToPx(c, 6));
+            setPadding(dpToPx(c, 14), dpToPx(c, 8), dpToPx(c, 14), dpToPx(c, 8));
         }
 
         @Override
