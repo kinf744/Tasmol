@@ -82,6 +82,8 @@ public class TasVpnService extends VpnService {
     private static final java.util.ArrayDeque<String> eventLog = new java.util.ArrayDeque<>();
     private static final int MAX_LOG_LINES = 40;
 
+    private UsageTracker usageTracker;
+
     public static String shortReason(String raw) {
         if (raw == null) {
             return "";
@@ -318,6 +320,10 @@ public class TasVpnService extends VpnService {
         if (intent == null) {
             return START_NOT_STICKY;
         }
+        if (usageTracker == null) {
+            usageTracker = new UsageTracker(this, VPNApplication.getInstance().getServerUrl(),
+                    ApiSession.deviceUuid(this));
+        }
         String action = intent.getAction();
         if (ACTION_NUCLEAR_DISCONNECT.equals(action)) {
             sessionGen.incrementAndGet();
@@ -550,6 +556,7 @@ public class TasVpnService extends VpnService {
                         UdpSessionLog.connected(tunnelType);
                     }
                     logEvent("connection", "app", "connected (" + tid + ")");
+                    usageTracker.start();
                     // Ecrire kighmu.txt pour diagnostic (succès de connexion)
                     try {
                         BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
@@ -743,6 +750,9 @@ public class TasVpnService extends VpnService {
         sessionGen.incrementAndGet();
         starting = false;
         stopping = true;
+        if (usageTracker != null) {
+            usageTracker.stop();
+        }
         boolean wasConnecting = connectInFlight.getAndSet(false);
         VPNApplication.getInstance().recordBreadcrumb("DISCONNECT nuclear=" + nuclear);
 
