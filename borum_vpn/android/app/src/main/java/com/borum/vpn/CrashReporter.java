@@ -13,7 +13,6 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Date;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -158,7 +157,7 @@ public class CrashReporter {
 
         try {
             URL url = new URL(apiBaseUrl + "/api/v1/crash/report");
-            HttpURLConnection conn = (HttpURLConnection) new URL(apiBaseUrl + "/api/v1/crash/report").openConnection();
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
             conn.setRequestProperty("Accept", "application/json");
