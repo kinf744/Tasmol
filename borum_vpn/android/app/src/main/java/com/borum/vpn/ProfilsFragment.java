@@ -87,6 +87,13 @@ public class ProfilsFragment extends Fragment {
         return root;
     }
 
+    @Override
+    public void onResume() {
+        super.onResume();
+        loadPalette();
+        refresh();
+    }
+
     private void refresh() {
         android.content.Context ctx = getContext();
         if (ctx == null) return;
@@ -97,7 +104,7 @@ public class ProfilsFragment extends Fragment {
             if (c == null) return;
             if (err != null) {
                 TasVpnService.logEvent("warning", "api",
-                        "[profils] check erreur: " + err.getMessage());
+                        "Erreur vérification");
             } else if (resp != null) {
                 JSONObject acc = resp.optJSONObject("account");
                 TasVpnService.logEvent("info", "api",
@@ -120,7 +127,7 @@ public class ProfilsFragment extends Fragment {
             JSONArray cfgs = null;
             if (e2 != null) {
                 TasVpnService.logEvent("warning", "api",
-                        "[profils] configs erreur: " + e2.getMessage());
+                        "Erreur configs");
             } else if (r2 != null && r2.optBoolean("success", false)) {
                 cfgs = r2.optJSONArray("configs");
                 TasVpnService.logEvent("info", "api",

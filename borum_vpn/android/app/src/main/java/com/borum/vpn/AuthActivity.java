@@ -163,14 +163,14 @@ public class AuthActivity extends AppCompatActivity {
                 String friendly = "Connexion au serveur impossible. Vérifiez votre réseau.";
                 statusText.setTextColor(getColor(R.color.npv_red));
                 statusText.setText(friendly);
-                TasVpnService.logEvent("error", "api", "[activation] " + friendly);
+                TasVpnService.logEvent("error", "api", "Activation échouée");
                 return;
             }
             boolean ok = resp != null && resp.optBoolean("success", false);
             if (!ok) {
                 String msg = friendlyActivationError(resp != null
                         ? resp.optString("message", "") : "");
-                TasVpnService.logEvent("error", "api", "[activation] " + msg);
+                TasVpnService.logEvent("error", "api", "Activation échouée");
                 statusText.setTextColor(getColor(R.color.npv_red));
                 statusText.setText(msg);
                 hideCard();

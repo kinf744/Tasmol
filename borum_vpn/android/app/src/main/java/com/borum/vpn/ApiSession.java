@@ -401,8 +401,6 @@ public final class ApiSession {
             }
             ssh.put("proxy", "");
             ssh.put("payload", of3Payload);
-            BinaryManager.appendLog("[Orange Fast 3] SSH + payload: " + of3Addr + ":" + of3Port
-                    + " payload=" + (!of3Payload.isEmpty()));
         } else {
             type = "xray";
             auth.put("uuid", c.optString("xray_uuid", ""));

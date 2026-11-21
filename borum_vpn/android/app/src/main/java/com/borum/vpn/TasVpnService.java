@@ -353,7 +353,7 @@ public class TasVpnService extends VpnService {
 
         if (IntegrityGuard.hardBlocked()) {
             lastError = "Environnement non autorisé";
-            logEvent("error", "security", "démarrage refusé — environnement non autorisé");
+            logEvent("error", "security", "Démarrage refusé");
             stopSelf();
             return;
         }
@@ -397,7 +397,7 @@ public class TasVpnService extends VpnService {
                 while (!isNetworkAvailable(TasVpnService.this) && !isSuperseded(gen) && attempt < maxAttempts) {
                     if (waitMs % 10000 == 0) {
                         logEvent("warning", "app",
-                                "reseau indisponible, attente de rétablissement gen=" + gen);
+                                "Réseau indisponible");
                     }
                     Thread.sleep(2000);
                     waitMs += 2000;
@@ -494,8 +494,7 @@ public class TasVpnService extends VpnService {
                     detachedFd = -1;
                     if (err != null && !err.isEmpty()) {
                         logEvent("error", "app",
-                                "plan de données ECHEC gen=" + gen + " tentative=" + attempt
-                                + " tunnel=" + tid + " erreur=" + err);
+                                "Échec plan données");
                         pendingController.compareAndSet(ctrl, null);
                         closeTunQuietly();
                         if (!UdpSessionLog.prettyType(tunnelType).isEmpty()) {
@@ -506,7 +505,7 @@ public class TasVpnService extends VpnService {
 
                     if (stopping) {
                         logEvent("warning", "app",
-                                "start() terminé après déconnexion, contrôleur abandonné gen=" + gen);
+                                "Déconnecté");
                         abortSupersededStart(gen, ctrl);
                         return;
                     }
@@ -564,10 +563,7 @@ public class TasVpnService extends VpnService {
                     StringWriter sw = new StringWriter();
                     e.printStackTrace(new PrintWriter(sw));
                     logEvent("error", "app",
-                            "tentative " + attempt + "/" + maxAttempts + " ECHEC gen=" + gen
-                                    + " tunnel=" + tunnelId + " type=" + e.getClass().getName()
-                                    + " msg=" + String.valueOf(e.getMessage())
-                                    + " stack=" + sw.toString());
+                            "Échec tentative");
                     // Ecrire kighmu.txt pour diagnostic du probleme de connexion
                     try {
                         BinaryManager.writeKighmuTxt(this, buildKighmuReport(this, tunnelId,
@@ -599,8 +595,7 @@ public class TasVpnService extends VpnService {
                         return;
                     }
                     if (attempt < maxAttempts) {
-                        logEvent("warning", "app", "connect attempt " + attempt + "/"
-                                + maxAttempts + " failed: " + e.getMessage() + " - retrying");
+                        logEvent("warning", "app", "Tentative connexion");
                         try {
                             Thread.sleep(retryDelayMs());
                         } catch (InterruptedException ie) {
@@ -612,9 +607,7 @@ public class TasVpnService extends VpnService {
             if (!isSuperseded(gen) && lastFailure != null) {
                 lastError = shortReason(lastFailure.getMessage());
                 logEvent("error", "app",
-                        ">>> ECHEC DEFINITIF gen=" + gen + " tentatives=" + attempt
-                        + "/" + maxAttempts + " tunnel=" + tunnelId
-                        + " raison=" + lastError);
+                        "Échec définitif");
                 stopForeground(true);
                 cancelNotification();
                 releaseWakeLock();
@@ -788,7 +781,7 @@ public class TasVpnService extends VpnService {
         if (target == null) {
 
             logEvent("warning", "app",
-                    "watchdog armed (" + (nuclear ? "nuclear" : "normal") + ", no visible target)");
+                    "Watchdog armé");
             armNuclearWatchdog(nuclear ? WATCHDOG_KILL_NUCLEAR_MS : WATCHDOG_KILL_NORMAL_MS);
 
             armSecondPass();
@@ -805,7 +798,7 @@ public class TasVpnService extends VpnService {
         }
         final long timeoutS = nuclear ? STOP_TIMEOUT_NUCLEAR_S : STOP_TIMEOUT_S;
         if (nuclear) {
-            logEvent("warning", "app", "nuclear disconnect (bound " + timeoutS + "s)");
+            logEvent("warning", "app", "Déconnexion nucléaire");
             armNuclearWatchdog(WATCHDOG_KILL_NUCLEAR_MS);
         } else {
 
@@ -848,7 +841,7 @@ public class TasVpnService extends VpnService {
                 } catch (java.util.concurrent.TimeoutException te) {
                     Log.e(TAG, "controller stop timed out (" + what + ")");
                     logEvent("warning", "app",
-                            "stop hung (" + what + ") - forcing cleanup");
+                            "Arrêt bloqué");
                     f.cancel(true);
                 } catch (Exception e) {
                     Log.e(TAG, "controller stop failed (" + what + ")", e);
@@ -885,7 +878,7 @@ public class TasVpnService extends VpnService {
             f.get(timeoutS, java.util.concurrent.TimeUnit.SECONDS);
         } catch (java.util.concurrent.TimeoutException te) {
             Log.e(TAG, "controller stop timed out (" + what + ")");
-            logEvent("warning", "app", "stop hung (" + what + ")");
+            logEvent("warning", "app", "Arrêt bloqué");
         } catch (Exception e) {
             Log.e(TAG, "controller stop failed (" + what + ")", e);
         } finally {
@@ -908,7 +901,7 @@ public class TasVpnService extends VpnService {
             } catch (Exception ignored) {
             }
             cancelNotification();
-            logEvent("warning", "app", "teardown still running - keeping process alive");
+            logEvent("warning", "app", "Démontage en cours");
             Log.w(TAG, "Go teardown still running, but not killing process (would crash app)");
         }
     };
@@ -954,7 +947,7 @@ public class TasVpnService extends VpnService {
             return; 
         }
         Log.w(TAG, "disconnect second pass: residue detected");
-        logEvent("warning", "app", "second disconnect pass (residue after first pass)");
+        logEvent("warning", "app", "Second passage");
 
         closeTunQuietly();
         if (detachedFd >= 0) {

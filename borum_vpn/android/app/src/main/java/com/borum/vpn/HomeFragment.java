@@ -446,7 +446,8 @@ public class HomeFragment extends Fragment {
                 continue;
             }
             String mode = c.optString("mode", "");
-            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)) {
+            if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)
+                    || "orange_fast3".equalsIgnoreCase(mode)) {
 
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
@@ -461,7 +462,11 @@ public class HomeFragment extends Fragment {
                 }
             }
             visible.add(c);
-            labels.add(c.optString("label", "config"));
+            String lbl = c.optString("label", "config");
+            if ("orange_fast3".equalsIgnoreCase(mode)) {
+                lbl = lbl + " RR";
+            }
+            labels.add(lbl);
         }
         visibleApiConfigs = visible;
         android.widget.ArrayAdapter<String> ad = new android.widget.ArrayAdapter<>(
@@ -537,16 +542,10 @@ public class HomeFragment extends Fragment {
                 }
                 if (family.size() >= 2) {
                     ApiSession.activateRoundRobinN(requireContext(), family);
-                    Toast.makeText(getContext(),
-                            "Round-Robin \u00d7" + Math.min(family.size(), 4) + ": "
-                                    + family.get(0).optString("label", kmode),
-                            Toast.LENGTH_SHORT).show();
                     refreshStatus();
                     return;
                 }
-                Toast.makeText(getContext(),
-                        getString(R.string.home_need_two_profiles),
-                        Toast.LENGTH_LONG).show();
+                ApiSession.activate(requireContext(), c);
             }
             ApiSession.activate(requireContext(), c);
             // Editeur SSH pour tunnels SSH seulement (pas Orange Fast 3)

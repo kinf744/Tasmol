@@ -132,13 +132,13 @@ public final class IntegrityGuard {
 
         if (realHard) {
             TasVpnService.logEvent("error", "security",
-                    "environnement non autorisé — session protégée");
+                    "Environnement bloqué");
             terminate("hard");
             return;
         }
         if (sigBadOnly) {
             TasVpnService.logEvent("warning", "security",
-                    "signature APK differente — connexion bloquee (pas de kill)");
+                    "Signature invalide");
         } else if (gRoot || gEmu || gMagisk || jRoot || jProxy || jUserCa || jVpn) {
 
             lastVerdict = mergeSoft(lastVerdict, jProxy, jUserCa, jVpn);
@@ -246,7 +246,7 @@ public final class IntegrityGuard {
     private static void terminate(String why) {
         try {
             TasVpnService.logEvent("error", "security",
-                    "session terminée — environnement non autorisé");
+                    "Session terminée");
         } catch (Throwable ignored) {
         }
         MAIN.postDelayed(() -> {

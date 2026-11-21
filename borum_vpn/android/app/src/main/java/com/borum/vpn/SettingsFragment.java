@@ -42,7 +42,7 @@ public class SettingsFragment extends Fragment {
             initSettingsView(v);
         } catch (Exception | Error e) {
 
-            TasVpnService.logEvent("error", "settings", "init failed: " + e);
+            TasVpnService.logEvent("error", "settings", "Échec réglages");
             TextView fallback = new TextView(container.getContext());
             fallback.setText("Settings unavailable: " + e.getMessage());
             fallback.setTextColor(0xFFFFFFFF);

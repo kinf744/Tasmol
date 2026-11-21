@@ -239,9 +239,7 @@ public class VPNApplication extends Application {
                     .edit().putString("last", report).apply();
             lastCrashReport = report;
             hasPendingCrash = true;
-            TasVpnService.logEvent("error", "app", "CRASH " + thread.getName() + ": " + err
-                    + " (Download=" + published + " | prive=" + BinaryManager.logDir()
-                    + "/crash.txt)");
+            TasVpnService.logEvent("error", "app", "Crash application");
         } catch (Throwable ignored) {
         }
     }

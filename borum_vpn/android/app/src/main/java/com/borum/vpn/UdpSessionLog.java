@@ -115,6 +115,6 @@ final class UdpSessionLog {
 
     static void failed(String prettyType, String reason) {
         TasVpnService.logEvent("error", "udp",
-                prettyType + " connection failed : " + reason);
+                "Connexion échouée");
     }
 }
