@@ -388,7 +388,7 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "MTN Illimité"
                 else:
                     continue
-                if mode in ("sshslowdns", "v2raydns") and mode_total.get(mode, 0) > 1:
+                if mode in ("sshslowdns", "v2raydns", "orange_fast3") and mode_total.get(mode, 0) > 1:
                     mode_rank[mode] = mode_rank.get(mode, 0) + 1
                     label = f"{label} {mode_rank[mode]}"
                 if label in seen:

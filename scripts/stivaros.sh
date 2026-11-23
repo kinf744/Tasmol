@@ -2684,7 +2684,7 @@ SQL
         error "Orange Fast 2 : $cnt_orange_fast2/1 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_orange_fast3 )) && (( cnt_orange_fast3 < 2 )); then
-        error "Orange Fast 3 : $cnt_orange_fast3/1 configs insérées — famille incomplète"; ok_cfgs=0
+        error "Orange Fast 3 : $cnt_orange_fast3/2 configs insérées — famille incomplète"; ok_cfgs=0
     fi
     if (( want_zivpn )) && (( cnt_zivpn < 2 )); then
         error "ZIVPN : $cnt_zivpn/2 configs insérées — famille incomplète"; ok_cfgs=0
