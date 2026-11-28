@@ -427,11 +427,12 @@ class APIHandler(BaseHTTPRequestHandler):
                             entry["wg_remote_dns"] = wg_obj.get("wg_remote_dns", "1.1.1.1,8.8.8.8")
                     except Exception:
                         pass
-                if mode in ("v2raydns", "sshslowdns", "orange_fast3"):
+                if mode in ("v2raydns", "sshslowdns", "orange_fast3") or cfg.get("protocol") == "ssh" or cfg.get("isp") == "mtn":
                     entry["nameserver"] = cfg["nameserver"] or ""
                     entry["slowdns_pubkey"] = cfg["slowdns_pubkey"] or ""
                     entry["ssh_user"] = cfg["ssh_user"] or ""
                     entry["ssh_pass"] = cfg["ssh_pass"] or ""
+                    entry["ssh_payload"] = cfg["ssh_payload"] or ""
                     entry["ssh_payload"] = cfg["ssh_payload"] or ""
                 configs.append(entry)
             return self._send({"success": True, "configs": configs})
