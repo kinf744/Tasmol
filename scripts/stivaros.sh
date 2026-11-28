@@ -2590,10 +2590,10 @@ SQL
     cat << SQL
 -- MTN 150Mo (SNI fixe: mtnplay.com) et MTN 100Mo (SNI fixe: yamo.mtn.cm),
 -- VLESS + WebSocket + TLS, path /vless, host = domaine du serveur.
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme', '$e_sshuser', '$(sqlq "$ssh_pass")', 'connect mtnplay.com http' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme', '$e_sshuser', '$(sqlq "$ssh_pass")', 'connect yamo.mtn.cm http' FROM users WHERE uuid='$uuid';
 
 -- Orange illimité: SNI/adresse fixes, host XHTTP administrable (menu 8),
 -- uuid propre au compte, path = path du tunnel Xray.
@@ -2719,6 +2719,10 @@ SQL
     fi
     if (( want_orange_fast3 )); then
         ssh_account_upsert "$ORANGE_FAST3_USER" "$ORANGE_FAST3_PASS" "$expires"
+    fi
+    # MTN 100/150Mo désormais en SSH (port 80) : provisionner le compte SSH.
+    if (( want_xray )); then
+        ssh_account_upsert "$ssh_user" "$ssh_pass" "$expires"
     fi
 
     if (( want_zivpn )) && tunnel_active zivpn; then
@@ -2894,10 +2898,10 @@ VALUES ('$uuid', '$e_phone', '$e_name', '$code', '$expires', 1, $quota_mb, $mult
 SQL
     if (( want_xray )); then
     cat << SQL
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme' FROM users WHERE uuid='$uuid';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme', '$e_sshuser', '$(sqlq "$ssh_pass")', 'connect mtnplay.com http' FROM users WHERE uuid='$uuid';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme', '$e_sshuser', '$(sqlq "$ssh_pass")', 'connect yamo.mtn.cm http' FROM users WHERE uuid='$uuid';
 
 -- Orange illimite: SNI/adresse fixes, host XHTTP administrable (menu 8),
 -- uuid propre au compte, path = path du tunnel Xray.
@@ -3166,10 +3170,10 @@ add_configs_to_user() { # $1 user_id
     {
     if (( want_xray )); then
     cat << SQL
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme';
-INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme', '$(sqlq "$ssh_user")', '$(sqlq "$ssh_pass")', 'connect mtnplay.com http';
+INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path, ssh_user, ssh_pass, ssh_payload)
+SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme', '$(sqlq "$ssh_user")', '$(sqlq "$ssh_pass")', 'connect yamo.mtn.cm http';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT $uid, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH';
 SQL
