@@ -2591,9 +2591,9 @@ SQL
 -- MTN 150Mo (SNI fixe: mtnplay.com) et MTN 100Mo (SNI fixe: yamo.mtn.cm),
 -- VLESS + WebSocket + TLS, path /vless, host = domaine du serveur.
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'mtnplay.com', '$e_srv', 'mtn', '', '', '150', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', '', '100', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme' FROM users WHERE uuid='$uuid';
 
 -- Orange illimité: SNI/adresse fixes, host XHTTP administrable (menu 8),
 -- uuid propre au compte, path = path du tunnel Xray.
@@ -2895,9 +2895,9 @@ SQL
     if (( want_xray )); then
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'mtnplay.com', '$e_srv', 'mtn', '', '', '150', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme' FROM users WHERE uuid='$uuid';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT id, '$e_srv', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$e_srv', 'mtn', '', '', '100', '$xray_uuid', '/vless' FROM users WHERE uuid='$uuid';
+SELECT id, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme' FROM users WHERE uuid='$uuid';
 
 -- Orange illimite: SNI/adresse fixes, host XHTTP administrable (menu 8),
 -- uuid propre au compte, path = path du tunnel Xray.
@@ -3167,9 +3167,9 @@ add_configs_to_user() { # $1 user_id
     if (( want_xray )); then
     cat << SQL
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT $uid, '$server_addr', 443, 'vless', 'ws', 1, 'mtnplay.com', '$server_addr', 'mtn', '', '', '150', '$xray_uuid', '/vless';
+SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '150', '', '/tieme';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, flow, tier, xray_uuid, path)
-SELECT $uid, '$server_addr', 443, 'vless', 'ws', 1, 'yamo.mtn.cm', '$server_addr', 'mtn', '', '', '100', '$xray_uuid', '/vless';
+SELECT $uid, '204.152.219.23', 80, 'ssh', 'tcp', 0, '204.152.219.23', '204.152.219.23', 'mtn', '', '', '100', '', '/tieme';
 INSERT INTO vpn_configs (user_id, server_address, server_port, protocol, transport, tls, sni, host, isp, mode, tier, xray_uuid, path)
 SELECT $uid, '$ORANGE_ADDR', 443, 'vless', 'xhttp', 1, '$ORANGE_ADDR', '$(sqlq "$(orange_host_get)")', 'orange', 'xray', '0', '$xray_uuid', '$XRAY_PATH';
 SQL
