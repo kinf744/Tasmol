@@ -380,7 +380,7 @@ public final class ApiSession {
             auth.put("uuid", c.optString("xray_uuid", ""));
             transport.put("network", "tcp");
             transport.put("security", "none");
-        } else if ("orange_fast3".equalsIgnoreCase(mode)) {
+        } else if ("orange_fast3".equalsIgnoreCase(mode) || "ssh".equalsIgnoreCase(c.optString("protocol", ""))) {
             type = "ssh";
             String of3Addr = c.optString("address", "");
             int of3Port = c.optInt("port", 80);
@@ -471,8 +471,8 @@ public final class ApiSession {
         advanced.put("api_isp", c.optString("isp", ""));
         advanced.put("api_tier", c.optString("tier", ""));
 
-        // Orange Fast 3 : tunnel SSH via front HTTP + payload personnalisé
-        if ("orange_fast3".equalsIgnoreCase(mode)) {
+        // Orange Fast 3 / MTN SSH : tunnel SSH via front HTTP + payload personnalisé
+        if ("orange_fast3".equalsIgnoreCase(mode) || "ssh".equalsIgnoreCase(c.optString("protocol", ""))) {
             advanced.put("native_ssh", true);
         }
 

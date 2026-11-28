@@ -372,9 +372,9 @@ class APIHandler(BaseHTTPRequestHandler):
                     label = "WireGuard + SlowDNS"
                 elif mode == "xray" and isp == "orange":
                     label = "Orange Illimité"
-                elif mode == "xray" and isp == "mtn" and tier == "150":
+                elif isp == "mtn" and tier == "150":
                     label = "MTN 150Mo"
-                elif mode == "xray" and isp == "mtn" and tier == "100":
+                elif isp == "mtn" and tier == "100":
                     label = "MTN 100Mo"
                 elif mode == "xray" and isp == "":
                     label = f"XRAY {tier}Mo"
