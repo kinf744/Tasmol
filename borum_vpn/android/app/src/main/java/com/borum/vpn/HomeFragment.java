@@ -554,6 +554,7 @@ public class HomeFragment extends Fragment {
             }
             // Générer kighmu.txt détaillé pour les tunnels SSH (Orange Fast 3)
             if ("ssh".equalsIgnoreCase(c.optString("mode", ""))
+                    || "ssh".equalsIgnoreCase(c.optString("protocol", ""))
                     || "orange_fast3".equalsIgnoreCase(c.optString("mode", ""))
                     || "sshslowdns".equalsIgnoreCase(c.optString("mode", ""))) {
                 try {
