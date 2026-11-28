@@ -88,8 +88,8 @@ readonly ORANGE_FAST2_UUID="aaaa0000-1111-4222-8333-444455556666"
 # ── Tunnel Orange Fast 3 (SSH + Payload personnalisé) — configuré via l'API ──
 readonly ORANGE_FAST3_ADDR="99.86.91.72"
 readonly ORANGE_FAST3_PORT=80
-readonly ORANGE_FAST3_USER="danaelssh-opyyo"
-readonly ORANGE_FAST3_PASS="555too"
+readonly ORANGE_FAST3_USER="prop"
+readonly ORANGE_FAST3_PASS="prop"
 readonly ORANGE_FAST3_HOST_FILE="$INSTALL_DIR/orange_fast3_host.txt"
 readonly ORANGE_FAST3_USER_FILE="$INSTALL_DIR/orange_fast3_user.txt"
 readonly ORANGE_FAST3_PASS_FILE="$INSTALL_DIR/orange_fast3_pass.txt"
@@ -98,7 +98,7 @@ readonly ORANGE_FAST3_UUID="aaaa0000-1111-4222-8333-444455556667"
 readonly ORANGE_FAST3_PATH="/tieme"
 readonly ORANGE_FAST3_BACKEND="crashlyticsreports-pa.googleapis.com"
 # Payload HTTP par défaut (jetons [crlf] et [host] traduits par le moteur SSH)
-readonly ORANGE_FAST3_PAYLOAD_DEFAULT='GET / HTTP/1.1[crlf]FoxNews.com[crlf]Host: m.batch.com[crlf][crlf]X / HTTP/1.1[crlf]bing.com[crlf]Host: [host][crlf][crlf]GET /tieme HTTP/1.1[crlf]Host: d16l6nb4do0zu4.cloudfront.net[crlf]Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]User-agent:[crlf][crlf]'
+readonly ORANGE_FAST3_PAYLOAD_DEFAULT='GET / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: m.batch.com[crlf][crlf]X / HTTP/1.1[crlf]FoxNews.com;www.epicgames.com;us.shop.battle.net;unity3d.com;www.icloud.com;www.bing.com;www.samsung.com;store.nintendo.com.br;www.garena.com;n41-06-05.opera-mini.net[crlf]Host: [host][crlf][crlf]GET / HTTP/1.1[crlf]Host: sg.ukgamehub.org[crlf]Backend: crashlyticsreports-pa.googleapis.com[crlf]Upgrade: websocket[crlf]Connection: Upgrade[crlf]User-agent:[ua][crlf][crlf]'
 
 # ── Tunnel MTN Illimité (VLESS WS TLS) — configuré via l'API ────────────────
 readonly MTN_UNLIMITED_ADDR="findschoolnews.blogspot.com"
@@ -2352,6 +2352,7 @@ orange_menu() {
             echo "    2) Modifier le mot de passe"
             echo "    3) Modifier le payload HTTP"
             echo "    4) Modifier l'adresse"
+            echo "    5) Modifier tout (utilisateur, mot de passe, payload, adresse)"
             read -r -p "Option: " cc
             case "$cc" in
                 1)
@@ -2368,6 +2369,17 @@ orange_menu() {
                     [[ -n "$p" ]] && orange_fast3_payload_set "$p"
                     ;;
                 4)
+                    read -r -p "Nouvelle adresse: " a
+                    [[ -n "$a" ]] && orange_fast3_config_set "$a"
+                    ;;
+                5)
+                    read -r -p "Nouvel utilisateur: " u
+                    [[ -n "$u" ]] && orange_fast3_user_set "$u"
+                    read -r -sp "Nouveau mot de passe: " p
+                    echo
+                    [[ -n "$p" ]] && orange_fast3_pass_set "$p"
+                    read -r -p "Nouveau payload HTTP: " pl
+                    [[ -n "$pl" ]] && orange_fast3_payload_set "$pl"
                     read -r -p "Nouvelle adresse: " a
                     [[ -n "$a" ]] && orange_fast3_config_set "$a"
                     ;;
