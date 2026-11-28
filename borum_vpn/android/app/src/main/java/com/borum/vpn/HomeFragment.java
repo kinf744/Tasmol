@@ -447,8 +447,7 @@ public class HomeFragment extends Fragment {
             }
             String mode = c.optString("mode", "");
             if ("sshslowdns".equalsIgnoreCase(mode) || "v2raydns".equalsIgnoreCase(mode)
-                    || "orange_fast3".equalsIgnoreCase(mode)
-                    || "mtn_ssh".equalsIgnoreCase(mode)) {
+                    || "orange_fast3".equalsIgnoreCase(mode)) {
 
                 boolean hasMore = false;
                 for (int j = i + 1; j < cfgs.length(); j++) {
@@ -464,8 +463,7 @@ public class HomeFragment extends Fragment {
             }
             visible.add(c);
             String lbl = c.optString("label", "config");
-            if ("orange_fast3".equalsIgnoreCase(mode)
-                    || "mtn_ssh".equalsIgnoreCase(mode)) {
+            if ("orange_fast3".equalsIgnoreCase(mode)) {
                 lbl = lbl + " RR";
             }
             labels.add(lbl);
@@ -534,8 +532,7 @@ public class HomeFragment extends Fragment {
         try {
             String kmode = c.optString("mode", "");
             if ("sshslowdns".equalsIgnoreCase(kmode) || "v2raydns".equalsIgnoreCase(kmode)
-                    || "orange_fast3".equalsIgnoreCase(kmode)
-                    || "mtn_ssh".equalsIgnoreCase(kmode)) {
+                    || "orange_fast3".equalsIgnoreCase(kmode)) {
                 java.util.List<JSONObject> family = new java.util.ArrayList<>();
                 for (int i = 0; i < cfgs.length(); i++) {
                     JSONObject it = cfgs.optJSONObject(i);
