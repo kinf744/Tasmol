@@ -694,6 +694,7 @@ async def finaliser_creation_full(update: Update, context: ContextTypes.DEFAULT_
         context.user_data.clear()
         msg = f"✅ <b>Compte créé</b>\n\n• Nom : {html.escape(nom)}\n• Téléphone : {tel}\n• Code : <b>{code}</b>\n• Type : {'Compte normal (jours)' if ctype=='jours' else 'Compte TEST (heures)'}\n• Durée : {duree}\n• Expire : {expires}\n• ID : {user_id}\n• Appareils : {'Multi' if multi_device else 'Mono'}"
         if want_xray: msg += "\n• XRAY : inclus"
+        if want_xray: msg += "\n• MTN 150Mo/100Mo : inclus"
         if want_orange_fast: msg += "\n• Orange Fast : inclus"
         if want_mtn_unlimited: msg += "\n• MTN Illimité : inclus"
         if want_zivpn: msg += "\n• ZIVPN : inclus"
